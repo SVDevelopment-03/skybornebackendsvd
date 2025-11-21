@@ -5,14 +5,16 @@ import { createClient } from 'redis';
 import { logger } from '../utils/winston.utils'; 
 
 const redisClient = createClient({
-  url: process.env.REDIS_URL || 'redis://localhost:6379',
+  url: process.env.REDIS_URL,
+  disableOfflineQueue: true, // Upstash recommended
   socket: {
+    keepAlive: true,
     reconnectStrategy: (retries) => {
       if (retries > 10) {
-        logger.error('Redis connection retries exhausted');
-        return new Error('Redis connection retries exhausted');
+        logger.error("Redis reconnection failed.");
+        return new Error("Redis reconnection failed.");
       }
-      return retries * 100;
+      return Math.min(retries * 200, 2000);
     },
   },
 });
