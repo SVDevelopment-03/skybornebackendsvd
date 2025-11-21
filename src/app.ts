@@ -1,0 +1,87 @@
+
+import express  from 'express';
+import type { Application, Request, Response } from "express";
+
+import cors from 'cors';
+import cookieParser from 'cookie-parser';
+import compression from 'compression';
+import authApiRouter from './routes/authApiRouter';
+import appApiRouter  from './routes/appApiRouter';
+import { routeNotFound } from './handlers/routeError.handler'; 
+import { httpErrorHandler } from './handlers/httpError.handler'; 
+import multer from 'multer';
+import dotenv from 'dotenv';
+import helmet from 'helmet';
+import rateLimitMiddleware from './utils/rateLimit.utils';
+
+const app: Application = express();
+
+dotenv.config();
+
+
+app.use(
+  cors({
+    origin: true,
+    credentials: true,
+  })
+);
+
+
+app.use(cookieParser());
+
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+
+app.use(compression());
+
+
+app.use(helmet({ crossOriginResourcePolicy: false }));
+
+
+if (process.env.APP_ENV === "production") {
+  app.use(rateLimitMiddleware);
+}
+
+/* 7. STATIC files (optional) */
+// app.use("/uploads", express.static("uploads"));
+
+/* 8. Request Logger */
+app.use((req: Request, res: Response, next) => {
+  const start = Date.now();
+  res.on("finish", () => {
+    console.log(
+      `[API HIT] ${req.method} ${req.originalUrl} → ${res.statusCode} (${Date.now() - start}ms)`
+    );
+  });
+  next();
+});
+
+
+/* 9. All routes go here */
+const apiVersion = '/api/v1/';
+
+// Demo route
+app.get("/", (req: Request, res: Response) => {
+  res.status(200).json({
+    status: "success",
+    message: "Skyborne API is running smoothly!",
+    version: apiVersion,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+app.use(apiVersion, authApiRouter);
+app.use(apiVersion,appApiRouter)
+
+/* 10. 404 handler (route not found) */
+app.use(routeNotFound);
+
+/* 11. Global error handler — MUST BE LAST */
+app.use(httpErrorHandler);
+
+/* 12. Hide Express signature */
+app.disable("x-powered-by");
+
+export default app;

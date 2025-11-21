@@ -1,0 +1,84 @@
+import * as yup from "yup";
+
+const RegisterValidationSchema = yup.object({
+  body: yup.object({
+    // FIRST NAME
+    firstName: yup
+      .string()
+      .trim()
+      .min(2, "First name must be at least 2 characters")
+      .required("First name is required"),
+
+    // LAST NAME
+    lastName: yup
+      .string()
+      .trim()
+      .min(2, "Last name must be at least 2 characters")
+      .required("Last name is required"),
+
+    // EMAIL
+    email: yup
+      .string()
+      .email("Invalid email format")
+      .required("Email address is required"),
+
+    authProvider: yup
+      .string()
+      .oneOf(["email", "google", "apple"])
+      .required("Auth provider is required"),
+
+    // PASSWORD
+    // password (required only for email signup)
+    password: yup.string().when("authProvider", {
+      is: "email",
+      then: (schema) =>
+        schema
+          .min(6, "Password must be at least 6 characters")
+          .required("Password is required"),
+      otherwise: (schema) => schema.notRequired().nullable(),
+    }),
+
+    // COUNTRY
+    // country: yup.string().required("Country is required"),
+
+    // PHONE NUMBER
+    phoneNumber: yup
+      .string()
+      .required("Phone number is required")
+      .matches(/^[0-9+\-()\s]+$/, "Invalid phone number format"),
+
+    // OTP
+    otp: yup
+      .string()
+      .matches(/^\d{6}$/, "OTP must be a 6-digit number")
+      .required("OTP is required"),
+
+    // TEMP USER ID
+    tempUserId: yup.string().required("Temporary user ID is required"),
+
+    // AGE GROUP
+    ageGroup: yup
+      .string()
+      .oneOf(["1", "2", "3", "4", "5"], "Invalid age group")
+      .required("Age group is required"),
+
+    // WELLNESS ROLE
+    wellnessRole: yup
+      .string()
+      .oneOf(["1", "2", "3"], "Invalid wellness role")
+      .required("Wellness role is required"),
+
+    // GOAL
+    goal: yup.string().required("Goal is required"),
+
+    // MOTIVATION (OPTIONAL)
+    motivation: yup.string().trim().nullable().notRequired(),
+
+    // TERMS & CONDITIONS
+    agreeTerms: yup
+      .boolean()
+      .oneOf([true], "You must agree to the terms & conditions"),
+  }),
+});
+
+export default RegisterValidationSchema;
