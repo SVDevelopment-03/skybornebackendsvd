@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import express  from 'express';
 import type { Application, Request, Response } from "express";
@@ -8,12 +9,11 @@ import compression from 'compression';
 import authApiRouter from './routes/authApiRouter';
 import appApiRouter  from './routes/appApiRouter';
 import { routeNotFound } from './handlers/routeError.handler'; 
-import { httpErrorHandler } from './handlers/httpError.handler'; 
+import { httpErrorHandler } from './handlers/httpError.handler';
 import multer from 'multer';
 import dotenv from 'dotenv';
 import helmet from 'helmet';
 import rateLimitMiddleware from './utils/rateLimit.utils';
-
 const app: Application = express();
 
 dotenv.config();
@@ -57,7 +57,6 @@ app.use((req: Request, res: Response, next) => {
   });
   next();
 });
-
 
 /* 9. All routes go here */
 const apiVersion = '/api/v1/';

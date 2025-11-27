@@ -1,7 +1,10 @@
+import { generateRefreshToken } from "./../config/jwt";
 import express from "express";
 import { AuthController } from "../modules/AuthModule/controllers/AuthController";
 import validateData from "../utils/validation.utils";
-import RegisterValidationSchema from "../modules/AuthModule/requests/signupRequest";
+import RegisterValidationSchema, {
+  RefreshTokenValidationSchema,
+} from "../modules/AuthModule/requests/signupRequest";
 import sendOtpValidation, {
   verifyOtpValidation,
 } from "../modules/AuthModule/requests/otpRequest";
@@ -25,6 +28,18 @@ const routes = [
     name: "/verify-otp",
     middleware: validateData(verifyOtpValidation),
     action: AuthController.verifyOTP,
+    method: "post",
+  },
+  {
+    name: "/refresh-token",
+    middleware: validateData(RefreshTokenValidationSchema),
+    action: AuthController.refreshAccessToken,
+    method: "post",
+  },
+  {
+    name: "/login",
+    middleware: null,
+    action: AuthController.login,
     method: "post",
   },
 ];

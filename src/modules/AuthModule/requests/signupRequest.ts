@@ -81,4 +81,13 @@ const RegisterValidationSchema = yup.object({
   }),
 });
 
+export const RefreshTokenValidationSchema = yup.object({
+  body: yup.object({
+    // FIRST NAME
+    refreshToken: yup
+      .string()
+      .required("Refresh token is required"),
+  }),
+});
+
 export default RegisterValidationSchema;

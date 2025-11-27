@@ -4,8 +4,12 @@
   "main": "server.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
-     "build": "tsc",
-     "start": "node dist/server.js",
+    "seed:plans": "ts-node --transpile-only src/seeders/plan.seeder.ts",
+    "seed:faq": "ts-node --transpile-only src/seeders/faq.seeder.ts",
+    "seed:service": "ts-node --transpile-only src/seeders/service.seeder.ts",
+    "seed:testimonials": "ts-node --transpile-only src/seeders/testimonial.seeder.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -19,6 +23,7 @@
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "country-list": "^2.4.1",
+    "crypto-js": "^4.2.0",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "express-rate-limit": "^8.2.1",
@@ -26,6 +31,7 @@
     "jsonwebtoken": "^9.0.2",
     "libphonenumber-js": "^1.12.27",
     "mongoose": "^8.19.4",
+    "mongoose-autopopulate": "^1.2.1",
     "morgan": "^1.10.1",
     "multer": "^2.0.2",
     "nodemailer": "^7.0.10",
@@ -35,7 +41,9 @@
     "passport-google-oauth20": "^2.0.0",
     "passport-jwt": "^4.0.1",
     "redis": "^5.9.0",
+    "resend": "^6.5.2",
     "twilio": "^5.10.5",
+    "uuid": "^13.0.0",
     "winston": "^3.18.3",
     "winston-daily-rotate-file": "^5.0.0",
     "yup": "^1.7.1"
@@ -46,6 +54,7 @@
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
     "@types/country-list": "^2.1.4",
+    "@types/crypto-js": "^4.2.2",
     "@types/express": "^5.0.5",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/morgan": "^1.9.10",
@@ -55,6 +64,7 @@
     "@types/passport": "^1.0.17",
     "@types/passport-google-oauth20": "^2.0.17",
     "@types/passport-jwt": "^4.0.1",
+    "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.9.3"
   }

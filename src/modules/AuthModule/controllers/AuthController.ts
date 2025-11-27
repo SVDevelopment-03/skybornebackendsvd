@@ -7,7 +7,7 @@ import {
   UserRole,
   AuthProvider,
 } from "../../UserModule/interface/userInterface";
-import { generateTokens } from "../../../config/jwt";
+import { generateTokens, verifyRefreshToken, verifyToken } from "../../../config/jwt";
 import { OTPService } from "../../UserModule/services/otpService";
 import { logAuthEvent, logger } from "../../../utils/winston.utils";
 import { AuthService } from "../services/authService";
@@ -113,6 +113,8 @@ export class AuthController {
           message: "Please login with your social account",
         });
       }
+
+      console.log("User found:", password);
 
       // Verify password
       const isPasswordValid = await user.comparePassword(password);
@@ -357,74 +359,6 @@ export class AuthController {
     }
   }
 
-  // Step 5: Update Profile (Age & Wellness Role)
-  static async updateProfile(req: Request, res: Response) {
-    try {
-      const { ageGroup, wellnessRole } = req.body;
-      const userId = (req as any).user?.id;
-
-      const user = await User.findById(userId);
-      if (!user) {
-        return res.status(404).json({
-          success: false,
-          message: "User not found",
-        });
-      }
-
-      user.ageGroup = ageGroup;
-      user.wellnessRole = wellnessRole;
-      await user.save();
-
-      res.status(200).json({
-        success: true,
-        message: "Profile updated",
-        data: {
-          ageGroup: user.ageGroup,
-          wellnessRole: user.wellnessRole,
-        },
-      });
-    } catch (error: any) {
-      logger.error("Update profile error", error.message);
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
-    }
-  }
-
-  // Step 6: Set Goal
-  static async setGoal(req: Request, res: Response) {
-    try {
-      const { firstGoal } = req.body;
-      const userId = (req as any).user?.id;
-
-      const user = await User.findById(userId);
-      if (!user) {
-        return res.status(404).json({
-          success: false,
-          message: "User not found",
-        });
-      }
-
-      user.firstGoal = firstGoal;
-      await user.save();
-
-      res.status(200).json({
-        success: true,
-        message: "Goal set successfully",
-        data: {
-          firstGoal: user.firstGoal,
-        },
-      });
-    } catch (error: any) {
-      logger.error("Set goal error", error.message);
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
-    }
-  }
-
   // Step 7: Select Plan
   static async selectPlan(req: Request, res: Response) {
     try {
@@ -538,5 +472,29 @@ export class AuthController {
         message: error.message,
       });
     }
+  }
+
+  static async refreshAccessToken(req: Request, res: Response) {
+    const { refreshToken } = req.body;
+
+    console.log("a",refreshToken)
+
+    const decoded = verifyRefreshToken(refreshToken);
+   console.log("c",decoded);
+    
+    const { accessToken, refreshToken: newRefreshToken } = generateTokens({
+      _id: decoded.id,
+      email: decoded.email,
+      role: decoded.role,
+    });
+
+    console.log("d",accessToken);
+
+
+    return res.json({
+      success: true,
+      accessToken,
+      refreshToken: newRefreshToken,
+    });
   }
 }

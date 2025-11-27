@@ -146,4 +146,5 @@ static async appleSignup(data: any) {
   return { user, tokens: generateTokens(user) };
 }
 
+
 }

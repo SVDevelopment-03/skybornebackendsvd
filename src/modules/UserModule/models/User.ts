@@ -132,9 +132,13 @@ const userSchema = new Schema<IUser>(
   }
 );
 
-// Hash password before saving
 userSchema.pre("save", async function (next) {
-  if (!this.isModified("password") || !this.password) {
+  if (!this.isModified("password")) {
+    return next();
+  }
+
+  // If password is undefined (not selected), DO NOT hash
+  if (this.password === undefined) {
     return next();
   }
 
@@ -152,6 +156,8 @@ userSchema.methods.comparePassword = async function (
   candidatePassword: string
 ): Promise<boolean> {
   if (!this.password) return false;
+  console.log("Comparing password:", candidatePassword, this.password);
+
   return bcrypt.compare(candidatePassword, this.password);
 };
 
