@@ -46,15 +46,15 @@ const RegisterValidationSchema = yup.object({
       .string()
       .required("Phone number is required")
       .matches(/^[0-9+\-()\s]+$/, "Invalid phone number format"),
-
+// Uncomment for otp
     // OTP
-    otp: yup
-      .string()
-      .matches(/^\d{6}$/, "OTP must be a 6-digit number")
-      .required("OTP is required"),
+    // otp: yup
+    //   .string()
+    //   .matches(/^\d{6}$/, "OTP must be a 6-digit number")
+    //   .required("OTP is required"),
 
     // TEMP USER ID
-    tempUserId: yup.string().required("Temporary user ID is required"),
+    // tempUserId: yup.string().required("Temporary user ID is required"),
 
     // AGE GROUP
     ageGroup: yup

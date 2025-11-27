@@ -24,14 +24,15 @@ static async emailSignup(data: SignupTypes) {
     ...rest
   } = data;
 
-  if (!tempUserId) throw new BadRequestError("Temp ID required");
+  // uncomment for otp
+  // if (!tempUserId) throw new BadRequestError("Temp ID required");
 
-  const tempUser = await TempUser.findById(tempUserId);
-  if (!tempUser || !tempUser.otpVerified)
-    throw new BadRequestError("Email not verified");
+  // const tempUser = await TempUser.findById(tempUserId);
+  // if (!tempUser || !tempUser.otpVerified)
+  //   throw new BadRequestError("Email not verified");
 
-  if (tempUser.email !== email)
-    throw new BadRequestError("Email mismatch");
+  // if (tempUser.email !== email)
+  //   throw new BadRequestError("Email mismatch");
 
   const existing = await User.findOne({ email });
   if (existing) throw new ConflictError("User already exists");
@@ -48,7 +49,7 @@ static async emailSignup(data: SignupTypes) {
     authProvider: AuthProvider.EMAIL,
   });
 
-  await TempUser.findByIdAndDelete(tempUserId);
+  // await TempUser.findByIdAndDelete(tempUserId);
 
   return { user, tokens: generateTokens(user) };
 }
