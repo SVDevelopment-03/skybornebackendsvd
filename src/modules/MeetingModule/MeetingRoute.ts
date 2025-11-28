@@ -8,12 +8,12 @@ export const MeetingRoute = [
     action: MeetingController.CreateMeeting,
     method: "post",
   },
-    {
-    path: "/meetings/leave",
-    request: LeaveMeetingSchema,
-    action: MeetingController.LeaveMeeting,
-    method: "post",
-  },
+  //   {
+  //   path: "/meetings/redirect",
+  //   request: null,
+  //   action: MeetingController.RedirectZoom,
+  //   method: "post",
+  // },
     {
     path: "/meetings/join",
     request: JoinMeetingSchema,

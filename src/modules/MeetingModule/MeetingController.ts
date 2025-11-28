@@ -3,6 +3,7 @@ import axios from "axios";
 import Meeting, { IMeeting } from "./MeetingModels/Meeting";
 import MeetingAttendance from "./MeetingModels/MeetingAttendance";
 import { getZoomAccessToken } from "../../utils/zoomAuth";
+import crypto from "crypto";
 
 export default class MeetingController {
   // -----------------------------------------
@@ -11,7 +12,7 @@ export default class MeetingController {
   static async CreateMeeting(req: Request, res: Response) {
     const token = await getZoomAccessToken();
 
-    const { topic, start_time, duration, adminId,local_time } = req.body;
+    const { topic, start_time, duration, adminId, local_time } = req.body;
 
     // 1. Create meeting on Zoom
     const zoomResponse = await axios.post(
@@ -43,7 +44,7 @@ export default class MeetingController {
       zoomMeetingId: zoomResponse.data.id,
       topic,
       startTime: start_time,
-      localTime:local_time,
+      localTime: local_time,
       duration,
       joinUrl: webJoinUrl,
       startUrl: webStartUrl,
@@ -57,15 +58,15 @@ export default class MeetingController {
   // GET UPCOMING MEETINGS
   // -----------------------------------------
   static async GetUpcomingMeetings(req: Request, res: Response) {
-     const now = new Date();
-  const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000); 
+    const now = new Date();
+    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
     const meetings = await Meeting.find({
-      startTime: { $gte: oneHourAgo  },
+      startTime: { $gte: oneHourAgo },
     })
       .sort({ startTime: 1 })
       .populate("createdBy", "firstName lastName email _id")
       .lean();
-      res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Cache-Control", "no-store");
 
     return res.json({
       success: true,
@@ -77,13 +78,13 @@ export default class MeetingController {
   // -----------------------------------------
   // JOIN MEETING
   // -----------------------------------------
+  
   static async JoinMeeting(req: Request, res: Response) {
     const { meetingId, userId } = req.body;
 
     const meeting = await Meeting.findById(meetingId);
     if (!meeting) throw new Error("Meeting not found");
 
-    // meeting expired check
     const endTime =
       new Date(meeting.startTime).getTime() + meeting.duration * 60000;
     if (Date.now() > endTime) {
@@ -99,7 +100,6 @@ export default class MeetingController {
       user: userId,
     });
 
-    // Create new attendance main document if first time
     if (!attendance) {
       attendance = await MeetingAttendance.create({
         meeting: meetingId,
@@ -107,7 +107,6 @@ export default class MeetingController {
         sessions: [{ joinTime: new Date() }],
       });
     } else {
-      // Create a NEW session (DO NOT reset old)
       attendance.sessions.push({ joinTime: new Date() });
       await attendance.save();
     }
@@ -122,68 +121,74 @@ export default class MeetingController {
     });
   }
 
-  // -----------------------------------------
-  // LEAVE MEETING
-  // -----------------------------------------
-  static async LeaveMeeting(req: Request, res: Response) {
-    const { attendanceId } = req.body;
+  // static async JoinMeeting(req: Request, res: Response) {
+  //   const { meetingId, userId } = req.body;
 
-    if (!attendanceId) throw new Error("attendanceId is required");
+  //   const meeting = await Meeting.findById(meetingId);
+  //   if (!meeting) throw new Error("Meeting not found");
 
-    // autopopulate or explicit populate to ensure meeting doc is available
-    const attendance = await MeetingAttendance.findById(attendanceId).populate(
-      "meeting"
-    );
-    if (!attendance) throw new Error("Attendance not found");
+  //   const endTime =
+  //     new Date(meeting.startTime).getTime() + meeting.duration * 60000;
 
-    // make sure there is at least one session
-    if (!attendance.sessions || attendance.sessions.length === 0) {
-      throw new Error("No active session found for this attendance");
-    }
+  //   if (Date.now() > endTime) {
+  //     return res.json({
+  //       success: false,
+  //       expired: true,
+  //       message: "Meeting already ended",
+  //     });
+  //   }
 
-    // Last session is the one being closed
-    const lastIndex = attendance.sessions.length - 1;
-    const lastSession = attendance.sessions[lastIndex];
+  //   let attendance = await MeetingAttendance.findOne({
+  //     meeting: meetingId,
+  //     user: userId,
+  //   });
 
-    // If last session already has leaveTime, nothing to close
-    if (lastSession.leaveTime) {
-      // optionally respond with current progress
-      return res.json({
-        success: true,
-        message: "Session already closed",
-        progress: attendance.progress,
-        totalMinutes: Math.round(attendance.totalDuration / 60000),
-      });
-    }
+  //   if (!attendance) {
+  //     attendance = await MeetingAttendance.create({
+  //       meeting: meetingId,
+  //       user: userId,
+  //       sessions: [],
+  //       totalDuration: 0,
+  //       progress: 0,
+  //     });
+  //   }
 
-    lastSession.leaveTime = new Date();
+  //   const correlationToken = crypto.randomBytes(24).toString("hex");
 
-    // Calculate this session's duration (ms)
-    const sessionDuration =
-      lastSession.leaveTime.getTime() - lastSession.joinTime.getTime();
-    attendance.totalDuration =
-      (attendance.totalDuration || 0) + sessionDuration;
+  //   attendance.correlationToken = correlationToken;
+  //   attendance.redirectedAt = new Date();
+  //   attendance.status = "redirected";
 
-    const meetingCandidate = attendance.meeting as any;
+  //   await attendance.save();
 
-    if (!meetingCandidate || typeof meetingCandidate.duration !== "number") {
-      throw new Error("Meeting duration missing — populate failed");
-    }
+  //   const redirectUrl = `${process.env.FRONTEND_URL}/meeting-redirect?token=${correlationToken}`;
 
-    const meetingDoc = meetingCandidate as IMeeting;
-    const meetingDurationMs = meetingDoc.duration * 60000;
+  //   return res.json({
+  //     success: true,
+  //     redirectUrl,
+  //   });
+  // }
 
-    attendance.progress = Math.min(
-      100,
-      Math.round((attendance.totalDuration / meetingDurationMs) * 100)
-    );
+  // static async RedirectZoom(req: Request, res: Response) {
+  //   const { token } = req.body;
 
-    await attendance.save();
+  //   const attendance = await MeetingAttendance.findOne({
+  //     correlationToken: token,
+  //   });
 
-    return res.json({
-      success: true,
-      progress: attendance.progress,
-      totalMinutes: Math.round(attendance.totalDuration / 60000),
-    });
-  }
+  //   if (!attendance) {
+  //     return res.status(400).json({ error: "Invalid token" });
+  //   }
+
+  //   attendance.redirectedAt = new Date();
+  //   attendance.status = "redirected";
+  //   await attendance.save();
+
+  //   const meeting = await Meeting.findById(attendance.meeting);
+
+  //   return res.json({
+  //     success: true,
+  //     joinUrl: meeting?.joinUrl,
+  //   });
+  // }
 }

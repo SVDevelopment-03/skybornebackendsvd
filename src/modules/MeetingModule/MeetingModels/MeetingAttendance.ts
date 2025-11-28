@@ -2,54 +2,49 @@ import { Schema, model, Document, Types } from "mongoose";
 import { IMeeting } from "./Meeting";
 import autopopulate from "mongoose-autopopulate";
 
-// -----------------------------
-// Session Interface
-// -----------------------------
 export interface ISession {
   joinTime: Date;
   leaveTime?: Date | null;
+  zoomParticipantId?: string; 
 }
 
-// -----------------------------
-// Attendance Interface
-// meeting → populated or ObjectId
-// -----------------------------
 export interface IMeetingAttendance extends Document {
-  meeting: IMeeting | Types.ObjectId;   // <-- FIXED
+  meeting: IMeeting | Types.ObjectId;
   user: Types.ObjectId;
+
   sessions: ISession[];
-  totalDuration: number;                // in milliseconds
-  progress: number;                     // percentage
+
+  totalDuration: number;
+  progress: number;
+
+  correlationToken?: string;  // 🔥 Used to verify identity from Zoom
+  redirectedAt?: Date;        // 🔥 When user clicked "Join"
+  status?: string;            // e.g. "redirected", "joined", "left"
 }
 
-// -----------------------------
-// Session Schema (subdocument)
-// -----------------------------
 const SessionSchema = new Schema<ISession>(
   {
     joinTime: { type: Date, required: true },
     leaveTime: { type: Date, default: null },
+    zoomParticipantId: { type: String },
   },
-  { _id: false } // Do NOT create _id for each session
+  { _id: false }
 );
 
-// -----------------------------
-// Meeting Attendance Schema
-// -----------------------------
 const MeetingAttendanceSchema = new Schema<IMeetingAttendance>(
   {
     meeting: {
       type: Schema.Types.ObjectId,
       ref: "Meeting",
       required: true,
-      autopopulate: true,              // <-- autopopulate FIX
+      autopopulate: true,
     },
 
     user: {
       type: Schema.Types.ObjectId,
       ref: "User",
       required: true,
-      autopopulate: true,              // optional but useful
+      autopopulate: true,
     },
 
     sessions: {
@@ -59,23 +54,34 @@ const MeetingAttendanceSchema = new Schema<IMeetingAttendance>(
 
     totalDuration: {
       type: Number,
-      default: 0,                      // milliseconds
+      default: 0,
     },
 
     progress: {
       type: Number,
       default: 0,
     },
+
+    correlationToken: {
+      type: String,
+      index: true,
+    },
+
+    redirectedAt: {
+      type: Date,
+    },
+
+    status: {
+      type: String,
+      enum: ["redirected", "joined", "left"],
+      default: "redirected",
+    },
   },
   { timestamps: true }
 );
 
-// Enable autopopulate
 MeetingAttendanceSchema.plugin(autopopulate);
 
-// -----------------------------
-// Export Model
-// -----------------------------
 export default model<IMeetingAttendance>(
   "MeetingAttendance",
   MeetingAttendanceSchema

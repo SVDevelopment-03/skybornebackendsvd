@@ -1,24 +1,24 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import express  from 'express';
+import express from "express";
 import type { Application, Request, Response } from "express";
 
-import cors from 'cors';
-import cookieParser from 'cookie-parser';
-import compression from 'compression';
-import authApiRouter from './routes/authApiRouter';
-import appApiRouter  from './routes/appApiRouter';
-import { routeNotFound } from './handlers/routeError.handler'; 
-import { httpErrorHandler } from './handlers/httpError.handler';
-import multer from 'multer';
-import dotenv from 'dotenv';
-import helmet from 'helmet';
-import rateLimitMiddleware from './utils/rateLimit.utils';
-import { apiTimeout } from './middlewares/timeout';
+import cors from "cors";
+import cookieParser from "cookie-parser";
+import compression from "compression";
+import authApiRouter from "./routes/authApiRouter";
+import appApiRouter from "./routes/appApiRouter";
+import { routeNotFound } from "./handlers/routeError.handler";
+import { httpErrorHandler } from "./handlers/httpError.handler";
+import multer from "multer";
+import dotenv from "dotenv";
+import helmet from "helmet";
+import rateLimitMiddleware from "./utils/rateLimit.utils";
+import { apiTimeout } from "./middlewares/timeout";
+import zoomWebhook from "./routes/zoomWebhook";
 const app: Application = express();
 
 dotenv.config();
-
 
 app.use(
   cors({
@@ -27,26 +27,20 @@ app.use(
   })
 );
 
-
 app.use(cookieParser());
-
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-
 app.use(compression());
 
-
 app.use(helmet({ crossOriginResourcePolicy: false }));
-
 
 if (process.env.APP_ENV === "production") {
   app.use(rateLimitMiddleware);
 }
 
 app.use(apiTimeout(10000));
-
 
 /* 7. STATIC files (optional) */
 // app.use("/uploads", express.static("uploads"));
@@ -56,14 +50,19 @@ app.use((req: Request, res: Response, next) => {
   const start = Date.now();
   res.on("finish", () => {
     console.log(
-      `[API HIT] ${req.method} ${req.originalUrl} → ${res.statusCode} (${Date.now() - start}ms)`
+      `[API HIT] ${req.method} ${req.originalUrl} → ${res.statusCode} (${
+        Date.now() - start
+      }ms)`
     );
   });
   next();
 });
 
 /* 9. All routes go here */
-const apiVersion = '/api/v1/';
+const apiVersion = "/api/v1/";
+
+app.use(apiVersion, zoomWebhook);
+
 
 // Demo route
 app.get("/", (req: Request, res: Response) => {
@@ -76,7 +75,7 @@ app.get("/", (req: Request, res: Response) => {
 });
 
 app.use(apiVersion, authApiRouter);
-app.use(apiVersion,appApiRouter)
+app.use(apiVersion, appApiRouter);
 
 /* 10. 404 handler (route not found) */
 app.use(routeNotFound);

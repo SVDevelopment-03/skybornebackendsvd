@@ -1,6 +1,8 @@
 import redisClient from '../../../config/redis';
 import nodemailer from 'nodemailer';
 import { logger } from '../../../utils/winston.utils';
+import { SendEmailCommand } from "@aws-sdk/client-ses";
+import sesClient from '../../../config/ses';
 
 export class OTPService {
   private static readonly OTP_PREFIX = 'otp:';
@@ -19,48 +21,54 @@ export class OTPService {
     return otp;
   }
 
-  /**
-   * Send OTP Email
-   */
-  static async sendEmailOTP(email: string, otp: string): Promise<void> {
-    try {
-      // 1. Configure Email Transport
-      const transporter = nodemailer.createTransport({
-        host: process.env.SMTP_HOST,
-        port: Number(process.env.SMTP_PORT),
-        secure: false,
-        auth: {
-          user: process.env.SMTP_USER,
-          pass: process.env.SMTP_PASS,
+/**
+ * Send OTP Email using AWS SES
+ */
+
+static async sendEmailOTP(email: string, otp: string): Promise<void> {
+  try {
+    // 1. Prepare SES parameters
+    const params = {
+      Source: `"Skyborne" <info@skybornedrop.com>`,
+      Destination: {
+        ToAddresses: [email],
+      },
+      Message: {
+        Subject: { Data: "Your Skyborne Verification Code" },
+        Body: {
+          Html: {
+            Data: `
+              <h2>Your Verification Code</h2>
+              <p>Your OTP is: <strong>${otp}</strong></p>
+              <p>This OTP expires in <b>10 minutes</b>.</p>
+            `,
+          },
         },
-      });
+      },
+    };
 
-      // 2. Send Email
-      const info = await transporter.sendMail({
-        from: `"Skyborne" <${process.env.SMTP_USER}>`,
-        to: email,
-        subject: "Your Skyborne Verification Code",
-        html: `
-          <h2>Your Verification Code</h2>
-          <p>Your OTP is: <strong>${otp}</strong></p>
-          <p>This OTP expires in <b>10 minutes</b>.</p>
-        `,
-      });
+    // 2. Send Email via SES
+    const response = await sesClient.send(new SendEmailCommand(params));
 
-      logger.info(`OTP Email sent to: ${this.maskEmail(email)} | MessageID: ${info.messageId}`);
-    } catch (err: any) {
-      logger.error(`Email OTP sending failed for ${this.maskEmail(email)} | Error: ${err.message}`);
+    logger.info(
+      `OTP Email sent to: ${this.maskEmail(email)} | MessageID: ${response.MessageId}`
+    );
+  } catch (err: any) {
+    logger.error(
+      `Email OTP sending failed for ${this.maskEmail(email)} | Error: ${err.message}`
+    );
 
-      // Fallback — In dev print OTP
-      if (process.env.NODE_ENV === 'development') {
-        console.log(`
-        📩 Email OTP (development mode)
-        Email: ${email}
-        OTP: ${otp}
-        `);
-      }
+    // Fallback — show OTP in development
+    if (process.env.NODE_ENV === "development") {
+      console.log(`
+      📩 Email OTP (development mode)
+      Email: ${email}
+      OTP: ${otp}
+      `);
     }
   }
+}
+
 
   /**
    * Verify OTP
