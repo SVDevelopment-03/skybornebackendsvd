@@ -14,6 +14,7 @@ import multer from 'multer';
 import dotenv from 'dotenv';
 import helmet from 'helmet';
 import rateLimitMiddleware from './utils/rateLimit.utils';
+import { apiTimeout } from './middlewares/timeout';
 const app: Application = express();
 
 dotenv.config();
@@ -43,6 +44,9 @@ app.use(helmet({ crossOriginResourcePolicy: false }));
 if (process.env.APP_ENV === "production") {
   app.use(rateLimitMiddleware);
 }
+
+app.use(apiTimeout(10000));
+
 
 /* 7. STATIC files (optional) */
 // app.use("/uploads", express.static("uploads"));
