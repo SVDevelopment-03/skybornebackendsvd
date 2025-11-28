@@ -7,7 +7,11 @@ import {
   UserRole,
   AuthProvider,
 } from "../../UserModule/interface/userInterface";
-import { generateTokens, verifyRefreshToken, verifyToken } from "../../../config/jwt";
+import {
+  generateTokens,
+  verifyRefreshToken,
+  verifyToken,
+} from "../../../config/jwt";
 import { OTPService } from "../../UserModule/services/otpService";
 import { logAuthEvent, logger } from "../../../utils/winston.utils";
 import { AuthService } from "../services/authService";
@@ -359,142 +363,115 @@ export class AuthController {
     }
   }
 
-  // Step 7: Select Plan
-  static async selectPlan(req: Request, res: Response) {
-    try {
-      const { plan } = req.body;
-      const userId = (req as any).user?.id;
-
-      const user = await User.findById(userId);
-      if (!user) {
-        return res.status(404).json({
-          success: false,
-          message: "User not found",
-        });
-      }
-
-      user.plan = plan;
-      await user.save();
-
-      res.status(200).json({
-        success: true,
-        message: "Plan selected",
-        data: {
-          plan: user.plan,
-        },
-      });
-    } catch (error: any) {
-      logger.error("Select plan error", error.message);
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
-    }
-  }
-
-  // Step 8: Complete Onboarding
-  static async completeOnboarding(req: Request, res: Response) {
-    try {
-      const userId = (req as any).user?.id;
-
-      const user = await User.findById(userId);
-      if (!user) {
-        return res.status(404).json({
-          success: false,
-          message: "User not found",
-        });
-      }
-
-      user.onboardingCompleted = true;
-      await user.save();
-
-      res.status(200).json({
-        success: true,
-        message: "Onboarding completed! Welcome to Skyborne!",
-        data: {
-          onboardingCompleted: true,
-          user: {
-            id: user._id,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            email: user.email,
-            role: user.role,
-            plan: user.plan,
-          },
-        },
-      });
-    } catch (error: any) {
-      logger.error("Complete onboarding error", error.message);
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
-    }
-  }
-
-  // Get Current User
-  static async getCurrentUser(req: Request, res: Response) {
-    try {
-      const userId = (req as any).user?.id;
-
-      const user = await User.findById(userId);
-      if (!user) {
-        return res.status(404).json({
-          success: false,
-          message: "User not found",
-        });
-      }
-
-      res.status(200).json({
-        success: true,
-        data: {
-          user: {
-            id: user._id,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            email: user.email,
-            phoneNumber: user.phoneNumber,
-            role: user.role,
-            ageGroup: user.ageGroup,
-            wellnessRole: user.wellnessRole,
-            motivation: user.motivation,
-            firstGoal: user.firstGoal,
-            plan: user.plan,
-            onboardingCompleted: user.onboardingCompleted,
-            isEmailVerified: user.isEmailVerified,
-          },
-        },
-      });
-    } catch (error: any) {
-      logger.error("Get current user error", error.message);
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
-    }
-  }
-
   static async refreshAccessToken(req: Request, res: Response) {
     const { refreshToken } = req.body;
 
-    console.log("a",refreshToken)
+    console.log("a", refreshToken);
 
     const decoded = verifyRefreshToken(refreshToken);
-   console.log("c",decoded);
-    
+    console.log("c", decoded);
+
     const { accessToken, refreshToken: newRefreshToken } = generateTokens({
       _id: decoded.id,
       email: decoded.email,
       role: decoded.role,
     });
 
-    console.log("d",accessToken);
-
-
     return res.json({
       success: true,
       accessToken,
       refreshToken: newRefreshToken,
+    });
+  }
+
+  static async me(req: Request, res: Response) {
+    console.log("aaa", req.user);
+
+    const userId = req?.user && req?.user?.id; // extracted by auth middleware
+
+    const user = await User.findById(userId).select("-password");
+
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    res.json({ user });
+  }
+
+  static async requestPasswordReset(req: Request, res: Response) {
+    const { email } = req.body;
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      throw new Error("No account found with this email");
+    }
+
+    let tempUser = await TempUser.findOne({ email });
+
+    if (!tempUser) {
+      tempUser = await TempUser.create({
+        email,
+        otpVerified: false,
+      });
+    }
+
+    const otp = await OTPService.generateAndStoreOTP(email);
+    await OTPService.sendEmailOTP(email, otp);
+
+    return res.status(200).json({
+      success: true,
+      message: "OTP sent for password reset",
+      data: {
+        tempUserId: tempUser._id,
+        expiresIn: 600,
+      },
+    });
+  }
+
+  static async verifyPasswordResetOTP(req: Request, res: Response) {
+    const { email, otp } = req.body;
+
+    const valid = await OTPService.verifyOTP(email, otp);
+
+    if (!valid) {
+      throw new Error("Invalid or expired OTP");
+    }
+
+    const tempUser = await TempUser.findOne({ email });
+
+    if (!tempUser) {
+      throw new Error("Temporary session not found");
+    }
+
+    tempUser.otpVerified = true;
+    await tempUser.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "OTP verified",
+      data: {
+        tempUserId: tempUser._id,
+      },
+    });
+  }
+
+  static async resetPassword(req: Request, res: Response) {
+    const { email, newPassword } = req.body;
+
+    const tempUser = await TempUser.findOne({ email });
+    if (!tempUser?.otpVerified) {
+      throw new Error("OTP not verified");
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) throw new Error("User not found");
+
+    user.password = newPassword;
+    await user.save();
+
+    await TempUser.deleteOne({ email });
+
+    return res.status(200).json({
+      success: true,
+      message: "Password reset successfully",
     });
   }
 }

@@ -13,7 +13,15 @@ function methodNotAllow(req: Request) {
     "You are not allow to use " + method + " for this route"
   );
 }
-const publicApi = ["/about-us", "/services", "/plans", "/testimonials", "/faq"];
+const publicApi = [
+  "/about-us",
+  "/services",
+  "/plans",
+  "/testimonials",
+  "/faq",
+  "/consultation",
+  "/news-letter",
+];
 
 appApiRoutes?.map(({ path, request, method, action }: any) => {
   const isPublicRoute = publicApi.includes(path);

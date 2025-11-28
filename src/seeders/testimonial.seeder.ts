@@ -21,7 +21,7 @@ const testimonials = [
     description:
       "I love how flexible and uplifting these sessions are! I feel more energized and balanced every day.",
     user: {
-      image: "/images/user-image.png",
+      image: "/images/user-1.svg",
       name: "Rahul M",
       totalClasses: 30,
     },
@@ -31,7 +31,7 @@ const testimonials = [
     description:
       "Everything feels personalized and supportive. I enjoy every session and look forward to the next one!",
     user: {
-      image: "/images/user-image.png",
+      image: "/images/user-2.svg",
       name: "Sneha Kapoor",
       totalClasses: 18,
     },

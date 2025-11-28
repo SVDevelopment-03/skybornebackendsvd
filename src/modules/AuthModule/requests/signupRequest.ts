@@ -46,7 +46,7 @@ const RegisterValidationSchema = yup.object({
       .string()
       .required("Phone number is required")
       .matches(/^[0-9+\-()\s]+$/, "Invalid phone number format"),
-// Uncomment for otp
+    // Uncomment for otp
     // OTP
     // otp: yup
     //   .string()
@@ -84,9 +84,21 @@ const RegisterValidationSchema = yup.object({
 export const RefreshTokenValidationSchema = yup.object({
   body: yup.object({
     // FIRST NAME
-    refreshToken: yup
+    refreshToken: yup.string().required("Refresh token is required"),
+  }),
+});
+
+export const resetPasswordSchema = yup.object({
+  body: yup.object({
+    email: yup
       .string()
-      .required("Refresh token is required"),
+      .email("Invalid email format")
+      .required("Email is required"),
+
+    newPassword: yup
+      .string()
+      .min(8, "Password must be at least 6 characters")
+      .required("New password is required"),
   }),
 });
 
