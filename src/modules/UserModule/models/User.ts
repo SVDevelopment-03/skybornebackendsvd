@@ -131,7 +131,7 @@ subscription: {
     endDate: { type: Date },
     status: {
       type: String,
-      enum: ["active", "expired"],
+      enum: ["active", "expired", "inactive"],
       default: "active",
     },
   },
