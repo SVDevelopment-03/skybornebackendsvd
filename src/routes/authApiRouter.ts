@@ -56,6 +56,13 @@ const routes = [
     action: AuthController.login,
     method: "post",
   },
+
+    {
+    name: "/social-login",
+    middleware: null,
+    action: AuthController.socialLogin,
+    method: "post",
+  },
 ];
 
 routes.map((route) => {

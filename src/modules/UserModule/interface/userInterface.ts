@@ -15,11 +15,12 @@ export interface IUser extends Document {
   firstName: string;
   lastName?: string;
   email: string;
-  password?: string | undefined;
+  password?: string;
   country: string;
   countryCode: string;
   dialingCode: string;
   localNumber: string;
+
   // OAuth
   authProvider: AuthProvider;
   googleId?: string;
@@ -34,13 +35,27 @@ export interface IUser extends Document {
   agreeTerms: boolean;
 
   // Step 1: Motivation
-  motivation?: string[];
+  motivation?: string;
 
   // Step 6: Goals
   firstGoal?: string;
 
   // Step 7: Plan Selection
-  plan?: "starter" | "flex" | "all-access";
+  plan?: "gold-yoga" | "gold-zumba" | "gold-mixed" | "diamond" | "platinum";
+
+  // Class Credits
+  classCredits: {
+    yoga: number;
+    zumba: number;
+    specialty: number;
+  };
+
+  // Subscription
+  subscription: {
+    startDate: Date | null;
+    endDate: Date | null;
+    status: "active" | "expired" | "inactive";
+  };
 
   // System
   role: UserRole;
@@ -58,3 +73,10 @@ export interface IUser extends Document {
   generateOTP(): string;
   verifyOTP(otp: string): boolean;
 }
+
+export type PlanType =
+  | "gold-yoga"
+  | "gold-zumba"
+  | "gold-mixed"
+  | "diamond"
+  | "platinum";

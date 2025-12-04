@@ -100,10 +100,50 @@ const userSchema = new Schema<IUser>(
     },
 
     // Step 7: Plan
-    plan: {
+  plan: {
+  type: String,
+  enum: [
+    "gold-yoga",
+    "gold-zumba",
+    "gold-mixed",
+    "diamond",
+    "platinum"
+  ],
+},
+
+classCredits: {
+  type: {
+    yoga: { type: Number, default: 0 },
+    zumba: { type: Number, default: 0 },
+    specialty: { type: Number, default: 0 },
+  },
+  default: {
+    yoga: 0,
+    zumba: 0,
+    specialty: 0,
+  },
+},
+
+
+subscription: {
+  type: {
+    startDate: { type: Date },
+    endDate: { type: Date },
+    status: {
       type: String,
-      enum: ["starter", "flex", "all-access"],
+      enum: ["active", "expired"],
+      default: "active",
     },
+  },
+  default: {
+    startDate: null,
+    endDate: null,
+    status: "inactive",
+  },
+},
+
+
+
 
     // System
     role: {

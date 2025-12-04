@@ -4,6 +4,7 @@ import appApiRoutes from "./list";
 import { catchErrors } from "../handlers/routeError.handler";
 import validateData from "../utils/validation.utils";
 import { verifyAccessToken } from "../middlewares/verifyToken.middleware";
+import { verifyPermission } from "../middlewares/hasPermission";
 
 const router = express.Router();
 
@@ -28,7 +29,7 @@ appApiRoutes?.map(({ path, request, method, action }: any) => {
 
   const middlewares = isPublicRoute
     ? validateData(request)
-    : [verifyAccessToken, validateData(request)];
+    : [verifyAccessToken, verifyPermission, validateData(request)];
 
   switch (method) {
     case "get":

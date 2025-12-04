@@ -4,15 +4,42 @@ import autopopulate from "mongoose-autopopulate";
 // -----------------------------
 // Meeting Interface
 // -----------------------------
+export interface IRegionEntry {
+  region: string;           // e.g. "Gulf"
+  localTime: string;        // e.g. "10:00 AM"
+  timezone: string;         // e.g. "Asia/Dubai"
+  mode: "live" | "replay";  // tells frontend live or replay
+}
+
 export interface IMeeting extends Document {
   zoomMeetingId: number;
-  topic: string;
-  startTime: Date;
+  service: Types.ObjectId;
+  title: string;
+
+  // NEW FIELD: dynamic region grid
+  regions: IRegionEntry[];
+
+  liveRegion: string;
+  liveTime: string;
+
+  startDate: Date;
   localTime: Date;
+
+  trainer: Types.ObjectId;
   duration: number;
+
+  autoRecording: boolean;
+  rotationEnabled: boolean;
+
+  isLive: boolean;
+
   joinUrl: string;
   startUrl: string;
-  createdBy: Types.ObjectId; // ADMIN who created meeting
+
+  // NEW FIELD: recording cloud URL from Zoom
+  recordingUrl: string;
+
+  createdBy: Types.ObjectId;
 }
 
 // -----------------------------
@@ -25,24 +52,78 @@ const MeetingSchema = new Schema<IMeeting>(
       required: true,
     },
 
-    topic: {
-      type: String,
+    service: {
+      type: Schema.Types.ObjectId,
+      ref: "Service",
       required: true,
-      trim: true,
+      autopopulate: true,
     },
 
-    startTime: {
+    title: {
+      type: String,
+      required: true,
+    },
+
+    // -----------------------------
+    // NEW: Store all regions from frontend
+    // -----------------------------
+    regions: [
+      {
+        region: { type: String, required: true },
+        localTime: { type: String, required: true },
+        timezone: { type: String, required: true },
+        mode: { type: String, enum: ["live", "replay"], required: true },
+      },
+    ],
+
+    liveRegion: {
+      type: String,
+      required: true,
+    },
+
+    liveTime: {
+      type: String,
+      required: true,
+    },
+
+    startDate: {
+      type: Date,
+      required: true,
+      index: true,
+    },
+
+    localTime: {
       type: Date,
       required: true,
     },
-      localTime: {
-      type: Date,
+
+    trainer: {
+      type: Schema.Types.ObjectId,
+      ref: "Coach",
       required: true,
+      autopopulate: true,
     },
 
     duration: {
       type: Number,
       required: true,
+      min: 30,
+      max: 480,
+    },
+
+    autoRecording: {
+      type: Boolean,
+      default: true,
+    },
+
+    rotationEnabled: {
+      type: Boolean,
+      default: true,
+    },
+
+    isLive: {
+      type: Boolean,
+      default: true,
     },
 
     joinUrl: {
@@ -52,10 +133,15 @@ const MeetingSchema = new Schema<IMeeting>(
 
     startUrl: {
       type: String,
-      required: true,
+      default: "",
     },
 
-    // Admin or User who created meeting
+    // NEW FIELD
+    recordingUrl: {
+      type: String,
+      default: "",
+    },
+
     createdBy: {
       type: Schema.Types.ObjectId,
       ref: "User",
@@ -66,7 +152,7 @@ const MeetingSchema = new Schema<IMeeting>(
   { timestamps: true }
 );
 
-// Enable Autopopulate Plugin
+// Plugin
 MeetingSchema.plugin(autopopulate);
 
 // -----------------------------

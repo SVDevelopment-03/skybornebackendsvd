@@ -21,5 +21,8 @@ export const CreatePaymentOrderSchema = yup.object({
       .test("is-objectid", "Invalid User ID", (value) =>
         mongoose.Types.ObjectId.isValid(value)
       ),
+      plan: yup
+      .string()
+      .required("Plan is required")
   }),
 });

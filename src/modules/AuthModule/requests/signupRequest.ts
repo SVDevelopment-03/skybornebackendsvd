@@ -12,9 +12,7 @@ const RegisterValidationSchema = yup.object({
     // LAST NAME
     lastName: yup
       .string()
-      .trim()
-      .min(2, "Last name must be at least 2 characters")
-      .required("Last name is required"),
+      .trim().notRequired(),
 
     // EMAIL
     email: yup

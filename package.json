@@ -8,6 +8,7 @@
     "seed:faq": "ts-node --transpile-only src/seeders/faq.seeder.ts",
     "seed:service": "ts-node --transpile-only src/seeders/service.seeder.ts",
     "seed:testimonials": "ts-node --transpile-only src/seeders/testimonial.seeder.ts",
+    "seed:coaches": "ts-node --transpile-only src/seeders/coach.seeder.ts",
     "build": "tsc",
     "start": "node dist/server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
@@ -18,6 +19,7 @@
   "description": "",
   "dependencies": {
     "@aws-sdk/client-ses": "^3.940.0",
+    "@sendgrid/mail": "^8.1.6",
     "bcryptjs": "^3.0.3",
     "bull": "^4.16.5",
     "compression": "^1.8.1",

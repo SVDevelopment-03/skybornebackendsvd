@@ -1,42 +1,30 @@
 import Payment from "./models/Payment";
-import UserSubscription from "./models/Subscription";
-type PaymentStatus = "PENDING" | "SUCCESS" | "FAILED";
-
+import Subscription from "./models/Subscription";
 
 class NgeniusWebhookService {
   static async handleWebhook(data: any) {
-    const orderRef = data?.orderReference;
+    const orderRef = data?.order?.reference;
+    const status = data?.event ?? "FAILED";
 
     const payment = await Payment.findOne({ orderRef });
 
-    if (!payment) throw new Error("Order not found");
+    if (!payment) return;
 
-    // Extract status from webhook
-    const paymentStatus = data?._embedded?.payment[0]?.state;
+    if (status === "SALE_SUCCESSFUL") {
+      payment.status = "SUCCESS";
 
-    let formattedStatus:PaymentStatus =
-      paymentStatus === "CAPTURED"
-        ? "SUCCESS"
-        : paymentStatus === "FAILED"
-        ? "FAILED"
-        : "PENDING";
-
-    // Update payment
-    payment.status = formattedStatus;
-    payment.gatewayResponse = data;
-    await payment.save();
-
-    // If success, activate subscription
-    if (formattedStatus === "SUCCESS") {
-      await UserSubscription.create({
+      await Subscription.create({
         userId: payment.userId,
-        planName: "Flex Plan",
+        planName: "Premium",
         renewalDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
         status: "ACTIVE",
       });
+    } else {
+      payment.status = "FAILED";
     }
 
-    return true;
+    payment.gatewayResponse = data;
+    await payment.save();
   }
 }
 

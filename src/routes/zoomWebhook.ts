@@ -14,7 +14,7 @@ router.use(express.json());
 // ======================================================
 router.post("/zoom-webhook", async (req, res) => {
   console.log("\n===== ZOOM WEBHOOK RECEIVED =====");
-  console.log(JSON.stringify(req.body, null, 2));
+  console.log("Event:", req.body.event);
   console.log("=================================\n");
 
   const { event, payload } = req.body;
@@ -35,6 +35,52 @@ router.post("/zoom-webhook", async (req, res) => {
   const participant = payload?.object?.participant;
 
   if (!zoomMeetingId) return res.status(200).send("OK");
+
+  // ======================================================
+  // RECORDING COMPLETED
+  // ======================================================
+  if (event === "recording.completed") {
+    console.log("🎬 [RECORDING] Recording completed for meeting:", zoomMeetingId);
+
+    try {
+      const meetingDoc = await Meeting.findOne({ zoomMeetingId });
+      if (!meetingDoc) {
+        console.log("❌ [RECORDING] Meeting not found in DB →", zoomMeetingId);
+        return res.status(200).send("OK");
+      }
+
+      // Extract recording URL from payload
+      const recordingFiles = payload?.object?.recording_files;
+      
+      if (!recordingFiles || recordingFiles.length === 0) {
+        console.log("⚠️ [RECORDING] No recording files found in payload");
+        return res.status(200).send("OK");
+      }
+
+      // Get the first recording file (video file)
+      const recordingUrl = recordingFiles[0]?.download_url;
+      
+      if (!recordingUrl) {
+        console.log("⚠️ [RECORDING] No download URL found in recording files");
+        return res.status(200).send("OK");
+      }
+
+      // Update meeting with recording URL
+      await Meeting.findByIdAndUpdate(
+        meetingDoc._id,
+        { recordingUrl },
+        { new: true }
+      );
+
+      console.log("✅ [RECORDING] Updated meeting with recording URL");
+      console.log("📍 [RECORDING] Recording URL:", recordingUrl);
+      
+      return res.status(200).send("OK");
+    } catch (error: any) {
+      console.error("❌ [RECORDING] Error updating recording URL:", error.message);
+      return res.status(200).send("OK"); // Still return 200 to acknowledge
+    }
+  }
 
   const meetingDoc = await Meeting.findOne({ zoomMeetingId });
   if (!meetingDoc) {
@@ -57,7 +103,7 @@ router.post("/zoom-webhook", async (req, res) => {
   // PARTICIPANT JOINED
   // ======================================================
   if (event === "meeting.participant_joined") {
-    console.log("JOIN →", email);
+    console.log("👤 [JOIN] Participant joined →", email);
 
     let attendance = await MeetingAttendance.findOne({
       meeting: meetingDoc._id,
@@ -80,14 +126,14 @@ router.post("/zoom-webhook", async (req, res) => {
     });
 
     await attendance.save();
-    console.log("JOIN saved.");
+    console.log("✅ [JOIN] Session saved");
   }
 
   // ======================================================
   // PARTICIPANT LEFT
   // ======================================================
   if (event === "meeting.participant_left") {
-    console.log("LEFT →", email);
+    console.log("👤 [LEAVE] Participant left →", email);
 
     const attendance = await MeetingAttendance.findOne({
       meeting: meetingDoc._id,
@@ -113,13 +159,20 @@ router.post("/zoom-webhook", async (req, res) => {
       );
 
       await attendance.save();
-      console.log("LEFT saved → duration:", duration / 60000, "minutes");
+      console.log("✅ [LEAVE] Session saved → duration:", duration / 60000, "minutes");
     }
   }
 
-  // logs for meeting lifecycle
-  if (event === "meeting.started") console.log("MEETING STARTED");
-  if (event === "meeting.ended") console.log("MEETING ENDED");
+  // ======================================================
+  // MEETING LIFECYCLE
+  // ======================================================
+  if (event === "meeting.started") {
+    console.log("🎬 [MEETING] Meeting started →", zoomMeetingId);
+  }
+
+  if (event === "meeting.ended") {
+    console.log("🏁 [MEETING] Meeting ended →", zoomMeetingId);
+  }
 
   return res.status(200).send("OK");
 });

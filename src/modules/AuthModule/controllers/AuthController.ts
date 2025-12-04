@@ -198,6 +198,125 @@ export class AuthController {
     }
   }
 
+  // Social Login (Google / Apple)
+static async socialLogin(req: Request, res: Response) {
+  try {
+    const { provider, email, googleId, appleId } = req.body;
+
+    if (!provider || !email) {
+      return res.status(400).json({
+        success: false,
+        message: "Provider and email are required",
+      });
+    }
+
+    const ip =
+      (req.ip || req.headers["x-forwarded-for"] || "unknown") as string;
+    const userAgent = req.headers["user-agent"] || "unknown";
+
+    // User MUST already exist
+    const user = await User.findOne({ email });
+
+    if (!user) {
+      logAuthEvent({
+        email,
+        event: "social_login",
+        success: false,
+        ip,
+        userAgent,
+        error: "User not found",
+      });
+
+      return res.status(404).json({
+        success: false,
+        message:
+          "No account found. Please signup first with " + provider.toUpperCase(),
+      });
+    }
+
+    // Check if same provider is used
+    if (provider !== user.authProvider) {
+      logAuthEvent({
+        userId: user._id.toString(),
+        email,
+        event: "social_login",
+        success: false,
+        ip,
+        userAgent,
+        error: "Invalid provider",
+      });
+
+      return res.status(400).json({
+        success: false,
+        message: `Please login using your ${user.authProvider} account`,
+      });
+    }
+
+    // Check provider IDs
+    if (provider === "google" && user.googleId !== googleId) {
+      return res.status(400).json({
+        success: false,
+        message: "Google account mismatch",
+      });
+    }
+
+    if (provider === "apple" && user.appleId !== appleId) {
+      return res.status(400).json({
+        success: false,
+        message: "Apple account mismatch",
+      });
+    }
+
+    // Check if account is active
+    if (!user.isActive) {
+      return res.status(403).json({
+        success: false,
+        message: "Account is deactivated",
+      });
+    }
+
+    // Update login timestamp
+    user.lastLogin = new Date();
+    await user.save();
+
+    // Generate tokens
+    const tokens = generateTokens(user);
+
+    // Log event
+    logAuthEvent({
+      userId: user._id.toString(),
+      email,
+      event: "social_login",
+      success: true,
+      ip,
+      userAgent,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Login successful",
+      data: {
+        user: {
+          id: user._id,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+          role: user.role,
+          onboardingCompleted: user.onboardingCompleted,
+        },
+        ...tokens,
+      },
+    });
+  } catch (error: any) {
+    logger.error("Social login error", error.message);
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+}
+
+
   // Step 3: Send OTP
   static async sendOTP(req: Request, res: Response) {
     try {
@@ -384,17 +503,7 @@ export class AuthController {
     });
   }
 
-  static async me(req: Request, res: Response) {
-    console.log("aaa", req.user);
-
-    const userId = req?.user && req?.user?.id; // extracted by auth middleware
-
-    const user = await User.findById(userId).select("-password");
-
-    if (!user) return res.status(404).json({ message: "User not found" });
-
-    res.json({ user });
-  }
+ 
 
   static async requestPasswordReset(req: Request, res: Response) {
     const { email } = req.body;

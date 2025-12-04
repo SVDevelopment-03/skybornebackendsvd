@@ -40,7 +40,7 @@ if (process.env.APP_ENV === "production") {
   app.use(rateLimitMiddleware);
 }
 
-app.use(apiTimeout(10000));
+// app.use(apiTimeout(10000));
 
 /* 7. STATIC files (optional) */
 // app.use("/uploads", express.static("uploads"));

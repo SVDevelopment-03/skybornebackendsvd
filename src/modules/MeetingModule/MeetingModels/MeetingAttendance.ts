@@ -4,29 +4,64 @@ import autopopulate from "mongoose-autopopulate";
 
 export interface ISession {
   joinTime: Date;
+  progress?: number;
   leaveTime?: Date | null;
-  zoomParticipantId?: string; 
+  duration?: number; // Duration in minutes
+  zoomParticipantId?: string;
+  mode?: "live" | "replay"; // NEW: Track which mode user accessed
+  region?: string; // NEW: Track which region user joined from
 }
 
 export interface IMeetingAttendance extends Document {
   meeting: IMeeting | Types.ObjectId;
   user: Types.ObjectId;
-
+  region?: string; // Region user is accessing from
+  progress?: number;
   sessions: ISession[];
-
-  totalDuration: number;
-  progress: number;
-
-  correlationToken?: string;  // 🔥 Used to verify identity from Zoom
-  redirectedAt?: Date;        // 🔥 When user clicked "Join"
-  status?: string;            // e.g. "redirected", "joined", "left"
+  totalDuration: number; // Total duration in minutes across all sessions
+  totalSessions: number; // Total number of sessions attended
+  status: "registered" | "joined" | "completed" | "missed";
+  joinedAt?: Date; // First join time
+  completedAt?: Date; // When fully completed
+  correlationToken?: string; // Used to verify identity from Zoom webhook
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
 const SessionSchema = new Schema<ISession>(
   {
-    joinTime: { type: Date, required: true },
-    leaveTime: { type: Date, default: null },
-    zoomParticipantId: { type: String },
+    joinTime: {
+      type: Date,
+      required: true,
+      index: true,
+    },
+    leaveTime: {
+      type: Date,
+      default: null,
+    },
+    duration: {
+      type: Number, // in minutes
+      default: 0,
+    },
+    progress: {
+      type: Number, // in minutes
+      default: 0,
+    },
+    zoomParticipantId: {
+      type: String,
+      index: true,
+    },
+    // NEW: Mode (live or replay)
+    mode: {
+      type: String,
+      enum: ["live", "replay"],
+      default: "live",
+    },
+    // NEW: Region user joined from
+    region: {
+      type: String,
+      default: null,
+    },
   },
   { _id: false }
 );
@@ -38,6 +73,7 @@ const MeetingAttendanceSchema = new Schema<IMeetingAttendance>(
       ref: "Meeting",
       required: true,
       autopopulate: true,
+      index: true,
     },
 
     user: {
@@ -45,6 +81,13 @@ const MeetingAttendanceSchema = new Schema<IMeetingAttendance>(
       ref: "User",
       required: true,
       autopopulate: true,
+      index: true,
+    },
+
+    // NEW: Track which region user is from
+    region: {
+      type: String,
+      default: null,
     },
 
     sessions: {
@@ -55,30 +98,50 @@ const MeetingAttendanceSchema = new Schema<IMeetingAttendance>(
     totalDuration: {
       type: Number,
       default: 0,
+      description: "Total duration in minutes across all sessions",
     },
-
     progress: {
       type: Number,
       default: 0,
+      description: "Total progress",
+    },
+
+    totalSessions: {
+      type: Number,
+      default: 0,
+      description: "Total number of sessions attended",
+    },
+
+    status: {
+      type: String,
+      enum: ["registered", "joined", "completed", "missed"],
+      default: "registered",
+      index: true,
+    },
+
+    joinedAt: {
+      type: Date,
+      default: null,
+    },
+
+    completedAt: {
+      type: Date,
+      default: null,
     },
 
     correlationToken: {
       type: String,
       index: true,
-    },
-
-    redirectedAt: {
-      type: Date,
-    },
-
-    status: {
-      type: String,
-      enum: ["redirected", "joined", "left"],
-      default: "redirected",
+      sparse: true, // Only index when present
     },
   },
   { timestamps: true }
 );
+
+// Index for common queries
+MeetingAttendanceSchema.index({ meeting: 1, user: 1 }, { unique: true }); // One record per user per meeting
+MeetingAttendanceSchema.index({ meeting: 1, status: 1 });
+MeetingAttendanceSchema.index({ user: 1, status: 1 });
 
 MeetingAttendanceSchema.plugin(autopopulate);
 

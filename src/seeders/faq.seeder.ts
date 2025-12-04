@@ -6,36 +6,18 @@ dotenv.config();
 
 export const contentData = [
   {
-    question: "What types of wellness classes do you offer?",
+    question: "How do I sign up?",
     answer:
-      "  Lorem ipsum dolor sit amet consectetur adipisicing elit. Id natus aliquid laborum consequatur debitis similique, illo voluptatum quo molestias possimus officia tempore vitae tenetur velit. Quae eius totam ducimus nobis.",
+      "Create an account using your email and phone, verify it with the OTP,choose you wellness plan  and your account will be activated.",
   },
   {
-    question: "Do I need prior experience to join Skyborne programs?",
+    question: "How do I subscribe?",
     answer:
-      "  Lorem ipsum dolor sit amet consectetur adipisicing elit. Id natus aliquid laborum consequatur debitis similique, illo voluptatum quo molestias possimus officia tempore vitae tenetur velit. Quae eius totam ducimus nobis.",
-  },
-  {
-    question: "How do I book a class or coaching session?",
-    answer:
-      "  Lorem ipsum dolor sit amet consectetur adipisicing elit. Id natus aliquid laborum consequatur debitis similique, illo voluptatum quo molestias possimus officia tempore vitae tenetur velit. Quae eius totam ducimus nobis.",
-  },
-  {
-    question: "What should I bring to a yoga or fitness session?",
-    answer:
-      "  Lorem ipsum dolor sit amet consectetur adipisicing elit. Id natus aliquid laborum consequatur debitis similique, illo voluptatum quo molestias possimus officia tempore vitae tenetur velit. Quae eius totam ducimus nobis.",
-  },
-  {
-    question: "Are nutritional plans personalized for each member?",
-    answer:
-      "  Lorem ipsum dolor sit amet consectetur adipisicing elit. Id natus aliquid laborum consequatur debitis similique, illo voluptatum quo molestias possimus officia tempore vitae tenetur velit. Quae eius totam ducimus nobis.",
-  },
-  {
-    question: "How often are workshops or special events held?",
-    answer:
-      "  Lorem ipsum dolor sit amet consectetur adipisicing elit. Id natus aliquid laborum consequatur debitis similique, illo voluptatum quo molestias possimus officia tempore vitae tenetur velit. Quae eius totam ducimus nobis.",
+      "After logging in, open packages section, choose a package, and complete your payment.",
   },
 ];
+
+
 const start = async () => {
   try {
     await mongoose.connect(process.env.MONGO_URI!);

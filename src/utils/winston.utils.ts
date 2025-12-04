@@ -72,6 +72,7 @@ const logAuthEvent = (data: {
     | "logout"
     | "password_reset"
     | "otp_sent"
+    | "social_login"
     | "otp_verified";
   success: boolean;
   ip?: string;

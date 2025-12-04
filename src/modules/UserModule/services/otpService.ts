@@ -3,6 +3,11 @@ import nodemailer from 'nodemailer';
 import { logger } from '../../../utils/winston.utils';
 import { SendEmailCommand } from "@aws-sdk/client-ses";
 import sesClient from '../../../config/ses';
+import sgMail from "@sendgrid/mail";
+
+
+sgMail.setApiKey(process.env.SENDGRID_API_KEY!);
+
 
 export class OTPService {
   private static readonly OTP_PREFIX = 'otp:';
@@ -27,38 +32,32 @@ export class OTPService {
 
 static async sendEmailOTP(email: string, otp: string): Promise<void> {
   try {
-    // 1. Prepare SES parameters
-    const params = {
-      Source: `"Skyborne" <info@skybornedrop.com>`,
-      Destination: {
-        ToAddresses: [email],
+    const msg = {
+      to: email,
+      from: {
+        email: "info@skybornedrop.com",
+        name: "Skyborne",
       },
-      Message: {
-        Subject: { Data: "Your Skyborne Verification Code" },
-        Body: {
-          Html: {
-            Data: `
-              <h2>Your Verification Code</h2>
-              <p>Your OTP is: <strong>${otp}</strong></p>
-              <p>This OTP expires in <b>10 minutes</b>.</p>
-            `,
-          },
-        },
-      },
+      subject: "Your Skyborne Verification Code",
+      html: `
+        <h2>Your Verification Code</h2>
+        <p>Your OTP is: <strong>${otp}</strong></p>
+        <p>This OTP expires in <b>10 minutes</b>.</p>
+      `,
     };
 
-    // 2. Send Email via SES
-    const response = await sesClient.send(new SendEmailCommand(params));
+    const response = await sgMail.send(msg);
 
     logger.info(
-      `OTP Email sent to: ${this.maskEmail(email)} | MessageID: ${response.MessageId}`
+      `OTP Email sent to: ${this.maskEmail(email)} | MessageID: ${response[0].headers["x-message-id"]}`
     );
+
   } catch (err: any) {
     logger.error(
       `Email OTP sending failed for ${this.maskEmail(email)} | Error: ${err.message}`
     );
 
-    // Fallback — show OTP in development
+    // Fallback — show OTP only in development
     if (process.env.NODE_ENV === "development") {
       console.log(`
       📩 Email OTP (development mode)
@@ -68,6 +67,51 @@ static async sendEmailOTP(email: string, otp: string): Promise<void> {
     }
   }
 }
+
+// static async sendEmailOTP(email: string, otp: string): Promise<void> {
+//   try {
+//     const transporter = nodemailer.createTransport({
+//       host: "email-smtp.ap-south-1.amazonaws.com",
+//       port: 587,
+//       secure: false, // TLS
+//       auth: {
+//         user: process.env.SES_SMTP_USERNAME!,
+//         pass: process.env.SES_SMTP_PASSWORD!,
+//       },
+//     });
+
+//     const mailOptions = {
+//       from: `"Skyborne" <info@skybornedrop.com>`,
+//       to: email,
+//       subject: "Your Skyborne Verification Code",
+//       html: `
+//         <h2>Your Verification Code</h2>
+//         <p>Your OTP is: <strong>${otp}</strong></p>
+//         <p>This OTP expires in <b>10 minutes</b>.</p>
+//       `,
+//     };
+
+//     const response = await transporter.sendMail(mailOptions);
+
+//     logger.info(
+//       `OTP Email sent to: ${this.maskEmail(email)} | MessageID: ${response.messageId}`
+//     );
+
+//   } catch (err: any) {
+//     logger.error(
+//       `Email OTP sending failed for ${this.maskEmail(email)} | Error: ${err.message}`
+//     );
+
+//     // Fallback — show OTP in development
+//     if (process.env.NODE_ENV === "development") {
+//       console.log(`
+//       📩 Email OTP (development mode)
+//       Email: ${email}
+//       OTP: ${otp}
+//       `);
+//     }
+//   }
+// }
 
 
   /**
