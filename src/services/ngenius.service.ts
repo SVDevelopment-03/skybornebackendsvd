@@ -88,154 +88,126 @@ export class NgeniusService {
     }
   }
 
-  static async createOrder(amount: any, currency: any, userId: string,plan:string) {
-    console.log("=== NGENIUS: Creating Order ===");
-    console.log("Amount:", amount);
-    console.log("Currency:", currency);
-    console.log("UserID:", userId);
-    console.log("plan:", plan);
+ static async createOrder(amount: any, currency: any, userId: string, plan: string) {
 
-    try {
-      if (!process.env.NGENIUS_OUTLET_ID) {
-        throw new Error('NGENIUS_OUTLET_ID is not defined in .env');
-      }
+  try {
+    if (!process.env.NGENIUS_OUTLET_ID) {
+      throw new Error('NGENIUS_OUTLET_ID is not defined in .env');
+    }
 
-      if (!process.env.NGENIUS_REDIRECT_URL) {
-        throw new Error('NGENIUS_REDIRECT_URL is not defined in .env');
-      }
+    const token = await this.getAccessToken();
 
-      if (!process.env.NGENIUS_CANCEL_URL) {
-        throw new Error('NGENIUS_CANCEL_URL is not defined in .env');
-      }
+    const orderRef = "SB-" + Date.now();
+    const outletId = process.env.NGENIUS_OUTLET_ID.trim();
+    const orderURL = `${process.env.NGENIUS_API_URL}/transactions/outlets/${outletId}/orders`;
 
-      const token = await this.getAccessToken();
+    const redirectUrl = process.env.NGENIUS_REDIRECT_URL?.split('?')[0];
+    const cancelUrl = process.env.NGENIUS_CANCEL_URL?.split('?')[0];
 
-      const orderRef = "SB-" + Date.now();
-      console.log("Generated orderRef:", orderRef);
+    //    const baseRedirectUrl = process.env.NGENIUS_REDIRECT_URL?.split('?')[0];
+    // const baseCancelUrl = process.env.NGENIUS_CANCEL_URL?.split('?')[0];
 
-      const outletId = process.env.NGENIUS_OUTLET_ID.trim();
-      const orderURL = `${process.env.NGENIUS_API_URL}/transactions/outlets/${outletId}/orders`;
+    // const redirectUrl = `${baseRedirectUrl}?orderRef=${orderRef}`;
+    // const cancelUrl = `${baseCancelUrl}?orderRef=${orderRef}`;
 
-      console.log("Outlet ID:", outletId);
-      console.log("Order URL:", orderURL);
 
-      const body = {
-        action: "SALE",
-        amount: {
-          currencyCode: currency,
-          value: amount * 100,
-        },
-        merchantAttributes: {
-          redirectUrl: `${process.env.NGENIUS_REDIRECT_URL}?orderRef=${orderRef}`,
-          cancelUrl: `${process.env.NGENIUS_CANCEL_URL}?orderRef=${orderRef}`,
-        },
-        merchantDefinedData: { 
-          orderRef,
-          userId,
-        },
-      };
+    const body = {
+      action: "SALE",
+      amount: {
+        currencyCode: currency,
+        value: amount * 100,
+      },
+      merchantAttributes: {
+        redirectUrl: redirectUrl,
+        cancelUrl: cancelUrl,
+      },
+      merchantDefinedData: { 
+        orderRef,
+        userId,
+        plan,
+      },
+    };
 
-      console.log("Order Body:", JSON.stringify(body, null, 2));
+    const response = await axios.post<OrderResponse>(orderURL, body, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/vnd.ni-payment.v2+json",
+        Accept: "application/vnd.ni-payment.v2+json",
+      },
+      timeout: this.TIMEOUT,
+      httpAgent: new (require('http').Agent)({ keepAlive: false }),
+      httpsAgent: new (require('https').Agent)({ keepAlive: false }),
+      withCredentials: false,
+    });
 
-      const response = await axios.post<OrderResponse>(orderURL, body, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/vnd.ni-payment.v2+json",
-          Accept: "application/vnd.ni-payment.v2+json",
-        },
-        timeout: this.TIMEOUT,
-      });
+    const data = response.data;
 
-      const data = response.data;
-
-      console.log("=== NGENIUS ORDER RESPONSE ===");
-      console.log(JSON.stringify(data, null, 2));
-
-      // Handle both response formats
-      let paymentLink = data?._links?.payment?.href || 
+    const paymentLink = data?._links?.payment?.href || 
                         data?.links?.find(l => l.rel === 'payment')?.href;
 
-      if (!paymentLink) {
-        console.warn('⚠️ Payment link not found in response');
-        console.warn('Available links:', JSON.stringify(data?.links, null, 2));
-        throw new Error('No payment link returned from nGenius');
-      }
-
-      console.log("✅ Payment Link:", paymentLink);
-      console.log("Order Reference from API:", data.reference);
-
-      // Save to database
-      await Payment.create({
-        userId,
-        orderRef,
-        amount,
-        currency,
-        status: "PENDING",
-        plan,
-        paymentLink,
-        gatewayResponse: data,
-      });
-
-      console.log("✅ Order saved to DB successfully.");
-
-      return { orderRef, paymentLink, reference: data.reference };
-
-    } catch (error) {
-      const err = error as AxiosError<ErrorResponse>;
-      
-      console.error("❌ NGENIUS ORDER CREATION ERROR:");
-      console.error("Message:", err.message);
-
-      if (err.response?.status === 502) {
-        console.error("\n⚠️  502 Bad Gateway - Outlet Configuration Issue:");
-        console.error("Possible causes:");
-        console.error("  1. Outlet ID is incorrect or doesn't exist");
-        console.error("  2. Outlet is disabled/inactive in nGenius dashboard");
-        console.error("  3. Outlet doesn't support currency:", error instanceof AxiosError ? error.response?.data : '');
-        console.error("  4. Outlet is not properly configured");
-        console.error("\nSolution: Verify outlet ID in nGenius dashboard and ensure it's ACTIVE");
-        throw new Error(`Outlet Configuration Error - Check NGENIUS_OUTLET_ID: ${process.env.NGENIUS_OUTLET_ID}`);
-      }
-
-      if (err.response?.status === 401) {
-        console.error("Status:", err.response.status);
-        console.error("Unauthorized - Token invalid or expired");
-        throw new Error('Unauthorized - Check API credentials');
-      }
-
-      if (err.response?.status === 400) {
-        console.error("Status:", err.response.status);
-        console.error("Bad Request - Check order payload");
-        console.error("Response Data:", err.response.data);
-        throw err;
-      }
-
-      console.error("Status:", err.response?.status);
-      console.error("Response Data:", err.response?.data);
-
-      throw err;
+    if (!paymentLink) {
+      throw new Error('No payment link returned from nGenius');
     }
+
+    // ✅ Save with reference from nGenius
+    await Payment.create({
+      userId,
+      orderRef,
+      reference: data.reference, // ✅ Save nGenius reference
+      amount,
+      currency,
+      plan,
+      status: "PENDING",
+      paymentLink,
+      gatewayResponse: data,
+    });
+
+    console.log("✅ Order saved successfully");
+    console.log("Order Ref:", orderRef);
+    console.log("nGenius Reference:", data.reference);
+
+    return { 
+      orderRef, 
+      paymentLink, 
+      reference: data.reference // ✅ Return reference to frontend
+    };
+
+  } catch (error) {
+    const err = error as AxiosError<ErrorResponse>;
+    console.error("❌ NGENIUS ORDER CREATION ERROR:", err.message);
+    throw err;
   }
+}
 
-  static async getOrderStatus(orderRef: string): Promise<any> {
-    try {
-      const token = await this.getAccessToken();
-      const outletId = process.env.NGENIUS_OUTLET_ID;
+static async getOrderStatus(reference: string): Promise<any> {
+  try {
+    const token = await this.getAccessToken();
+    const outletId = process.env.NGENIUS_OUTLET_ID;
 
-      const statusURL = `${process.env.NGENIUS_API_URL}/transactions/outlets/${outletId}/orders/${orderRef}`;
+    // ✅ FIXED: Use 'reference' (nGenius order ID), not 'orderRef' (your order ID)
+    // reference = nGenius reference (e.g., "30a370c8-3d42-480e-86e8-d33f3c0ca440")
+    // orderRef = your reference (e.g., "SB-1764919789544")
+    const statusURL = `${process.env.NGENIUS_API_URL}/transactions/outlets/${outletId}/orders/${reference}`;
 
-      const response = await axios.get(statusURL, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: "application/vnd.ni-payment.v2+json",
-        },
-        timeout: this.TIMEOUT,
-      });
+    console.log("Fetching order status from:", statusURL);
 
-      return response.data;
-    } catch (error) {
-      console.error("Error fetching order status:", error);
-      throw error;
-    }
+    const response = await axios.get(statusURL, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.ni-payment.v2+json",
+      },
+      timeout: this.TIMEOUT,
+    });
+
+    console.log("✅ Order Status Response:", JSON.stringify(response.data, null, 2));
+    return response.data;
+  } catch (error) {
+    const err = error as AxiosError;
+    console.error("❌ Error fetching order status:");
+    console.error("Status:", err.response?.status);
+    console.error("Message:", err.message);
+    console.error("Data:", err.response?.data);
+    throw error;
   }
+}
 }
