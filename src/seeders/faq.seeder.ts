@@ -8,7 +8,7 @@ export const contentData = [
   {
     question: "How do I sign up?",
     answer:
-      "Create an account using your email and phone, verify it with the OTP,choose you wellness plan  and your account will be activated.",
+      "Create an account using your email and phone, verify it with the OTP, choose you wellness plan  and your account will be activated.",
   },
   {
     question: "How do I subscribe?",

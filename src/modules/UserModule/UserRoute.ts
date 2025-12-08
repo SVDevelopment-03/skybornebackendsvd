@@ -7,4 +7,10 @@ export const UserRoute = [
     action: UserController.me,
     method: "get",
   },
+   {
+    path: "/dashboardStats",
+    request: null,
+    action: UserController.GetDashboardStats,
+    method: "get",
+  },
 ];

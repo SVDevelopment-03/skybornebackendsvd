@@ -3,7 +3,9 @@ import express from "express";
 import MeetingAttendance from "../modules/MeetingModule/MeetingModels/MeetingAttendance";
 import Meeting from "../modules/MeetingModule/MeetingModels/Meeting";
 import User from "../modules/UserModule/models/User";
+import MeetingParticipant from "../modules/MeetingModule/MeetingModels/MeetingParticipant";// New model
 
+type TitleType = "yoga" | "zumba" | "specialty";
 const router = express.Router();
 const ZOOM_SECRET_TOKEN = process.env.ZOOM_SECRET_TOKEN!;
 
@@ -33,6 +35,7 @@ router.post("/zoom-webhook", async (req, res) => {
 
   const zoomMeetingId = payload?.object?.id;
   const participant = payload?.object?.participant;
+  const zoomParticipantId = participant?.id; // Get participant ID
 
   if (!zoomMeetingId) return res.status(200).send("OK");
 
@@ -40,7 +43,10 @@ router.post("/zoom-webhook", async (req, res) => {
   // RECORDING COMPLETED
   // ======================================================
   if (event === "recording.completed") {
-    console.log("🎬 [RECORDING] Recording completed for meeting:", zoomMeetingId);
+    console.log(
+      "🎬 [RECORDING] Recording completed for meeting:",
+      zoomMeetingId
+    );
 
     try {
       const meetingDoc = await Meeting.findOne({ zoomMeetingId });
@@ -49,23 +55,20 @@ router.post("/zoom-webhook", async (req, res) => {
         return res.status(200).send("OK");
       }
 
-      // Extract recording URL from payload
       const recordingFiles = payload?.object?.recording_files;
-      
+
       if (!recordingFiles || recordingFiles.length === 0) {
         console.log("⚠️ [RECORDING] No recording files found in payload");
         return res.status(200).send("OK");
       }
 
-      // Get the first recording file (video file)
       const recordingUrl = recordingFiles[0]?.download_url;
-      
+
       if (!recordingUrl) {
         console.log("⚠️ [RECORDING] No download URL found in recording files");
         return res.status(200).send("OK");
       }
 
-      // Update meeting with recording URL
       await Meeting.findByIdAndUpdate(
         meetingDoc._id,
         { recordingUrl },
@@ -74,11 +77,14 @@ router.post("/zoom-webhook", async (req, res) => {
 
       console.log("✅ [RECORDING] Updated meeting with recording URL");
       console.log("📍 [RECORDING] Recording URL:", recordingUrl);
-      
+
       return res.status(200).send("OK");
     } catch (error: any) {
-      console.error("❌ [RECORDING] Error updating recording URL:", error.message);
-      return res.status(200).send("OK"); // Still return 200 to acknowledge
+      console.error(
+        "❌ [RECORDING] Error updating recording URL:",
+        error.message
+      );
+      return res.status(200).send("OK");
     }
   }
 
@@ -88,22 +94,30 @@ router.post("/zoom-webhook", async (req, res) => {
     return res.status(200).send("OK");
   }
 
-  // Zoom usually gives user email
-  const email = participant?.user_email;
-  const name = participant?.user_name;
-
-  // Link participant to your user database
-  const user = await User.findOne({ email });
-  if (!user) {
-    console.log("User not found in DB →", email);
-    return res.status(200).send("OK");
-  }
-
   // ======================================================
   // PARTICIPANT JOINED
   // ======================================================
   if (event === "meeting.participant_joined") {
-    console.log("👤 [JOIN] Participant joined →", email);
+    console.log("👤 [JOIN] Participant ID →", zoomParticipantId);
+
+    // Find user by zoomParticipantId
+    const participantRecord = await MeetingParticipant.findOne({
+      zoomParticipantId,
+      meetingId: meetingDoc._id,
+    });
+
+    if (!participantRecord) {
+      console.log("⚠️ [JOIN] Participant record not found for ID:", zoomParticipantId);
+      return res.status(200).send("OK");
+    }
+
+    const user = await User.findById(participantRecord.userId);
+    if (!user) {
+      console.log("User not found in DB →", participantRecord.userId);
+      return res.status(200).send("OK");
+    }
+
+    console.log("👤 [JOIN] User matched →", user.email);
 
     let attendance = await MeetingAttendance.findOne({
       meeting: meetingDoc._id,
@@ -115,6 +129,7 @@ router.post("/zoom-webhook", async (req, res) => {
         meeting: meetingDoc._id,
         user: user._id,
         sessions: [],
+        status: "joined",
         totalDuration: 0,
         progress: 0,
       });
@@ -127,13 +142,49 @@ router.post("/zoom-webhook", async (req, res) => {
 
     await attendance.save();
     console.log("✅ [JOIN] Session saved");
+
+    // Update participant record with actual join time
+    await MeetingParticipant.findByIdAndUpdate(participantRecord._id, {
+      joinedAt: new Date(),
+    });
+
+    const meetingType = await Meeting.findById(meetingDoc._id)
+      .populate("+service")
+      .populate("+title");
+    const title: TitleType = meetingType?.title as TitleType;
+
+    let userData = await User.findById(user._id);
+    if (userData) {
+      userData.classCredits[title] = (userData.classCredits[title] || 0) - 1;
+      await userData.save();
+      console.log(`✅ [JOIN] Deducted 1 class credit for ${title}`);
+    }
   }
 
   // ======================================================
   // PARTICIPANT LEFT
   // ======================================================
   if (event === "meeting.participant_left") {
-    console.log("👤 [LEAVE] Participant left →", email);
+    console.log("👤 [LEAVE] Participant ID →", zoomParticipantId);
+
+    // Find user by zoomParticipantId
+    const participantRecord = await MeetingParticipant.findOne({
+      zoomParticipantId,
+      meetingId: meetingDoc._id,
+    });
+
+    if (!participantRecord) {
+      console.log("⚠️ [LEAVE] Participant record not found for ID:", zoomParticipantId);
+      return res.status(200).send("OK");
+    }
+
+    const user = await User.findById(participantRecord.userId);
+    if (!user) {
+      console.log("User not found in DB");
+      return res.status(200).send("OK");
+    }
+
+    console.log("👤 [LEAVE] User matched →", user.email);
 
     const attendance = await MeetingAttendance.findOne({
       meeting: meetingDoc._id,
@@ -159,8 +210,17 @@ router.post("/zoom-webhook", async (req, res) => {
       );
 
       await attendance.save();
-      console.log("✅ [LEAVE] Session saved → duration:", duration / 60000, "minutes");
+      console.log(
+        "✅ [LEAVE] Session saved → duration:",
+        duration / 60000,
+        "minutes"
+      );
     }
+
+    // Update participant record with leave time
+    await MeetingParticipant.findByIdAndUpdate(participantRecord._id, {
+      leftAt: new Date(),
+    });
   }
 
   // ======================================================

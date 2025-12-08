@@ -14,6 +14,7 @@ export interface ISession {
 
 export interface IMeetingAttendance extends Document {
   meeting: IMeeting | Types.ObjectId;
+  zoomParticipantId?:string;
   user: Types.ObjectId;
   region?: string; // Region user is accessing from
   progress?: number;
@@ -40,11 +41,11 @@ const SessionSchema = new Schema<ISession>(
       default: null,
     },
     duration: {
-      type: Number, // in minutes
+      type: Number,
       default: 0,
     },
     progress: {
-      type: Number, // in minutes
+      type: Number,
       default: 0,
     },
     zoomParticipantId: {
@@ -111,6 +112,10 @@ const MeetingAttendanceSchema = new Schema<IMeetingAttendance>(
       default: 0,
       description: "Total number of sessions attended",
     },
+      zoomParticipantId: {
+    type: String,
+    required: false,
+  },
 
     status: {
       type: String,

@@ -26,4 +26,17 @@ export const MeetingRoute = [
     action: MeetingController.GetUpcomingMeetings,
     method: "get",
   },
+
+   {
+    path: "/meetings/getAll",
+    request: UpcomingMeetingsSchema,
+    action: MeetingController.getSessionsWithPagination,
+    method: "get",
+  },
+    {
+    path: "/meetings/attendance/monthly",
+    request: null,
+    action: MeetingController.GetMonthlyAttendance,
+    method: "get",
+  },
 ];
