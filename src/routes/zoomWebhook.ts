@@ -3,7 +3,7 @@ import express from "express";
 import MeetingAttendance from "../modules/MeetingModule/MeetingModels/MeetingAttendance";
 import Meeting from "../modules/MeetingModule/MeetingModels/Meeting";
 import User from "../modules/UserModule/models/User";
-import MeetingParticipant from "../modules/MeetingModule/MeetingModels/MeetingParticipant";// New model
+import MeetingParticipant from "../modules/MeetingModule/MeetingModels/MeetingParticipant"; // New model
 
 type TitleType = "yoga" | "zumba" | "specialty";
 const router = express.Router();
@@ -94,10 +94,31 @@ router.post("/zoom-webhook", async (req, res) => {
     return res.status(200).send("OK");
   }
 
-  // ======================================================
-  // PARTICIPANT JOINED
-  // ======================================================
   if (event === "meeting.participant_joined") {
+    const zoomParticipantId = payload.object.participant.id;
+
+    // Assign Zoom ID to the first unmatched participant created earlier
+    const participantRecord = await MeetingParticipant.findOneAndUpdate(
+      {
+        meetingId: meetingDoc._id,
+        zoomParticipantId: null,
+      },
+      {
+        zoomParticipantId,
+        joinedAt: new Date(),
+      },
+      { new: true }
+    );
+
+    if (!participantRecord) {
+      console.log("⚠️ No user waiting for Zoom ID");
+      return res.status(200).send("OK");
+    }
+
+    console.log("Linked Zoom participant →", participantRecord.userId);
+  }
+
+  if (event === "meeting.participant_left") {
     console.log("👤 [JOIN] Participant ID →", zoomParticipantId);
 
     // Find user by zoomParticipantId
@@ -107,7 +128,10 @@ router.post("/zoom-webhook", async (req, res) => {
     });
 
     if (!participantRecord) {
-      console.log("⚠️ [JOIN] Participant record not found for ID:", zoomParticipantId);
+      console.log(
+        "⚠️ [JOIN] Participant record not found for ID:",
+        zoomParticipantId
+      );
       return res.status(200).send("OK");
     }
 
@@ -135,93 +159,94 @@ router.post("/zoom-webhook", async (req, res) => {
       });
     }
 
-    attendance.sessions.push({
-      joinTime: new Date(),
-      leaveTime: null,
-    });
-
-    await attendance.save();
-    console.log("✅ [JOIN] Session saved");
-
     // Update participant record with actual join time
     await MeetingParticipant.findByIdAndUpdate(participantRecord._id, {
       joinedAt: new Date(),
     });
+    const meetingType = await Meeting.findById(meetingDoc._id);
 
-    const meetingType = await Meeting.findById(meetingDoc._id)
-      .populate("+service")
-      .populate("+title");
-    const title: TitleType = meetingType?.title as TitleType;
+    if (
+      meetingType &&
+      typeof meetingType.service === "object" &&
+      "title" in meetingType.service && attendance?.status !== "joined"
+    ) {
+      const title = meetingType.service.title.toLowerCase();
 
-    let userData = await User.findById(user._id);
-    if (userData) {
-      userData.classCredits[title] = (userData.classCredits[title] || 0) - 1;
-      await userData.save();
-      console.log(`✅ [JOIN] Deducted 1 class credit for ${title}`);
+      let userData: any = await User.findById(user._id);
+      if (userData) {
+        userData.classCredits[title] = (userData.classCredits[title] || 0) - 1;
+        await userData.save();
+        attendance.status = "joined";
+
+        attendance.sessions.push({
+          joinTime: new Date(),
+          leaveTime: null,
+        });
+
+        await attendance.save();
+      }
+      console.log("Service Title:", title);
     }
   }
 
-  // ======================================================
-  // PARTICIPANT LEFT
-  // ======================================================
-  if (event === "meeting.participant_left") {
-    console.log("👤 [LEAVE] Participant ID →", zoomParticipantId);
+  // if (event === "meeting.participant_left") {
+  //   console.log("👤 [LEAVE] Participant ID →", zoomParticipantId);
 
-    // Find user by zoomParticipantId
-    const participantRecord = await MeetingParticipant.findOne({
-      zoomParticipantId,
-      meetingId: meetingDoc._id,
-    });
+  //   // Find user by zoomParticipantId
+  //   const participantRecord = await MeetingParticipant.findOne({
+  //     zoomParticipantId,
+  //     meetingId: meetingDoc._id,
+  //   });
 
-    if (!participantRecord) {
-      console.log("⚠️ [LEAVE] Participant record not found for ID:", zoomParticipantId);
-      return res.status(200).send("OK");
-    }
+  //   if (!participantRecord) {
+  //     console.log("⚠️ [LEAVE] Participant record not found for ID:", zoomParticipantId);
+  //     return res.status(200).send("OK");
+  //   }
 
-    const user = await User.findById(participantRecord.userId);
-    if (!user) {
-      console.log("User not found in DB");
-      return res.status(200).send("OK");
-    }
+  //   const user = await User.findById(participantRecord.userId);
+  //   if (!user) {
+  //     console.log("User not found in DB");
+  //     return res.status(200).send("OK");
+  //   }
 
-    console.log("👤 [LEAVE] User matched →", user.email);
+  //   console.log("👤 [LEAVE] User matched →", user.email);
 
-    const attendance = await MeetingAttendance.findOne({
-      meeting: meetingDoc._id,
-      user: user._id,
-    });
+  //   const attendance = await MeetingAttendance.findOne({
+  //     meeting: meetingDoc._id,
+  //     user: user._id,
+  //   });
 
-    if (!attendance) return res.status(200).send("OK");
+  //   if (!attendance) return res.status(200).send("OK");
 
-    const lastSession = attendance.sessions[attendance.sessions.length - 1];
+  //   const lastSession = attendance.sessions[attendance.sessions.length - 1];
 
-    if (lastSession && !lastSession.leaveTime) {
-      lastSession.leaveTime = new Date();
+  //   if (lastSession && !lastSession.leaveTime) {
+  //     lastSession.leaveTime = new Date();
 
-      const duration =
-        lastSession.leaveTime.getTime() - lastSession.joinTime.getTime();
+  //     const duration =
+  //       lastSession.leaveTime.getTime() - lastSession.joinTime.getTime();
 
-      attendance.totalDuration += duration;
+  //     attendance.totalDuration += duration;
 
-      const meetingDurationMs = meetingDoc.duration * 60000;
-      attendance.progress = Math.min(
-        100,
-        Math.round((attendance.totalDuration / meetingDurationMs) * 100)
-      );
+  //     const meetingDurationMs = meetingDoc.duration * 60000;
+  //     attendance.progress = Math.min(
+  //       100,
+  //       Math.round((attendance.totalDuration / meetingDurationMs) * 100)
+  //     );
 
-      await attendance.save();
-      console.log(
-        "✅ [LEAVE] Session saved → duration:",
-        duration / 60000,
-        "minutes"
-      );
-    }
+  //     await attendance.save();
+  //     console.log(
+  //       "✅ [LEAVE] Session saved → duration:",
+  //       duration / 60000,
+  //       "minutes"
+  //     );
+  //   }
 
-    // Update participant record with leave time
-    await MeetingParticipant.findByIdAndUpdate(participantRecord._id, {
-      leftAt: new Date(),
-    });
-  }
+  //   // Update participant record with leave time
+  //   await MeetingParticipant.findByIdAndUpdate(participantRecord._id, {
+  //     leftAt: new Date(),
+  //   });
+  // }
 
   // ======================================================
   // MEETING LIFECYCLE

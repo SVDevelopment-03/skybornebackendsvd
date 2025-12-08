@@ -11,9 +11,17 @@ export interface IRegionEntry {
   mode: "live" | "replay";  // tells frontend live or replay
 }
 
+export interface IService {
+  _id: Types.ObjectId;
+  title: string;
+  description: string;
+  image: string;
+  isActive: boolean;
+}
+
 export interface IMeeting extends Document {
   zoomMeetingId: number;
-  service: Types.ObjectId;
+  service: Types.ObjectId | IService;
   title: string;
 
   // NEW FIELD: dynamic region grid

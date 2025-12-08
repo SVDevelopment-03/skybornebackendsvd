@@ -1,12 +1,13 @@
 import { Request, Response } from "express";
 import axios from "axios";
-import Meeting, { IMeeting } from "./MeetingModels/Meeting";
+import Meeting, { IMeeting, IService } from "./MeetingModels/Meeting";
 import MeetingAttendance from "./MeetingModels/MeetingAttendance";
 import { getZoomAccessToken } from "../../utils/zoomAuth";
-import { Types } from "mongoose";
+import mongoose, { Types } from "mongoose";
 import MeetingParticipant from "./MeetingModels/MeetingParticipant";
 import User from "../UserModule/models/User";
 import Service from "../ServiceModule/models/Service";
+import { ServiceType } from "../UserModule/interface/userInterface";
 
 export default class MeetingController {
   static async CreateMeeting(req: Request, res: Response) {
@@ -289,13 +290,14 @@ export default class MeetingController {
       const { meetingId, userId, region } = req.body;
       const user = req.user;
 
-      // Validate required fields
-      if (!meetingId || !userId || !region) {
-        return res.status(400).json({
-          success: false,
-          message: "Missing required fields: meetingId, userId, region",
-        });
-      }
+
+         const userData = await User.findById(userId);
+    if (!userData) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
 
       // Find the meeting
       const meeting = await Meeting.findById(meetingId).populate(
@@ -309,6 +311,26 @@ export default class MeetingController {
           message: "Meeting not found",
         });
       }
+
+
+    // Determine service type
+    const serviceType = (meeting?.service as IService)?.title?.toLowerCase();
+    if (!["yoga", "zumba", "specialty"].includes(serviceType)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid service type for meeting",
+      });
+    }
+
+    // Check class credits
+    const credits :any= userData.classCredits?.[serviceType as ServiceType]   || 0;
+
+    if (credits <= 0) {
+      return res.status(403).json({
+        success: false,
+        message: `You do not have enough ${serviceType} credits to join this session`,
+      });
+    }
 
       // Find the region entry for this specific region
       const regionEntry = meeting.regions.find(
@@ -370,7 +392,7 @@ export default class MeetingController {
       // Find or create attendance record
       let attendance = await MeetingAttendance.findOne({
         meeting: meetingId,
-        user: userId,
+        user: userId
       });
 
       if (!attendance) {
@@ -378,6 +400,7 @@ export default class MeetingController {
           meeting: meetingId,
           user: userId,
           region, // Store which region user is accessing from
+          joinedAt:new Date(),
           sessions: [{ joinTime: new Date(), mode: regionEntry.mode }],
         });
       } else {
@@ -529,6 +552,8 @@ export default class MeetingController {
   static async GetMonthlyAttendance(req: Request, res: Response) {
     try {
       const userId = req.user?.id;
+      console.log("user", userId);
+      
       const { period = "6months" } = req.query;
 
       if (!userId) {
@@ -555,7 +580,7 @@ export default class MeetingController {
       const monthlyData = await MeetingAttendance.aggregate([
         {
           $match: {
-            user: userId,
+             user: new mongoose.Types.ObjectId(userId),
             status: { $in: ["joined", "completed"] },
             createdAt: {
               $gte: periodAgo,
@@ -579,6 +604,8 @@ export default class MeetingController {
         },
       ]);
 
+      console.log("monthlyData", monthlyData);
+      
       // Format the response with month names
       const monthNames = [
         "Jan",

@@ -74,7 +74,6 @@ const MeetingAttendanceSchema = new Schema<IMeetingAttendance>(
       ref: "Meeting",
       required: true,
       autopopulate: true,
-      index: true,
     },
 
     user: {
@@ -82,7 +81,6 @@ const MeetingAttendanceSchema = new Schema<IMeetingAttendance>(
       ref: "User",
       required: true,
       autopopulate: true,
-      index: true,
     },
 
     // NEW: Track which region user is from
@@ -143,10 +141,6 @@ const MeetingAttendanceSchema = new Schema<IMeetingAttendance>(
   { timestamps: true }
 );
 
-// Index for common queries
-MeetingAttendanceSchema.index({ meeting: 1, user: 1 }, { unique: true }); // One record per user per meeting
-MeetingAttendanceSchema.index({ meeting: 1, status: 1 });
-MeetingAttendanceSchema.index({ user: 1, status: 1 });
 
 MeetingAttendanceSchema.plugin(autopopulate);
 

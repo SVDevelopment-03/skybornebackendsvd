@@ -80,3 +80,5 @@ export type PlanType =
   | "gold-mixed"
   | "diamond"
   | "platinum";
+
+  export type ServiceType = "yoga"| "zumba"| "specialty"
