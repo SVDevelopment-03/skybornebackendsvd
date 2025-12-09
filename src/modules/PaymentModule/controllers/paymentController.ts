@@ -12,7 +12,7 @@ static async createPaymentOrder(req: Request, res: Response) {
   try {
     let { amount, currency = "USD", userId, plan } = req.body;
 
-      // If payment is coming in USD, convert to AED
+  // If payment is coming in USD, convert to AED
   if (currency === "USD") {
     const rate = await getUsdToAedRate();   // 1 USD = ~3.67 AED
     amount = Number((amount * rate).toFixed(2));
@@ -22,7 +22,8 @@ static async createPaymentOrder(req: Request, res: Response) {
   console.log("amount currency", amount,currency,plan);  
 
     const { orderRef, paymentLink, reference } = await NgeniusService.createOrder(
-      amount,
+      1,
+      // amount,
       currency,
       userId,
       plan
