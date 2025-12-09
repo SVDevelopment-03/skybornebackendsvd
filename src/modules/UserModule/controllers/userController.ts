@@ -62,9 +62,9 @@ static async GetDashboardStats(req: Request, res: Response) {
 
     // 2. Get Total Credits
     const totalCredits =
-      (user.classCredits?.yoga || 0) +
-      (user.classCredits?.zumba || 0) +
-      (user.classCredits?.specialty || 0);
+      (Number(user.classCredits?.yoga) || 0) +
+      (Number(user.classCredits?.zumba)|| 0) +
+      (Number(user.classCredits?.specialty) || 0);
 
     // 3. Count Classes Attended (status: "joined" or "completed")
     const classesAttended = await MeetingAttendance.countDocuments({

@@ -291,7 +291,7 @@ export default class MeetingController {
       const user = req.user;
 
 
-         const userData = await User.findById(userId);
+      const userData = await User.findById(userId);
     if (!userData) {
       return res.status(404).json({
         success: false,
@@ -314,7 +314,9 @@ export default class MeetingController {
 
 
     // Determine service type
-    const serviceType = (meeting?.service as IService)?.title?.toLowerCase();
+    const serviceType = (meeting?.service as IService)?.title?.toLowerCase() == "zumba dance" ? "zumba": (meeting?.service as IService)?.title?.toLowerCase();
+    console.log("service type", serviceType);
+    
     if (!["yoga", "zumba", "specialty"].includes(serviceType)) {
       return res.status(400).json({
         success: false,

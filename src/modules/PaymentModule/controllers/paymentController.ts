@@ -10,7 +10,7 @@ import { PlanType } from "../../UserModule/interface/userInterface";
 export default class PaymentController {
 static async createPaymentOrder(req: Request, res: Response) {
   try {
-    const { amount, currency = "AED", userId, plan } = req.body;
+    const { amount, currency = "USD", userId, plan } = req.body;
 
     const { orderRef, paymentLink, reference } = await NgeniusService.createOrder(
       amount,
