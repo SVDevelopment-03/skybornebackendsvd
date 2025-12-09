@@ -10,7 +10,16 @@ import { PlanType } from "../../UserModule/interface/userInterface";
 export default class PaymentController {
 static async createPaymentOrder(req: Request, res: Response) {
   try {
-    const { amount, currency = "USD", userId, plan } = req.body;
+    let { amount, currency = "USD", userId, plan } = req.body;
+
+      // If payment is coming in USD, convert to AED
+  if (currency === "USD") {
+    const rate = await getUsdToAedRate();   // 1 USD = ~3.67 AED
+    amount = Number((amount * rate).toFixed(2));
+    currency = "AED";
+  };
+
+  console.log("amount currency", amount,currency,plan);  
 
     const { orderRef, paymentLink, reference } = await NgeniusService.createOrder(
       amount,
@@ -194,3 +203,11 @@ static async verifyPayment(req: Request, res: Response, next: any) {
   }
 }
 }
+
+
+async function getUsdToAedRate() {
+  const res = await fetch("https://api.frankfurter.app/latest?amount=1&from=USD&to=AED");
+  return 3.6725;
+
+}
+
