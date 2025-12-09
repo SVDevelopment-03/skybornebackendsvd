@@ -1,5 +1,7 @@
 import axios, { AxiosError } from "axios";
 import Payment from "../modules/PaymentModule/models/Payment";
+import User from "../modules/UserModule/models/User";
+import cron from "node-cron";
 import dotenv from 'dotenv';
 dotenv.config()
 
@@ -21,8 +23,313 @@ interface OrderResponse {
   _links?: { payment?: { href: string } };
 }
 
+interface RecurringPaymentConfig {
+  billingCycleDay?: number; // Day of month to charge (1-28)
+  maxRetries?: number;
+  retryDelayMs?: number;
+}
+
 export class NgeniusService {
   private static readonly TIMEOUT = 20000;
+  private static readonly DEFAULT_RECURRING_CONFIG: RecurringPaymentConfig = {
+    billingCycleDay: 1, // Charge on 1st of every month
+    maxRetries: 3,
+    retryDelayMs: 5000,
+  };
+
+  /**
+   * Initialize recurring payment cron job
+   * Runs daily to check which subscriptions need to be charged
+   */
+  static initRecurringPaymentCron() {
+    console.log("🔄 Initializing recurring payment cron job...");
+
+    // Run every day at 2 AM
+    cron.schedule("0 2 * * *", async () => {
+      console.log("⏰ Running recurring payment check...");
+      await this.processRecurringPayments();
+    });
+
+    console.log("✅ Recurring payment cron job initialized");
+  }
+
+  /**
+   * Process all monthly recurring payments
+   */
+  private static async processRecurringPayments() {
+    try {
+      const config = this.DEFAULT_RECURRING_CONFIG;
+      const billingDay = config.billingCycleDay || 1;
+      const today = new Date().getDate();
+
+      console.log(`📅 Billing day: ${billingDay}, Today: ${today}`);
+
+      if (today !== billingDay) {
+        console.log(`⏭️ Not billing day yet. Next billing on: ${billingDay}`);
+        return;
+      }
+
+      // Find all active subscriptions
+      const activeUsers = await User.find({
+        "subscription.status": "active",
+        "subscription.endDate": { $gt: new Date() },
+      });
+
+      console.log(`📊 Found ${activeUsers.length} active subscriptions`);
+
+      for (const user of activeUsers) {
+        try {
+          await this.chargeRecurringPayment(user?._id.toString(), user?.plan as string);
+        } catch (err) {
+          console.error(`❌ Error charging user ${user._id}:`, err);
+        }
+      }
+
+      console.log("✅ Recurring payment processing completed");
+    } catch (error) {
+      console.error("❌ Error in processRecurringPayments:", error);
+    }
+  }
+
+  /**
+   * Charge a user for their monthly subscription
+   */
+  static async chargeRecurringPayment(
+    userId: string,
+    plan: string,
+    retryAttempt = 0,
+    config = this.DEFAULT_RECURRING_CONFIG
+  ): Promise<void> {
+    try {
+      const user = await User.findById(userId);
+
+      if (!user || !user.plan) {
+        throw new Error(`User ${userId} not found or has no plan`);
+      }
+
+      // Get plan amount from config
+      const amount = this.getPlanAmount(plan);
+
+      console.log(`💳 Charging user ${userId} for plan ${plan}: ${amount} AED`);
+
+      // Create recurring order
+      const { orderRef, reference } = await this.createOrder(
+        amount,
+        "AED",
+        userId,
+        plan
+      );
+
+      // Create payment record marked as recurring
+      const payment = await Payment.create({
+        userId,
+        orderRef,
+        reference,
+        amount,
+        currency: "AED",
+        plan,
+        status: "PENDING",
+        isRecurring: true,
+        recurringCycle: this.getMonthlyRecurringCycle(),
+        billingAttempt: retryAttempt + 1,
+        createdAt: new Date(),
+      });
+
+      console.log(`📝 Recurring payment created: ${payment._id}`);
+
+      // Verify payment after short delay
+      setTimeout(() => {
+        this.verifyRecurringPayment(orderRef, reference, userId, plan);
+      }, 3000);
+
+    } catch (error) {
+      console.error(`❌ Recurring payment charge failed (Attempt ${retryAttempt + 1}):`, error);
+
+      // Retry logic
+      if (retryAttempt < (config.maxRetries || 3)) {
+        console.log(
+          `🔄 Retrying in ${config.retryDelayMs}ms... (Attempt ${retryAttempt + 2}/${(config.maxRetries || 3) + 1})`
+        );
+
+        setTimeout(() => {
+          this.chargeRecurringPayment(userId, plan, retryAttempt + 1, config);
+        }, config.retryDelayMs || 5000);
+      } else {
+        // Suspend subscription after max retries
+        await this.suspendSubscription(userId);
+        throw error;
+      }
+    }
+  }
+
+  /**
+   * Verify and process recurring payment result
+   */
+  private static async verifyRecurringPayment(
+    orderRef: string,
+    reference: string,
+    userId: string,
+    plan: string
+  ) {
+    try {
+      const payment = await Payment.findOne({ orderRef });
+
+      if (!payment) {
+        console.error(`❌ Payment not found: ${orderRef}`);
+        return;
+      }
+
+      // Fetch status from nGenius
+      const orderStatus = await this.getOrderStatus(reference);
+
+      let paymentStatus = "PENDING";
+
+      if (
+        orderStatus?._embedded?.payment &&
+        orderStatus._embedded.payment.length > 0
+      ) {
+        const paymentData = orderStatus._embedded.payment[0];
+        const ngeniusStatus = paymentData.state;
+
+        if (
+          ngeniusStatus === "CAPTURED" ||
+          ngeniusStatus === "AUTHORISED" ||
+          ngeniusStatus === "SETTLED"
+        ) {
+          paymentStatus = "COMPLETED";
+        } else if (ngeniusStatus === "DECLINED" || ngeniusStatus === "FAILED") {
+          paymentStatus = "FAILED";
+        }
+      }
+
+      // Update payment record
+      payment.status = paymentStatus;
+      payment.gatewayResponse = orderStatus;
+      payment.verifiedAt = new Date();
+      await payment.save();
+
+      console.log(`✅ Recurring payment verified - Status: ${paymentStatus}`);
+
+      // If successful, update next billing date
+      if (paymentStatus === "COMPLETED") {
+        const user = await User.findById(userId);
+        if (user && user.subscription) {
+          user.subscription.endDate = new Date(
+            Date.now() + 30 * 24 * 60 * 60 * 1000
+          );
+          await user.save();
+
+          console.log(`🎉 Subscription renewed for user ${userId}`);
+        }
+      } else {
+        // Notify user of failed payment
+        await this.notifyPaymentFailure(userId, plan);
+      }
+    } catch (error) {
+      console.error(`❌ Error verifying recurring payment:`, error);
+    }
+  }
+
+  /**
+   * Suspend subscription due to failed payments
+   */
+  private static async suspendSubscription(userId: string) {
+    try {
+      const user = await User.findById(userId);
+      if (user && user.subscription) {
+        user.subscription.status = "suspended";
+        user.subscription.suspendedAt = new Date();
+        await user.save();
+
+        console.log(`⛔ Subscription suspended for user ${userId}`);
+        await this.notifySubscriptionSuspended(userId);
+      }
+    } catch (error) {
+      console.error(`❌ Error suspending subscription:`, error);
+    }
+  }
+
+  /**
+   * Get monthly recurring cycle identifier (YYYY-MM format)
+   */
+  private static getMonthlyRecurringCycle(): string {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  }
+
+  /**
+   * Get plan amount from config
+   */
+  private static getPlanAmount(plan: string): number {
+    const PLAN_AMOUNTS: { [key: string]: number } = {
+      basic: 29.99,
+      professional: 79.99,
+      enterprise: 199.99,
+      // Add your plan amounts here
+    };
+
+    return PLAN_AMOUNTS[plan.toLowerCase()] || 50;
+  }
+
+  /**
+   * Notify user of failed payment
+   */
+  private static async notifyPaymentFailure(userId: string, plan: string) {
+    try {
+      const user = await User.findById(userId);
+      if (user && user.email) {
+        console.log(
+          `📧 Sending payment failure notification to ${user.email}`
+        );
+        // Implement email notification here
+        // await sendEmail(user.email, 'Payment Failed', ...);
+      }
+    } catch (error) {
+      console.error(`❌ Error notifying payment failure:`, error);
+    }
+  }
+
+  /**
+   * Notify user of subscription suspension
+   */
+  private static async notifySubscriptionSuspended(userId: string) {
+    try {
+      const user = await User.findById(userId);
+      if (user && user.email) {
+        console.log(
+          `📧 Sending suspension notification to ${user.email}`
+        );
+        // Implement email notification here
+        // await sendEmail(user.email, 'Subscription Suspended', ...);
+      }
+    } catch (error) {
+      console.error(`❌ Error notifying suspension:`, error);
+    }
+  }
+
+  /**
+   * Cancel recurring subscription
+   */
+  static async cancelRecurringSubscription(userId: string): Promise<void> {
+    try {
+      const user = await User.findById(userId);
+
+      if (!user) {
+        throw new Error(`User ${userId} not found`);
+      }
+
+      if (user.subscription) {
+        user.subscription.status = "cancelled";
+        user.subscription.cancelledAt = new Date();
+        await user.save();
+      }
+
+      console.log(`✅ Recurring subscription cancelled for user ${userId}`);
+    } catch (error) {
+      console.error(`❌ Error cancelling subscription:`, error);
+      throw error;
+    }
+  }
 
   static async getAccessToken(): Promise<string> {
     try {
@@ -37,13 +344,7 @@ export class NgeniusService {
         throw new Error('NGENIUS_API_URL is not defined');
       }
 
-      console.log('API URL:', process.env.NGENIUS_API_URL);
-      console.log('API Key Length:', apiKey.length);
-
-      // API key is already base64 encoded from nGenius dashboard
       const encodedApiKey = apiKey;
-
-      console.log('Requesting token from:', tokenURL);
 
       const response = await axios.post<TokenResponse>(
         tokenURL,
@@ -61,153 +362,116 @@ export class NgeniusService {
         throw new Error('No access token in response');
       }
 
-      console.log('✅ Token generated successfully');
       return response.data.access_token;
-
     } catch (error) {
       const axiosError = error as AxiosError<ErrorResponse>;
-      
+
       console.error('❌ nGenius Token Error:');
       console.error('Status:', axiosError.response?.status);
-      console.error('Data:', JSON.stringify(axiosError.response?.data, null, 2));
       console.error('Message:', axiosError.message);
 
       if (axiosError.response?.status === 401) {
-        throw new Error('Unauthorized - Invalid API credentials. Check NGENIUS_API_KEY in .env');
+        throw new Error('Unauthorized - Invalid API credentials');
       }
 
-      if (axiosError.response?.status === 400) {
-        throw new Error('Bad Request - Invalid token request format');
-      }
-
-      if (axiosError.code === 'ECONNABORTED') {
-        throw new Error('Timeout - Check if NGENIUS_API_URL is correct and reachable');
-      }
-
-      throw new Error(`Token request failed: ${axiosError.message}`);
+      throw error;
     }
   }
 
- static async createOrder(amount: any, currency: any, userId: string, plan: string) {
+  static async createOrder(amount: any, currency: any, userId: string, plan: string) {
+    try {
+      if (!process.env.NGENIUS_OUTLET_ID) {
+        throw new Error('NGENIUS_OUTLET_ID is not defined');
+      }
 
-  try {
-    if (!process.env.NGENIUS_OUTLET_ID) {
-      throw new Error('NGENIUS_OUTLET_ID is not defined in .env');
-    }
+      const token = await this.getAccessToken();
+      const orderRef = "SB-" + Date.now();
+      const outletId = process.env.NGENIUS_OUTLET_ID.trim();
+      const orderURL = `${process.env.NGENIUS_API_URL}/transactions/outlets/${outletId}/orders`;
 
-    const token = await this.getAccessToken();
+      const redirectUrl = process.env.NGENIUS_REDIRECT_URL?.split('?')[0];
+      const cancelUrl = process.env.NGENIUS_CANCEL_URL?.split('?')[0];
 
-    const orderRef = "SB-" + Date.now();
-    const outletId = process.env.NGENIUS_OUTLET_ID.trim();
-    const orderURL = `${process.env.NGENIUS_API_URL}/transactions/outlets/${outletId}/orders`;
+      const body = {
+        action: "SALE",
+        amount: {
+          currencyCode: currency,
+          value: amount * 100,
+        },
+        merchantAttributes: {
+          redirectUrl: redirectUrl,
+          cancelUrl: cancelUrl,
+        },
+        merchantDefinedData: {
+          orderRef,
+          userId,
+          plan,
+        },
+      };
 
-    const redirectUrl = process.env.NGENIUS_REDIRECT_URL?.split('?')[0];
-    const cancelUrl = process.env.NGENIUS_CANCEL_URL?.split('?')[0];
+      const response = await axios.post<OrderResponse>(orderURL, body, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/vnd.ni-payment.v2+json",
+          Accept: "application/vnd.ni-payment.v2+json",
+        },
+        timeout: this.TIMEOUT,
+      });
 
-    //    const baseRedirectUrl = process.env.NGENIUS_REDIRECT_URL?.split('?')[0];
-    // const baseCancelUrl = process.env.NGENIUS_CANCEL_URL?.split('?')[0];
+      const data = response.data;
+      const paymentLink =
+        data?._links?.payment?.href ||
+        data?.links?.find((l) => l.rel === "payment")?.href;
 
-    // const redirectUrl = `${baseRedirectUrl}?orderRef=${orderRef}`;
-    // const cancelUrl = `${baseCancelUrl}?orderRef=${orderRef}`;
+      if (!paymentLink) {
+        throw new Error('No payment link returned');
+      }
 
-
-    const body = {
-      action: "SALE",
-      amount: {
-        currencyCode: currency,
-        value: amount * 100,
-      },
-      merchantAttributes: {
-        redirectUrl: redirectUrl,
-        cancelUrl: cancelUrl,
-      },
-      merchantDefinedData: { 
-        orderRef,
-        userId,
-        plan,
-      },
-    };
-
-    const response = await axios.post<OrderResponse>(orderURL, body, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/vnd.ni-payment.v2+json",
-        Accept: "application/vnd.ni-payment.v2+json",
-      },
-      timeout: this.TIMEOUT,
-      httpAgent: new (require('http').Agent)({ keepAlive: false }),
-      httpsAgent: new (require('https').Agent)({ keepAlive: false }),
-      withCredentials: false,
-    });
-
-    const data = response.data;
-
-    const paymentLink = data?._links?.payment?.href || 
-                        data?.links?.find(l => l.rel === 'payment')?.href;
-
-    if (!paymentLink) {
-      throw new Error('No payment link returned from nGenius');
-    }
-
-    // ✅ Save with reference from nGenius
-    await Payment.create({
+      const payment = await Payment.create({
       userId,
       orderRef,
-      reference: data.reference, // ✅ Save nGenius reference
+      reference: data.reference, // nGenius reference
       amount,
       currency,
       plan,
-      status: "PENDING",
+      status: "PENDING", // ✅ Payment is pending verification
       paymentLink,
       gatewayResponse: data,
     });
 
-    console.log("✅ Order saved successfully");
-    console.log("Order Ref:", orderRef);
-    console.log("nGenius Reference:", data.reference);
 
-    return { 
-      orderRef, 
-      paymentLink, 
-      reference: data.reference // ✅ Return reference to frontend
-    };
-
-  } catch (error) {
-    const err = error as AxiosError<ErrorResponse>;
-    console.error("❌ NGENIUS ORDER CREATION ERROR:", err.message);
-    throw err;
+      return {
+        orderRef,
+        paymentLink,
+        reference: data.reference,
+      };
+    } catch (error) {
+      const err = error as AxiosError<ErrorResponse>;
+      console.error("❌ Order creation error:", err.message);
+      throw err;
+    }
   }
-}
 
-static async getOrderStatus(reference: string): Promise<any> {
-  try {
-    const token = await this.getAccessToken();
-    const outletId = process.env.NGENIUS_OUTLET_ID;
+  static async getOrderStatus(reference: string): Promise<any> {
+    try {
+      const token = await this.getAccessToken();
+      const outletId = process.env.NGENIUS_OUTLET_ID;
 
-    // ✅ FIXED: Use 'reference' (nGenius order ID), not 'orderRef' (your order ID)
-    // reference = nGenius reference (e.g., "30a370c8-3d42-480e-86e8-d33f3c0ca440")
-    // orderRef = your reference (e.g., "SB-1764919789544")
-    const statusURL = `${process.env.NGENIUS_API_URL}/transactions/outlets/${outletId}/orders/${reference}`;
+      const statusURL = `${process.env.NGENIUS_API_URL}/transactions/outlets/${outletId}/orders/${reference}`;
 
-    console.log("Fetching order status from:", statusURL);
+      const response = await axios.get(statusURL, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/vnd.ni-payment.v2+json",
+        },
+        timeout: this.TIMEOUT,
+      });
 
-    const response = await axios.get(statusURL, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/vnd.ni-payment.v2+json",
-      },
-      timeout: this.TIMEOUT,
-    });
-
-    console.log("✅ Order Status Response:", JSON.stringify(response.data, null, 2));
-    return response.data;
-  } catch (error) {
-    const err = error as AxiosError;
-    console.error("❌ Error fetching order status:");
-    console.error("Status:", err.response?.status);
-    console.error("Message:", err.message);
-    console.error("Data:", err.response?.data);
-    throw error;
+      return response.data;
+    } catch (error) {
+      const err = error as AxiosError;
+      console.error("❌ Error fetching order status:", err.message);
+      throw error;
+    }
   }
-}
 }

@@ -131,14 +131,26 @@ subscription: {
     endDate: { type: Date },
     status: {
       type: String,
-      enum: ["active", "expired", "inactive"],
+      enum: ["active", "expired", "inactive","suspended","cancelled"],
       default: "active",
     },
+      suspendedAt:{
+      type: Date,
+      required:false
+
+    },
+          cancelledAt:{
+      type: Date,
+      required:false
+
+    },
+
   },
   default: {
     startDate: null,
     endDate: null,
     status: "inactive",
+    suspendedAt:null
   },
 },
 
@@ -166,6 +178,7 @@ subscription: {
     lastLogin: {
       type: Date,
     },
+
   },
   {
     timestamps: true,

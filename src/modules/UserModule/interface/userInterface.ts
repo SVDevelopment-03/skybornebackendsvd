@@ -54,7 +54,9 @@ export interface IUser extends Document {
   subscription: {
     startDate: Date | null;
     endDate: Date | null;
-    status: "active" | "expired" | "inactive";
+    status: "active" | "expired" | "inactive" | "suspended" | "cancelled";
+    suspendedAt?: Date | null;
+    cancelledAt?: Date | null;
   };
 
   // System
@@ -81,4 +83,4 @@ export type PlanType =
   | "diamond"
   | "platinum";
 
-  export type ServiceType = "yoga"| "zumba"| "specialty"
+export type ServiceType = "yoga" | "zumba" | "specialty";

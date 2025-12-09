@@ -16,6 +16,7 @@ import helmet from "helmet";
 import rateLimitMiddleware from "./utils/rateLimit.utils";
 import { apiTimeout } from "./middlewares/timeout";
 import zoomWebhook from "./routes/zoomWebhook";
+import PaymentController from "./modules/PaymentModule/controllers/paymentController";
 const app: Application = express();
 
 dotenv.config();
@@ -57,6 +58,13 @@ app.use((req: Request, res: Response, next) => {
   });
   next();
 });
+
+try {
+  PaymentController.initRecurringPayments();
+  console.log("✅ Recurring payment system initialized");
+} catch (error) {
+  console.error("❌ Failed to initialize recurring payments:", error);
+}
 
 /* 9. All routes go here */
 const apiVersion = "/api/v1/";
