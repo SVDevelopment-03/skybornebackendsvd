@@ -39,8 +39,11 @@ export default class PaymentController {
         `💳 Creating payment order - Amount: ${amount} ${currency}, Plan: ${plan}`
       );
 
-      const { orderRef, paymentLink, reference } =
-        await NgeniusService.createOrder(amount, currency, userId, plan);
+      // const { orderRef, paymentLink, reference } =
+      //   await NgeniusService.createOrder(amount, currency, userId, plan);
+
+            const { orderRef, paymentLink, reference } =
+        await NgeniusService.createOrder(1, currency, userId, plan);
 
       // The order is already saved in NgeniusService.createOrder
 
