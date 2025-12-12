@@ -256,7 +256,7 @@ export default class PaymentController {
                 userName: user.firstName + " " + user.lastName,
                 plan: plan,
                 amount: payment!.amount,
-                currency: payment!.currency,
+                currency: "USD",
                 date: new Date(), // Will be serialized to ISO string in queue
                 subscriptionEndDate:new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // Will be serialized to ISO string in queue
                 paymentMethod: "nGenius Payment Gateway",
