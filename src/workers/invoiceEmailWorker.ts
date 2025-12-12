@@ -14,7 +14,6 @@ invoiceEmailQueue.process(async (job:any) => {;
 
   const { invoiceId, email, userName, plan, amount, currency, date, subscriptionEndDate, orderRef, invoicePDF } = job.data;
 
-
   try {
     // Convert base64 string back to buffer
     const pdfBuffer = Buffer.from(invoicePDF, "base64");
@@ -65,7 +64,7 @@ invoiceEmailQueue.process(async (job:any) => {;
           <hr style="border: none; border-top: 2px solid #ddd; margin: 20px 0;">
           
           <p>If you have any questions about this invoice or your subscription, please contact our support team.</p>
-          <p>Best regards,<br/><strong>Skyborne Team</strong></p>
+          <p>Best regards,<br/><strong>SKYBORNE TEAM</strong></p>
           
           <hr style="border: none; border-top: 1px solid #ddd; margin: 20px 0; padding-top: 20px;">
           <p style="font-size: 12px; color: #999; text-align: center;">

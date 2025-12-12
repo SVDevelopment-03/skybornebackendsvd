@@ -48,7 +48,7 @@ export default class PaymentController {
       //   await NgeniusService.createOrder(amount, currency, userId, plan);
 
       const { orderRef, paymentLink, reference } =
-        await NgeniusService.createOrder(0.03, currency, userId, plan,userAmount);
+        await NgeniusService.createOrder(amount, currency, userId, plan,userAmount);
 
       // The order is already saved in NgeniusService.createOrder
 
@@ -397,6 +397,6 @@ async function getUsdToAedRate() {
     return data.rates?.AED || 3.6725;
   } catch (error) {
     console.error("Error fetching exchange rate:", error);
-    return 3.6725; // Fallback rate
+    return 3.6725;
   }
 }
