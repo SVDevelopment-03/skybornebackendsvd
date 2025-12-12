@@ -14,6 +14,8 @@ const PaymentSchema = new mongoose.Schema(
       default: "PENDING" 
     },
     ngeniusStatus: { type: String },
+        invoiceId: { type: String },
+
     paymentLink: { type: String },
     gatewayResponse: { type: Object },
     

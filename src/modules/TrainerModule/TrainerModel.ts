@@ -3,7 +3,7 @@ import { Document } from "mongoose";
 
 export interface ICoach extends Document {
   name: string;
-  specialization: string;
+  specialization?: string;
   experience?: number;
   image?: string;
 }
@@ -18,7 +18,7 @@ const CoachesSchema = new Schema<ICoach>(
     },
     specialization: {
       type: String,
-      required: true,
+      required: false,
       trim: true,
     },
     experience: {
@@ -27,7 +27,7 @@ const CoachesSchema = new Schema<ICoach>(
     },
     image: {
       type: String,
-      trim: true,
+      trim: false,
     },
   },
   { timestamps: true }

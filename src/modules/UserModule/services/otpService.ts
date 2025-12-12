@@ -40,9 +40,38 @@ static async sendEmailOTP(email: string, otp: string): Promise<void> {
       },
       subject: "Your Skyborne Verification Code",
       html: `
-        <h2>Your Verification Code</h2>
-        <p>Your OTP is: <strong>${otp}</strong></p>
-        <p>This OTP expires in <b>10 minutes</b>.</p>
+        <html>
+  <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+    <div style="max-width: 500px; margin: auto; padding: 20px; border: 1px solid #eee; border-radius: 8px;">
+      <h2 style="color: #2c3e50;">🔐 Email Verification Required</h2>
+
+      <p>Greetings from our team,</p>
+
+      <p>
+        Thank you for registering with us. To complete your verification process,
+        please use the One-Time Password (OTP) provided below:
+      </p>
+
+      <p style="font-size: 20px; font-weight: bold; color: #000;">
+        Your OTP: <span style="color: #007BFF;">${otp}</span>
+      </p>
+
+      <p>
+        This OTP will remain valid for <b>10 minutes</b>.  
+        For your security, please do not share this code with anyone. Our team will never ask for your OTP.
+      </p>
+
+      <p>If you did not request this verification, kindly ignore this email.</p>
+
+      <hr style="margin: 20px 0;">
+
+      <p style="font-size: 12px; color: #888;">
+        This is an automated message. Please do not reply.
+      </p>
+    </div>
+  </body>
+</html>
+
       `,
     };
 

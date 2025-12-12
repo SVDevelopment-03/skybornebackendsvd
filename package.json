@@ -3,14 +3,16 @@
   "version": "1.0.0",
   "main": "server.js",
   "scripts": {
+  "start": "concurrently --handle-input --kill-others-on-exit \"node dist/server.js\" \"npm run worker:welcome\" \"npm run worker:invoice\"",
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+    "worker:welcome": "ts-node src/workers/emailWorker.ts",
+    "worker:invoice": "ts-node src/workers/invoiceEmailWorker.ts",
     "seed:plans": "ts-node --transpile-only src/seeders/plan.seeder.ts",
     "seed:faq": "ts-node --transpile-only src/seeders/faq.seeder.ts",
     "seed:service": "ts-node --transpile-only src/seeders/service.seeder.ts",
     "seed:testimonials": "ts-node --transpile-only src/seeders/testimonial.seeder.ts",
     "seed:coaches": "ts-node --transpile-only src/seeders/coach.seeder.ts",
     "build": "tsc",
-    "start": "node dist/server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -19,6 +21,8 @@
   "description": "",
   "dependencies": {
     "@aws-sdk/client-ses": "^3.940.0",
+    "@bull-board/express": "^6.15.0",
+    "@bull-board/ui": "^6.15.0",
     "@sendgrid/mail": "^8.1.6",
     "bcryptjs": "^3.0.3",
     "bull": "^4.16.5",
@@ -44,6 +48,7 @@
     "passport-apple": "^2.0.2",
     "passport-google-oauth20": "^2.0.0",
     "passport-jwt": "^4.0.1",
+    "pdfkit": "^0.17.2",
     "redis": "^5.9.0",
     "resend": "^6.5.2",
     "twilio": "^5.10.5",
@@ -54,6 +59,7 @@
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
+    "@types/bull": "^3.15.9",
     "@types/compression": "^1.8.1",
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
@@ -68,6 +74,8 @@
     "@types/passport": "^1.0.17",
     "@types/passport-google-oauth20": "^2.0.17",
     "@types/passport-jwt": "^4.0.1",
+    "@types/pdfkit": "^0.17.4",
+    "concurrently": "^9.2.1",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.9.3"

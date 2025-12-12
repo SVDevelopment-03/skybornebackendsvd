@@ -2,7 +2,7 @@
 
 import express from "express";
 import type { Application, Request, Response } from "express";
-
+import { emailQueue } from './services/queues/emailQueue';
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import compression from "compression";
@@ -15,9 +15,23 @@ import dotenv from "dotenv";
 import helmet from "helmet";
 import rateLimitMiddleware from "./utils/rateLimit.utils";
 import { apiTimeout } from "./middlewares/timeout";
+import { ExpressAdapter } from '@bull-board/express';
+import { createBullBoard } from '@bull-board/api';
+import { BullAdapter } from '@bull-board/api/bullAdapter';
 import zoomWebhook from "./routes/zoomWebhook";
 import PaymentController from "./modules/PaymentModule/controllers/paymentController";
 const app: Application = express();
+
+// BullBoard UI
+const serverAdapter = new ExpressAdapter();
+serverAdapter.setBasePath("/admin/queues");
+
+createBullBoard({
+  queues: [new BullAdapter(emailQueue)],
+  serverAdapter,
+});
+
+app.use("/admin/queues", serverAdapter.getRouter());
 
 dotenv.config();
 
@@ -40,6 +54,16 @@ app.use(helmet({ crossOriginResourcePolicy: false }));
 if (process.env.APP_ENV === "production") {
   app.use(rateLimitMiddleware);
 }
+
+// Initialize email queue
+emailQueue.on('ready', () => {
+  console.log('✅ Email queue is ready');
+});
+
+emailQueue.on('error', (err) => {
+  console.error('❌ Email queue error:', err);
+});
+
 
 // app.use(apiTimeout(10000));
 

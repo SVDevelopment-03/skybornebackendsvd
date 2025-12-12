@@ -4,6 +4,10 @@ import Payment from "../models/Payment";
 import User from "../../UserModule/models/User";
 import { PLAN_CONFIG } from "../../../config/planConfig";
 import { PlanType } from "../../UserModule/interface/userInterface";
+import { addWelcomeEmailJob } from "../../../services/queues/emailQueue";
+import { addInvoiceEmailJob } from "../../../services/queues/invoiceEmailQueue";
+import { generateInvoicePDF } from "../../../services/invoiceService";
+import { v4 as uuidv4 } from "uuid";
 
 export default class PaymentController {
   /**
@@ -42,8 +46,8 @@ export default class PaymentController {
       // const { orderRef, paymentLink, reference } =
       //   await NgeniusService.createOrder(amount, currency, userId, plan);
 
-            const { orderRef, paymentLink, reference } =
-        await NgeniusService.createOrder(1, currency, userId, plan);
+      const { orderRef, paymentLink, reference } =
+        await NgeniusService.createOrder(0.03, currency, userId, plan);
 
       // The order is already saved in NgeniusService.createOrder
 
@@ -215,6 +219,69 @@ export default class PaymentController {
             console.log(
               `✅ Subscription activated - Next billing: ${user.subscription.endDate}`
             );
+
+             // ========== NEW: Generate and Queue Invoice ==========
+          const invoiceId = `INV-${Date.now()}-${uuidv4().slice(0, 8).toUpperCase()}`;
+
+          try {
+            console.log(`📄 Generating invoice: ${invoiceId}`);
+
+            const invoicePDF = await generateInvoicePDF({
+              invoiceId,
+              orderRef: payment!.orderRef,
+              userId: user._id.toString(),
+              userEmail: user.email,
+              userName: user.firstName + " " + user.lastName,
+              plan: plan.charAt(0).toUpperCase() + plan.slice(1),
+              amount: payment!.amount,
+              currency: payment!.currency,
+              date: new Date(),
+              subscriptionEndDate:new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+              paymentMethod: "nGenius Payment Gateway",
+            });
+
+            console.log(`✅ Invoice PDF generated successfully`);
+
+            // Convert PDF buffer to base64 for queue
+            const invoicePDFBase64 = invoicePDF.toString("base64");
+
+            // Queue invoice email
+            addInvoiceEmailJob(
+              {
+                invoiceId,
+                orderRef: payment?.orderRef as string,
+                userId: user._id.toString(),
+                email: user.email,
+                userName: user.firstName + " " + user.lastName,
+                plan: plan,
+                amount: payment!.amount,
+                currency: payment!.currency,
+                date: new Date(), // Will be serialized to ISO string in queue
+                subscriptionEndDate:new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // Will be serialized to ISO string in queue
+                paymentMethod: "nGenius Payment Gateway",
+              },
+              invoicePDFBase64
+            ).catch((err) => console.error("❌ Invoice queue add failed:", err));
+
+            // Save invoice ID to payment record
+            if(payment)
+            payment.invoiceId = invoiceId;
+            await payment?.save();
+
+          } catch (invoiceErr) {
+            console.error("❌ Error generating/sending invoice:", invoiceErr);
+            // Continue with welcome email even if invoice fails
+          }
+
+
+            addWelcomeEmailJob({
+              userId: user._id.toString(),
+              email: user.email,
+              firstName: user.firstName,
+              plan: user.plan,
+              subscriptionStartDate: user.subscription.startDate as Date,
+              subscriptionEndDate: user.subscription.endDate as Date,
+            }).catch((err) => console.error("❌ Queue add failed:", err));
           }
         } catch (err) {
           console.error("❌ Error activating subscription:", err);

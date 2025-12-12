@@ -1,3 +1,6 @@
+// ============================================================================
+// Backend: RepositoryAbstract.ts (Updated)
+// ============================================================================
 import {
   ConflictError,
   InternalServerError,
@@ -16,6 +19,8 @@ export interface IPagination {
   customFind?: string;
   populate?: string;
   pagingOptions?: object;
+  search?: string;
+  skip?: number;
 }
 
 export default class RepositoryAbstract<T extends Document> {
@@ -52,7 +57,7 @@ export default class RepositoryAbstract<T extends Document> {
 
   async getOneModel(uuid: string) {
     return this.model
-      .findOne({ uuid })
+      .findById(uuid)
       .orFail()
       .then((data) => data)
       .catch((err) => this.handleErrorMessage(err));
@@ -60,7 +65,7 @@ export default class RepositoryAbstract<T extends Document> {
 
   async updateModel(uuid: string, payload: Partial<T>) {
     return this.model
-      .findOneAndUpdate({ uuid }, { ...payload }, { new: true })
+      .findByIdAndUpdate(uuid, { ...payload }, { new: true })
       .orFail()
       .then((data) => data)
       .catch((err) => this.handleErrorMessage(err));
@@ -68,7 +73,7 @@ export default class RepositoryAbstract<T extends Document> {
 
   async deleteModel(uuid: string) {
     return this.model
-      .findOneAndDelete({ uuid })
+      .findByIdAndDelete(uuid)
       .orFail()
       .then((data) => data)
       .catch((err) => this.handleErrorMessage(err));
@@ -81,9 +86,23 @@ export default class RepositoryAbstract<T extends Document> {
       .catch((err) => this.handleErrorMessage(err));
   }
 
-  async searchModels(payload: Partial<T>) {
+  async searchModels(payload: any) {
+    const { search, skip = 0, limit = 10 } = payload;
+
+    const query = search
+      ? {
+          $or: [
+            { name: { $regex: search, $options: "i" } },
+            { specialization: { $regex: search, $options: "i" } },
+          ],
+        }
+      : {};
+
     return this.model
-      .find(payload)
+      .find(query)
+      .sort({createdAt:-1})
+      .skip(skip)
+      .limit(limit)
       .then((data) => data)
       .catch((err) => this.handleErrorMessage(err));
   }
