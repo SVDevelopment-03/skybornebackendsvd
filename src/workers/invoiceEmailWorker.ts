@@ -5,28 +5,15 @@ dotenv.config();
 import { invoiceEmailQueue } from "../services/queues/invoiceEmailQueue"; 
 import sgMail from "@sendgrid/mail";
 
-console.log("🔧 DEBUG: Invoice Worker .env loaded:");
-console.log("SENDGRID_API_KEY:", process.env.SENDGRID_API_KEY?.slice(0, 8) + "********");
-console.log("SENDGRID_FROM_EMAIL:", process.env.SENDGRID_FROM_EMAIL);
-console.log("REDIS_URL:", process.env.REDIS_URL);
-console.log("--------------------------------------------------");
-
 sgMail.setApiKey(process.env.SENDGRID_API_KEY!);
 
 console.log("🚀 Invoice Email Worker Started");
 
 // PROCESS INVOICES HERE
-invoiceEmailQueue.process(async (job:any) => {
-  console.log("--------------------------------------------------");
-  console.log("📦 New Invoice Job Received:", job.id);
+invoiceEmailQueue.process(async (job:any) => {;
 
   const { invoiceId, email, userName, plan, amount, currency, date, subscriptionEndDate, orderRef, invoicePDF } = job.data;
 
-  console.log(`📧 Attempting to send invoice email to: ${email}`);
-  console.log("Sender Email:", process.env.SENDGRID_FROM_EMAIL);
-  console.log("Invoice ID:", invoiceId);
-  console.log("Plan:", plan);
-  console.log("Amount:", `${currency} ${amount}`);
 
   try {
     // Convert base64 string back to buffer
@@ -78,7 +65,7 @@ invoiceEmailQueue.process(async (job:any) => {
           <hr style="border: none; border-top: 2px solid #ddd; margin: 20px 0;">
           
           <p>If you have any questions about this invoice or your subscription, please contact our support team.</p>
-          <p>Best regards,<br/><strong>Your Company Team</strong></p>
+          <p>Best regards,<br/><strong>Skyborne Team</strong></p>
           
           <hr style="border: none; border-top: 1px solid #ddd; margin: 20px 0; padding-top: 20px;">
           <p style="font-size: 12px; color: #999; text-align: center;">
@@ -96,12 +83,8 @@ invoiceEmailQueue.process(async (job:any) => {
       ],
     };
 
-    console.log("📨 SendGrid Payload prepared");
 
     const response = await sgMail.send(msg as any);
-
-    console.log("📡 SendGrid Response Status:", response[0].statusCode);
-    console.log(`✅ Invoice email sent successfully to ${email}`);
 
     return { success: true, invoiceId };
   } catch (err: any) {

@@ -5,20 +5,10 @@ dotenv.config();
 import { emailQueue } from "../services/queues/emailQueue";
 import sgMail from "@sendgrid/mail";
 
-console.log("🔧 DEBUG: Worker .env loaded:");
-console.log(
-  "SENDGRID_API_KEY:",
-  process.env.SENDGRID_API_KEY?.slice(0, 8) + "********"
-);
-console.log("SENDGRID_FROM_EMAIL:", process.env.SENDGRID_FROM_EMAIL);
-console.log("DASHBOARD_URL:", process.env.DASHBOARD_URL);
-console.log("WEBSITE_URL:", process.env.WEBSITE_URL);
-console.log("REDIS_URL:", process.env.REDIS_URL);
-console.log("--------------------------------------------------");
+
 
 sgMail.setApiKey(process.env.SENDGRID_API_KEY!);
 
-console.log("🚀 Email Worker Started");
 
 // HTML Email Template
 const getWelcomeEmailHTML = (firstName: string, plan: string): string => {
@@ -232,21 +222,11 @@ const getWelcomeEmailHTML = (firstName: string, plan: string): string => {
 
 // PROCESS EMAILS HERE
 emailQueue.process(async (job) => {
-  console.log("--------------------------------------------------");
-  console.log("📦 New Job Received:", job.id);
-  console.log("Job Data:", job.data);
 
   const { email, firstName, plan } = job.data;
 
   const formattedPlan =
     plan?.charAt(0).toUpperCase() + plan?.slice(1);
-
-  console.log(`📧 Attempting to send welcome email to: ${email}`);
-  console.log("Sender Email:", process.env.SENDGRID_FROM_EMAIL);
-  console.log("Plan (raw):", plan);
-  console.log("Plan (formatted):", formattedPlan);
-  console.log("Dashboard URL:", process.env.DASHBOARD_URL);
-  console.log("Website URL:", process.env.WEBSITE_URL);
 
   try {
     // Generate HTML email content
@@ -266,12 +246,6 @@ emailQueue.process(async (job) => {
     });
 
     const response = await sgMail.send(msg);
-
-    // SendGrid returns [response, body]
-    console.log("📡 SendGrid Response Status:", response[0].statusCode);
-    console.log("📡 SendGrid Headers:", response[0].headers);
-
-    console.log(`✅ Email sent successfully to ${email}`);
 
     return { success: true };
   } catch (err: any) {
