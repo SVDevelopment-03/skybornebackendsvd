@@ -23,6 +23,7 @@ export default class PaymentController {
   static async createPaymentOrder(req: Request, res: Response) {
     try {
       let { amount, currency = "USD", userId, plan } = req.body;
+      const userAmount=amount;
 
       // Validation
       if (!userId || !plan) {
@@ -47,7 +48,7 @@ export default class PaymentController {
       //   await NgeniusService.createOrder(amount, currency, userId, plan);
 
       const { orderRef, paymentLink, reference } =
-        await NgeniusService.createOrder(0.03, currency, userId, plan);
+        await NgeniusService.createOrder(0.03, currency, userId, plan,userAmount);
 
       // The order is already saved in NgeniusService.createOrder
 
@@ -234,7 +235,7 @@ export default class PaymentController {
               userName: user.firstName + " " + user.lastName,
               plan: plan.charAt(0).toUpperCase() + plan.slice(1),
               amount: payment!.amount,
-              currency: payment!.currency,
+              currency:"USD",
               date: new Date(),
               subscriptionEndDate:new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
               paymentMethod: "nGenius Payment Gateway",

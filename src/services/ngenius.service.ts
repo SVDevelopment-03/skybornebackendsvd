@@ -117,7 +117,8 @@ export class NgeniusService {
         amount,
         "AED",
         userId,
-        plan
+        plan,
+        100
       );
 
       // Create payment record marked as recurring
@@ -378,7 +379,7 @@ export class NgeniusService {
     }
   }
 
-  static async createOrder(amount: any, currency: any, userId: string, plan: string) {
+  static async createOrder(amount: any, currency: any, userId: string, plan: string,userAmount:number) {
     try {
       if (!process.env.NGENIUS_OUTLET_ID) {
         throw new Error('NGENIUS_OUTLET_ID is not defined');
@@ -431,7 +432,8 @@ export class NgeniusService {
       userId,
       orderRef,
       reference: data.reference, // nGenius reference
-      amount,
+      amount:userAmount,
+      localAmount:amount,
       currency,
       plan,
       status: "PENDING", // ✅ Payment is pending verification

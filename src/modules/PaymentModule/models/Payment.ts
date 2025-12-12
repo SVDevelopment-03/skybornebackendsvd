@@ -6,6 +6,7 @@ const PaymentSchema = new mongoose.Schema(
     orderRef: { type: String, required: true, unique: true }, // Your internal reference
     reference: { type: String, unique: true, sparse: true }, // ✅ nGenius reference
     amount: { type: Number, required: true },
+    localAmount: { type: Number, },
     plan: { type: String, required: true },
     currency: { type: String, required: true },
     status: { 

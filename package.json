@@ -2,15 +2,15 @@
   "name": "skyborne-backend",
   "version": "1.0.0",
   "main": "server.js",
-  "scripts": {
-  "start": "concurrently --handle-input --kill-others-on-exit \"node dist/server.js\" \"npm run worker:welcome\" \"npm run worker:invoice\"",
+ "scripts": {
+    "start": "concurrently --handle-input --kill-others-on-exit \"node dist/server.js\" \"node dist/workers/emailWorker.js\" \"node dist/workers/invoiceEmailWorker.js\"",
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
-    "worker:welcome": "ts-node src/workers/emailWorker.ts",
-    "worker:invoice": "ts-node src/workers/invoiceEmailWorker.ts",
+    "worker:welcome": "node dist/workers/emailWorker.js",
+    "worker:invoice": "node dist/workers/invoiceEmailWorker.js",
     "seed:plans": "ts-node --transpile-only src/seeders/plan.seeder.ts",
     "seed:faq": "ts-node --transpile-only src/seeders/faq.seeder.ts",
     "seed:service": "ts-node --transpile-only src/seeders/service.seeder.ts",
-    "seed:testimonials": "ts-node --transpile-only src/seeders/testimonial.seeder.ts",
+    "seed:testimonials": "ts-node --transpike-only src/seeders/testimonial.seeder.ts",
     "seed:coaches": "ts-node --transpile-only src/seeders/coach.seeder.ts",
     "build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1"
