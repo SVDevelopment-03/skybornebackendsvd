@@ -238,28 +238,27 @@ export default class MeetingController {
         });
       }
 
-      const userCountry = await _countryRepository.searchModel({
-      code: user.countryCode,
-    } as Partial<ICountry>);
+    //   const userCountry = await _countryRepository.searchModel({
+    //   code: user.countryCode,
+    // } as Partial<ICountry>);
 
 
-    if (!userCountry) {
-      return res.status(404).json({
-        success: false,
-        message: "Country information not found",
-      });
-    }
+    // if (!userCountry) {
+    //   return res.status(404).json({
+    //     success: false,
+    //     message: "Country information not found",
+    //   });
+    // }
 
-    // Check if country is active
-    if (userCountry.status === "inactive") {
-      return res.json({
-        success: true,
-        count: 0,
-        meetings: [],
-        userPlan: user.plan,
-        message: "Classes are not available in your country at this time",
-      });
-    }
+    // if (userCountry.status === "inactive") {
+    //   return res.json({
+    //     success: true,
+    //     count: 0,
+    //     meetings: [],
+    //     userPlan: user.plan,
+    //     message: "Classes are not available in your country at this time",
+    //   });
+    // }
 
       const now = new Date();
       const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
