@@ -18,12 +18,12 @@ const ServiceSchema = new Schema<IServiceDocument>(
 
     description: {
       type: String,
-      required: true,
+      required: false,
     },
 
     image: {
       type: String, // URL of the service image (S3, Cloudinary, etc.)
-      required: true,
+      required: false,
     },
 
     isActive: {

@@ -1,13 +1,16 @@
-import mongoose, { Schema } from "mongoose";
+import mongoose, { Schema, Types } from "mongoose";
 import { Document } from "mongoose";
+import autopopulate from "mongoose-autopopulate";
 
 export interface ICoach extends Document {
   name: string;
-  specialization?: string;
+  specialization?: Types.ObjectId | any;
   experience?: number;
   image?: string;
+  email: string;
+  phoneNumber?: string;
+  charges: number;
 }
-
 
 const CoachesSchema = new Schema<ICoach>(
   {
@@ -17,21 +20,49 @@ const CoachesSchema = new Schema<ICoach>(
       trim: true,
     },
     specialization: {
-      type: String,
+      type: Schema.Types.ObjectId,
+      ref: "Service",
       required: false,
-      trim: true,
+      autopopulate: {
+        select: "_id title",
+      },
     },
     experience: {
       type: Number,
       default: 0,
+      min: 0,
     },
     image: {
       type: String,
-      trim: false,
+    },
+    email: {
+      type: String,
+      required: true,
+      unique: true,
+      lowercase: true,
+      trim: true,
+      match: [/^\S+@\S+\.\S+$/, "Please use a valid email address"],
+    },
+
+    phoneNumber: {
+      type: String,
+      trim: true,
+      match: [
+        /^\+?[0-9]{7,18}$/,
+        "Phone number must be between 7–18 digits and may start with +",
+      ],
+    },
+
+    charges: {
+      type: Number,
+      required: true,
+      min: 0,
     },
   },
   { timestamps: true }
 );
+
+CoachesSchema.plugin(autopopulate);
 
 // Prevent model overwrite issue in Next.js (important!)
 export default mongoose.models.Coach ||

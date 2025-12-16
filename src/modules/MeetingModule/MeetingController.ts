@@ -8,6 +8,11 @@ import MeetingParticipant from "./MeetingModels/MeetingParticipant";
 import User from "../UserModule/models/User";
 import Service from "../ServiceModule/models/Service";
 import { ServiceType } from "../UserModule/interface/userInterface";
+import CountryRepository from "../CountryModule/country.repository";
+import { ICountry } from "../CountryModule/country.model";
+
+
+const _countryRepository= new CountryRepository();
 
 export default class MeetingController {
   static async CreateMeeting(req: Request, res: Response) {
@@ -224,7 +229,7 @@ export default class MeetingController {
       }
 
       // Fetch user with their plan
-      const user = await User.findById(userId).select("plan");
+      const user = await User.findById(userId).select("plan country countryCode");
 
       if (!user) {
         return res.status(404).json({
@@ -232,6 +237,29 @@ export default class MeetingController {
           message: "User not found",
         });
       }
+
+      const userCountry = await _countryRepository.searchModel({
+      code: user.countryCode,
+    } as Partial<ICountry>);
+
+
+    if (!userCountry) {
+      return res.status(404).json({
+        success: false,
+        message: "Country information not found",
+      });
+    }
+
+    // Check if country is active
+    if (userCountry.status === "inactive") {
+      return res.json({
+        success: true,
+        count: 0,
+        meetings: [],
+        userPlan: user.plan,
+        message: "Classes are not available in your country at this time",
+      });
+    }
 
       const now = new Date();
       const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);

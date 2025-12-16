@@ -11,7 +11,6 @@ export interface WelcomeEmailJob {
 }
 
 // FULL DEBUG LOGGING FOR REDIS URL
-console.log("🔧 DEBUG (emailQueue.ts): REDIS_URL =", process.env.REDIS_URL);
 
 export const emailQueue = new Queue<WelcomeEmailJob>(
   "welcome-emails",

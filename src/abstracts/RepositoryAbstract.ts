@@ -79,7 +79,7 @@ export default class RepositoryAbstract<T extends Document> {
       .catch((err) => this.handleErrorMessage(err));
   }
 
-  async searchModel(payload: Partial<T>) {
+  async searchModel(payload:any) {
     return this.model
       .findOne(payload)
       .then((data) => data)

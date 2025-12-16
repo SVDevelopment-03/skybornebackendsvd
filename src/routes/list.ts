@@ -1,4 +1,5 @@
 import { ConsultationRoute } from "../modules/ConsultationModule/ConsultationRoute";
+import { CountryRoute } from "../modules/CountryModule/country.route";
 import { FAQRoute } from "../modules/FAQModule/FAQRoute";
 import { MeetingRoute } from "../modules/MeetingModule/MeetingRoute";
 import { NewsLetterRoute } from "../modules/NewsLetterModule.ts/NewsLetterRoute";
@@ -18,7 +19,8 @@ const appApiRoutes: any = [
   ...ConsultationRoute,
   ...NewsLetterRoute,
   ...TrainerRoute,
-  ...UserRoute
+  ...UserRoute,
+  ...CountryRoute
 ];
 
 export default appApiRoutes;

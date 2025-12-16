@@ -33,31 +33,23 @@ appApiRoutes?.map(({ path, request, method, action }: any) => {
 
   switch (method) {
     case "get":
-      router
-        .route(path)
-        .get(middlewares, catchErrors(action))
-        .all(methodNotAllow);
+      router.route(path).get(middlewares, catchErrors(action));
       break;
 
     case "post":
-      router
-        .route(path)
-        .post(middlewares, catchErrors(action))
-        .all(methodNotAllow);
+      router.route(path).post(middlewares, catchErrors(action));
       break;
 
     case "put":
-      router
-        .route(path)
-        .put(middlewares, catchErrors(action))
-        .all(methodNotAllow);
+      router.route(path).put(middlewares, catchErrors(action));
+      break;
+
+    case "patch":
+      router.route(path).patch(middlewares, catchErrors(action));
       break;
 
     case "delete":
-      router
-        .route(path)
-        .delete(middlewares, catchErrors(action))
-        .all(methodNotAllow);
+      router.route(path).delete(middlewares, catchErrors(action));
       break;
 
     default:

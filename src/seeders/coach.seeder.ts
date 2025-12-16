@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import Coach from "../modules/TrainerModule/TrainerModel";  
+import Coach from "../modules/TrainerModule/TrainerModel";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -12,31 +12,39 @@ async function seedCoaches() {
     const coaches = [
       {
         name: "Priya Sharma",
-        specialization: "Yoga Expert",
+        email: "priya.sharma@demo.com",
+        phoneNumber: "+919876543210",
+        specialization: "69240b56e41325c9e05a3142",
         experience: 5,
-        image: "https://example.com/priya.jpg",
+        charges: 0,
       },
       {
         name: "Daniel Cooper",
-        specialization: "Fitness Coach",
+        email: "daniel.cooper@demo.com",
+        phoneNumber: "+447700900123",
+        specialization: "69240b56e41325c9e05a3143",
         experience: 7,
-        image: "https://example.com/daniel.jpg",
+        charges: 0,
       },
       {
         name: "Maria Santos",
-        specialization: "Zumba Specialist",
+        email: "maria.santos@demo.com",
+        phoneNumber: "+5511987654321",
+        specialization: "69240b56e41325c9e05a3144",
         experience: 4,
-        image: "https://example.com/maria.jpg",
+        charges: 0,
       },
       {
         name: "Ayesha Khan",
-        specialization: "Nutrition Coach",
+        email: "ayesha.khan@demo.com",
+        phoneNumber: "+971501234567",
+        specialization: "69240b56e41325c9e05a3142",
         experience: 6,
-        image: "https://example.com/ayesha.jpg",
+        charges: 0,
       },
     ];
 
-    // Clear existing data to avoid duplicates
+    // Clear existing data
     await Coach.deleteMany({});
     console.log("Old coach records removed");
 

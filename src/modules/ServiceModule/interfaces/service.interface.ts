@@ -2,8 +2,8 @@ import { Document, Types } from "mongoose";
 
 export interface IService {
   title: string;
-  description: string;
-  image: string;
+  description?: string;
+  image?: string;
   isActive: boolean;
   order: number;
   uuid: string;
