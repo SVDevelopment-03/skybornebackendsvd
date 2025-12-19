@@ -4,7 +4,7 @@ import appApiRoutes from "./list";
 import { catchErrors } from "../handlers/routeError.handler";
 import validateData from "../utils/validation.utils";
 import { verifyAccessToken } from "../middlewares/verifyToken.middleware";
-import { verifyPermission } from "../middlewares/hasPermission";
+import { hasRole, verifyPermission } from "../middlewares/hasPermission";
 
 const router = express.Router();
 
@@ -24,12 +24,12 @@ const publicApi = [
   "/news-letter",
 ];
 
-appApiRoutes?.map(({ path, request, method, action }: any) => {
+appApiRoutes?.map(({ path, request, method, action,roles }: any) => {
   const isPublicRoute = publicApi.includes(path);
 
   const middlewares = isPublicRoute
     ? validateData(request)
-    : [verifyAccessToken, verifyPermission, validateData(request)];
+    : [verifyAccessToken, hasRole(roles), validateData(request)];
 
   switch (method) {
     case "get":

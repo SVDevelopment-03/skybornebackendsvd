@@ -13,6 +13,7 @@
     "seed:service": "ts-node --transpile-only src/seeders/service.seeder.ts",
     "seed:testimonials": "ts-node --transpike-only src/seeders/testimonial.seeder.ts",
     "seed:coaches": "ts-node --transpile-only src/seeders/coach.seeder.ts",
+    "seed:user": "ts-node --transpile-only src/seeders/user.seeder.ts",
     "build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

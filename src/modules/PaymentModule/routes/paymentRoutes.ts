@@ -32,4 +32,17 @@ export const PaymentApiRoutes = [
     request: null,
     method: "post",
   },
+
+  {
+    path: "/payment/history/:userId",
+    action: PaymentController.getPaymentHistory,
+    request: null,
+    method: "get",
+  },
+  {
+    path: "/payment/stats/:userId",
+    action: PaymentController.getPaymentStats,
+    request: null,
+    method: "get",
+  },
 ];

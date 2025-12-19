@@ -1,3 +1,4 @@
+import { AdminRoutes } from "../modules/AdminModule/admin.route";
 import { ConsultationRoute } from "../modules/ConsultationModule/ConsultationRoute";
 import { CountryRoute } from "../modules/CountryModule/country.route";
 import { FAQRoute } from "../modules/FAQModule/FAQRoute";
@@ -20,7 +21,8 @@ const appApiRoutes: any = [
   ...NewsLetterRoute,
   ...TrainerRoute,
   ...UserRoute,
-  ...CountryRoute
+  ...CountryRoute,
+  ...AdminRoutes
 ];
 
 export default appApiRoutes;

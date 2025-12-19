@@ -26,6 +26,13 @@ export default class ServiceController {
   // GET ONLY ACTIVE SERVICES
   static async getActiveServices(req: Request, res: Response) {
     const services = await serviceService.getActiveServices();
+
+  res.set({
+    "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+    "Pragma": "no-cache",
+    "Expires": "0",
+    "Surrogate-Control": "no-store",
+  });
     return res.status(200).json({
       success: true,
       message: "Active services fetched successfully",

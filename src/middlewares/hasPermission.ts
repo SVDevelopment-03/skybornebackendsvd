@@ -42,12 +42,27 @@ export const verifyPermission = (
   }
 };
 
-/**
- * Helper function to check if a user has a specific role
- */
-export const hasRole = (userRole: string, allowedRoles: string[]): boolean => {
-  return allowedRoles.includes(userRole);
+export const hasRole = (allowedRoles?: string[]) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    // If no roles defined, allow access (route is role-agnostic)
+    if (!allowedRoles || allowedRoles.length === 0) {
+      return next();
+    }
+
+    if (!req.user) {
+      throw new UnauthorizedError("User not authenticated");
+    }
+
+    if (!allowedRoles.includes(req.user.role)) {
+      throw new ForbiddenError(
+        `Access denied. Required roles: ${allowedRoles.join(", ")}`
+      );
+    }
+
+    next();
+  };
 };
+
 
 /**
  * Helper function to add/update route permissions

@@ -13,4 +13,10 @@ export const UserRoute = [
     action: UserController.GetDashboardStats,
     method: "get",
   },
+     {
+    path: "/update-profile",
+    request: null,
+    action: UserController.updateProfile,
+    method: "put",
+  },
 ];

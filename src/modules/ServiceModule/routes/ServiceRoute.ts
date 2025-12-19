@@ -7,6 +7,7 @@ export const ServiceRoute = [
     request: null,
     action: ServiceController.updateServiceStatus,
     method: "patch",
+  roles:["admin"]
   },
   // CREATE SERVICE
   {
@@ -14,6 +15,7 @@ export const ServiceRoute = [
     request: null,
     action: ServiceController.createService,
     method: "post",
+    roles:["admin"]
   },
 
   // GET ALL SERVICES (Admin)
@@ -32,14 +34,13 @@ export const ServiceRoute = [
     method: "get",
   },
 
-
-
   // UPDATE SERVICE
   {
     path: "/services/:serviceId",
     request: null,
     action: ServiceController.updateService,
     method: "put",
+    roles:["admin"]
   },
 
   // DELETE SERVICE
@@ -48,5 +49,6 @@ export const ServiceRoute = [
     request: null,
     action: ServiceController.deleteService,
     method: "delete",
+    roles:["admin"]
   },
 ];

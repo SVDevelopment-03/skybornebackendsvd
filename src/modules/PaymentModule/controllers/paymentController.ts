@@ -193,33 +193,42 @@ export default class PaymentController {
 
       if (isSuccessful) {
         try {
-          console.log(
-            `🎉 Payment successful! Activating subscription for user: ${payment?.userId}`
-          );
-
           const user = await User.findById(payment?.userId);
 
-          if (!user) {
-            console.error("❌ User not found:", payment?.userId);
-          } else {
-            const plan = payment?.plan as PlanType;
-            const credits = PLAN_CONFIG[plan];
+    if (!user) {
+      console.error("❌ User not found:", payment?.userId);
+    } else {
+      const plan = payment?.plan as PlanType;
+      const newCredits = PLAN_CONFIG[plan];
 
-            // Activate subscription
-            user.classCredits = credits;
-            user.subscription = {
-              startDate: new Date(),
-              endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
-              status: "active", // This will trigger automatic monthly charges
-            };
-            user.plan = plan;
-            user.onboardingCompleted = true;
+      // ========== UPGRADE LOGIC: Check if user has existing plan ==========
+      const hasExistingPlan = user.plan && user.subscription?.status === "active";
+      
+      if (hasExistingPlan) {
+        // UPGRADE: Add new credits to existing ones
+        console.log(`📈 Upgrading from ${user.plan} to ${plan} - Adding credits`);
+        user.classCredits = addCredits(user.classCredits, newCredits);
+      } else {
+        // NEW SUBSCRIPTION: Replace credits
+        console.log(`✨ New subscription plan: ${plan}`);
+        user.classCredits = newCredits;
+      }
 
-            await user.save();
+      // Update subscription details
+      user.subscription = {
+        startDate: user.subscription?.startDate || new Date(),
+        endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // Extend 30 days
+        status: "active",
+      };
+      user.plan = plan;
+      user.onboardingCompleted = true;
 
-            console.log(
-              `✅ Subscription activated - Next billing: ${user.subscription.endDate}`
-            );
+      await user.save();
+
+      console.log(
+        `✅ Subscription activated - Credits: ${JSON.stringify(user.classCredits)} - Next billing: ${user.subscription.endDate}`
+      );
+
 
              // ========== NEW: Generate and Queue Invoice ==========
           const invoiceId = `INV-${Date.now()}-${uuidv4().slice(0, 8).toUpperCase()}`;
@@ -386,6 +395,127 @@ export default class PaymentController {
       });
     }
   }
+
+  /**
+    * Get payment history for a user
+   * GET /api/payments/history/:userId
+   */
+  static async getPaymentHistory(req: Request, res: Response) {
+    try {
+      const { userId } = req.params;
+
+      if (!userId) {
+        return res.status(400).json({
+          success: false,
+          message: "userId is required",
+        });
+      }
+
+      // Fetch all payments for the user, sorted by most recent first
+      const payments = await Payment.find({ userId })
+        .sort({ createdAt: -1 })
+        .lean();
+
+      if (!payments) {
+        return res.status(404).json({
+          success: false,
+          message: "No payments found for this user",
+          payments: [],
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        payments: payments.map((payment) => ({
+          _id: payment._id,
+          orderRef: payment.orderRef,
+          reference: payment.reference,
+          amount: payment.amount,
+          localAmount: payment.localAmount,
+          currency: payment.currency,
+          plan: payment.plan,
+          status: payment.status,
+          invoiceId: payment.invoiceId,
+          createdAt: payment.createdAt,
+          updatedAt: payment.updatedAt,
+          paymentMethod: payment.reference ? `Visa ****${String(payment.reference).slice(-4)}` : "N/A",
+        })),
+        total: payments.length,
+      });
+    } catch (error) {
+      console.error("❌ Error fetching payment history:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to fetch payment history",
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  }
+
+  /**
+   * Get payment statistics for dashboard
+   * GET /api/payments/stats/:userId
+   */
+  static async getPaymentStats(req: Request, res: Response) {
+    try {
+      const { userId } = req.params;
+
+      if (!userId) {
+        return res.status(400).json({
+          success: false,
+          message: "userId is required",
+        });
+      }
+
+      const payments = await Payment.find({ userId, status: "COMPLETED" }).lean();
+
+      // Calculate total spent
+      const totalSpent = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
+
+      // Calculate this month's spending
+      const now = new Date();
+      const currentMonth = payments.filter((p) => {
+        const paymentDate = new Date(p.createdAt);
+        return (
+          paymentDate.getMonth() === now.getMonth() &&
+          paymentDate.getFullYear() === now.getFullYear()
+        );
+      });
+      const thisMonth = currentMonth.reduce((sum, p) => sum + (p.amount || 0), 0);
+
+      // Get last payment
+      const lastPayment = payments.length > 0 ? payments[0] : null;
+
+      // Get payment counts by status
+      const allPayments = await Payment.find({ userId }).lean();
+      const statusCounts = {
+        completed: allPayments.filter((p) => p.status === "COMPLETED").length,
+        pending: allPayments.filter((p) => p.status === "PENDING").length,
+        failed: allPayments.filter((p) => p.status === "FAILED").length,
+        cancelled: allPayments.filter((p) => p.status === "CANCELLED").length,
+      };
+
+      return res.status(200).json({
+        success: true,
+        stats: {
+          totalSpent: parseFloat(totalSpent.toFixed(2)),
+          thisMonth: parseFloat(thisMonth.toFixed(2)),
+          totalTransactions: payments.length,
+          lastPaymentAmount: lastPayment ? lastPayment.amount : 0,
+          lastPaymentDate: lastPayment ? lastPayment.createdAt : null,
+          statusCounts,
+        },
+      });
+    } catch (error) {
+      console.error("❌ Error fetching payment stats:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to fetch payment statistics",
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  }
+
 }
 
 async function getUsdToAedRate() {
@@ -399,4 +529,14 @@ async function getUsdToAedRate() {
     console.error("Error fetching exchange rate:", error);
     return 3.6725;
   }
+}
+
+
+// Helper function to add credits (for upgrades)
+function addCredits(current: any, additional: any) {
+  return {
+    yoga: (current?.yoga || 0) + (additional?.yoga || 0),
+    zumba: (current?.zumba || 0) + (additional?.zumba || 0),
+    specialty: (current?.specialty || 0) + (additional?.specialty || 0),
+  };
 }

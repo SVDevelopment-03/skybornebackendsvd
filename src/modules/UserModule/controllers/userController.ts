@@ -1,4 +1,3 @@
-
 import { Request, Response, NextFunction } from "express";
 import UserService from "../services/userService";
 import User from "../models/User";
@@ -7,133 +6,209 @@ import Service from "../../ServiceModule/models/Service";
 import Meeting from "../../MeetingModule/MeetingModels/Meeting";
 
 export class UserController {
-static async GetDashboardStats(req: Request, res: Response) {
-  try {
-    const userId = req.user?.id;
+  static async GetDashboardStats(req: Request, res: Response) {
+    try {
+      const userId = req.user?.id;
 
-    if (!userId) {
-      return res.status(401).json({
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated",
+        });
+      }
+
+      // Fetch user data
+      const user = await User.findById(userId).select("plan classCredits");
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found",
+        });
+      }
+
+      const now = new Date();
+      const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+
+      // Determine which service titles to filter based on plan
+      let serviceTitles: string[] = [];
+
+      if (user.plan === "gold-yoga") {
+        serviceTitles = ["Yoga"];
+      } else if (user.plan === "gold-zumba") {
+        serviceTitles = ["Zumba Dance"];
+      } else if (user.plan === "gold-mixed") {
+        serviceTitles = ["Yoga", "Zumba Dance"];
+      } else if (user.plan === "diamond" || user.plan === "platinum") {
+        serviceTitles = ["Yoga", "Zumba Dance", "Diet & Nutrition"];
+      }
+
+      // Fetch service IDs based on titles
+      const services = await Service.find({
+        title: { $in: serviceTitles },
+      }).select("_id");
+
+      const serviceIds = services.map((service) => service._id);
+
+      // 1. Count Upcoming Sessions
+      const upcomingSessions = await Meeting.countDocuments({
+        localTime: { $gte: oneHourAgo },
+        service: { $in: serviceIds },
+      });
+
+      // 2. Get Total Credits
+      const totalCredits =
+        (Number(user.classCredits?.yoga) || 0) +
+        (Number(user.classCredits?.zumba) || 0) +
+        (Number(user.classCredits?.specialty) || 0);
+
+      // 3. Count Classes Attended
+      const classesAttended = await MeetingAttendance.countDocuments({
+        user: userId,
+        status: { $in: ["joined", "completed"] },
+      });
+
+      // 4. Get Current Plan
+      const planDetails = {
+        plan: user.plan || "Not Selected",
+        displayName: getPlanDisplayName(user.plan),
+      };
+
+      res.setHeader("Cache-Control", "no-store");
+
+      return res.json({
+        success: true,
+        data: {
+          upcomingSessions,
+          totalCredits,
+          classesAttended,
+          currentPlan: planDetails,
+        },
+      });
+    } catch (error: any) {
+      console.error("Error fetching dashboard stats:", error.message);
+      return res.status(500).json({
         success: false,
-        message: "User not authenticated",
+        message: error.message || "Error fetching dashboard statistics",
       });
     }
-
-    // Fetch user data
-    const user = await User.findById(userId).select(
-      "plan classCredits"
-    );
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
-
-    const now = new Date();
-    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-
-    // Determine which service titles to filter based on plan
-    let serviceTitles: string[] = [];
-    
-    if (user.plan === "gold-yoga") {
-      serviceTitles = ["Yoga"];
-    } else if (user.plan === "gold-zumba") {
-      serviceTitles = ["Zumba Dance"];
-    } else if (user.plan === "gold-mixed") {
-      serviceTitles = ["Yoga", "Zumba Dance"];
-    } else if (user.plan === "diamond" || user.plan === "platinum") {
-      // Diamond and Platinum can see all classes
-      serviceTitles = ["Yoga", "Zumba Dance", "Diet & Nutrition"];
-    }
-
-    // Fetch service IDs based on titles
-    const services = await Service.find({ 
-      title: { $in: serviceTitles } 
-    }).select("_id");
-    
-    const serviceIds = services.map(service => service._id);
-
-    // 1. Count Upcoming Sessions (same filter as GetUpcomingMeetings)
-    const upcomingSessions = await Meeting.countDocuments({
-      localTime: { $gte: oneHourAgo },
-      service: { $in: serviceIds },
-    });
-
-    // 2. Get Total Credits
-    const totalCredits =
-      (Number(user.classCredits?.yoga) || 0) +
-      (Number(user.classCredits?.zumba)|| 0) +
-      (Number(user.classCredits?.specialty) || 0);
-
-    // 3. Count Classes Attended (status: "joined" or "completed")
-    const classesAttended = await MeetingAttendance.countDocuments({
-      user: userId,
-      status: { $in: ["joined", "completed"] },
-    });
-
-    // 4. Get Current Plan
-    const planDetails = {
-      plan: user.plan || "Not Selected",
-      displayName: getPlanDisplayName(user.plan),
-    };
-
-    res.setHeader("Cache-Control", "no-store");
-
-    return res.json({
-      success: true,
-      data: {
-        upcomingSessions,
-        totalCredits,
-        classesAttended,
-        currentPlan: planDetails,
-      },
-    });
-  } catch (error: any) {
-    console.error("Error fetching dashboard stats:", error.message);
-    return res.status(500).json({
-      success: false,
-      message: error.message || "Error fetching dashboard statistics",
-    });
   }
-}
 
+  static async me(req: Request, res: Response) {
+    try {
+      const userId = req?.user?.id;
 
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated",
+        });
+      }
 
+      const user = await User.findById(userId).select("-password");
 
-  static async updateProfile(req: Request, res: Response, next: NextFunction) {
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found",
+        });
+      }
+
+      res.json({
+        success: true,
+        user,
+      });
+    } catch (error: any) {
+      return res.status(500).json({
+        success: false,
+        message: error.message || "Error fetching user profile",
+      });
+    }
+  }
+
+  static async updateProfile(
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ) {
     try {
       const userId = (req as any).user?.id;
-      const payload = req.body; // dynamic
+      const payload = req.body;
 
-      const updatedUser = await UserService.updateUser(userId, payload);
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated",
+        });
+      }
+
+      // Allowed fields for update
+      const allowedFields = [
+        "firstName",
+        "lastName",
+        "phoneNumber",
+        "country",
+      ];
+
+      // Filter payload to only include allowed fields
+      const updateData: any = {};
+      allowedFields.forEach((field) => {
+        if (payload[field] !== undefined) {
+          // Map 'phone' from frontend to 'phoneNumber' in backend
+          const dbField = field === "phone" ? "phoneNumber" : field;
+          updateData[dbField] = payload[field];
+        }
+      });
+
+      // Prevent email from being updated
+      if (payload.email) {
+        return res.status(400).json({
+          success: false,
+          message: "Email cannot be changed",
+        });
+      }
+
+      // Prevent password from being updated via this endpoint
+      if (payload.password) {
+        return res.status(400).json({
+          success: false,
+          message: "Use the password reset endpoint to change password",
+        });
+      }
+
+      if (Object.keys(updateData).length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: "No valid fields to update",
+        });
+      }
+
+      const updatedUser = await User.findByIdAndUpdate(userId, updateData, {
+        new: true,
+        runValidators: true,
+      }).select("-password");
+
+      if (!updatedUser) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found",
+        });
+      }
 
       res.status(200).json({
         success: true,
-        message: "Profile updated",
+        message: "Profile updated successfully",
         data: updatedUser,
       });
-    } catch (error) {
+    } catch (error: any) {
+      console.error("Error updating profile:", error);
       next(error);
     }
   }
-
-   static async me(req: Request, res: Response) {  
-      const userId = req?.user && req?.user?.id;
-  
-      const user = await User.findById(userId).select("-password");
-  
-      if (!user) return res.status(404).json({ message: "User not found" });
-  
-      res.json({ user });
-    }
 }
-
 
 // Helper function to get display name for plans
 function getPlanDisplayName(plan: string | undefined): string {
-  console.log("checking....");
-  
   const planMap: { [key: string]: string } = {
     "gold-yoga": "Gold Yoga",
     "gold-zumba": "Gold Zumba",
@@ -142,4 +217,4 @@ function getPlanDisplayName(plan: string | undefined): string {
     platinum: "Platinum",
   };
   return planMap[plan || ""] || "No Plan";
-}   
+}
