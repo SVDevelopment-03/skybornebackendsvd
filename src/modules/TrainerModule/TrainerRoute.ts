@@ -22,6 +22,12 @@ export const TrainerRoute: RouteConfig[] = [
     action: trainerController.getAll,
     method: "get",
   },
+   {
+    path: "/active-trainers",
+    request: getTrainersSchema,
+    action: trainerController.getAllActive,
+    method: "get",
+  },
   {
     path: "/trainers/:id",
     request: getTrainerByIdSchema,
@@ -45,5 +51,35 @@ export const TrainerRoute: RouteConfig[] = [
     request: deleteTrainerSchema,
     action: trainerController.delete,
     method: "delete",
+  },
+  {
+    path: "/trainer/stats",
+    request: null,
+    action: TrainerController.GetTrainerStats,
+    method: "get",
+  },
+  {
+    path: "/trainer/earnings",
+    request: null,
+    action: TrainerController.GetTrainerEarnings,
+    method: "get",
+  },
+  {
+    path: "/trainer/student-growth",
+    request: null,
+    action: TrainerController.GetStudentGrowth,
+    method: "get",
+  },
+  {
+    path: "/trainer/sessions-attendance",
+    request: null,
+    action: TrainerController.GetSessionsAttendance,
+    method: "get",
+  },
+  {
+    path: "/trainer/top-services",
+    request: null,
+    action: TrainerController.GetTopServices,
+    method: "get",
   },
 ];

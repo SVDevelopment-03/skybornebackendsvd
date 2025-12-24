@@ -19,6 +19,7 @@ export interface IUser extends Document {
   country: string;
   countryCode: string;
   dialingCode: string;
+  trainer?:string
   localNumber: string;
 
   // OAuth

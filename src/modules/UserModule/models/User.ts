@@ -51,6 +51,11 @@ const userSchema = new Schema<IUser>(
     dialingCode: {
       type: String,
     },
+    
+    trainer:{
+      type: Schema.Types.ObjectId,
+      ref: "Trainer",
+    },
 
     // OAuth
     authProvider: {

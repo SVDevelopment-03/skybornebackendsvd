@@ -13,12 +13,6 @@ export const MeetingRoute = [
     action: MeetingController.CreateMeeting,
     method: "post",
   },
-  //   {
-  //   path: "/meetings/redirect",
-  //   request: null,
-  //   action: MeetingController.RedirectZoom,
-  //   method: "post",
-  // },
   {
     path: "/meetings/join",
     request: JoinMeetingSchema,
@@ -29,6 +23,12 @@ export const MeetingRoute = [
     path: "/meetings/upcoming",
     request: UpcomingMeetingsSchema,
     action: MeetingController.GetUpcomingMeetings,
+    method: "get",
+  },
+  {
+    path: "/meetings/trainer/upcoming",
+    request: UpcomingMeetingsSchema,
+    action: MeetingController.GetTrainerUpcomingMeetings,
     method: "get",
   },
 

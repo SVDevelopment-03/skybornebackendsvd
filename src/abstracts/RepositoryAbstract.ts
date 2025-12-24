@@ -86,26 +86,66 @@ export default class RepositoryAbstract<T extends Document> {
       .catch((err) => this.handleErrorMessage(err));
   }
 
-  async searchModels(payload: any) {
-    const { search, skip = 0, limit = 10 } = payload;
+async searchModels(payload: any) {
+  const { search, skip = 0, limit = 10, filter,isActive=false } = payload;
 
-    const query = search
-      ? {
-          $or: [
-            { name: { $regex: search, $options: "i" } },
-            { specialization: { $regex: search, $options: "i" } },
-          ],
-        }
-      : {};
-
-    return this.model
-      .find(query)
-      .sort({createdAt:-1})
-      .skip(skip)
-      .limit(limit)
-      .then((data) => data)
-      .catch((err) => this.handleErrorMessage(err));
+  // Build base query object
+  const query: any = {};
+  if(isActive){   
+    query.status = 'active';
   }
+
+  // Handle search
+  if (search) {
+    query.$or = [
+      { name: { $regex: search, $options: "i" } },
+      { "specialization.title": { $regex: search, $options: "i" } },
+    ];
+  }
+
+  // Handle specialization filter (ObjectId)
+  if (filter) {
+    const filterIds = filter.split(",").map((id:string) => id.trim());
+    query.specialization = { $in: filterIds };
+  }
+
+  return this.model
+    .find(query)
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limit)
+    .then((data) => data)
+    .catch((err) => this.handleErrorMessage(err));
+}
+
+async getAll(payload: {
+  search?: string;
+  skip: number;
+  limit: number;
+  filter?: string;
+}) {
+  const { search, skip, limit, filter } = payload;
+
+  // Build count query
+  const countQuery: any = {};
+
+  if (search) {
+    countQuery.$or = [
+      { name: { $regex: search, $options: "i" } },
+      { "specialization.title": { $regex: search, $options: "i" } },
+    ];
+  }
+
+  if (filter) {
+    const filterIds = filter.split(",").map((id) => id.trim());
+    countQuery.specialization = { $in: filterIds };
+  }
+
+  const trainers = await this.searchModels(payload);
+  const total = await this.model.countDocuments(countQuery);
+
+  return { trainers, total };
+}
 
   protected handleErrorMessage(err: Error) {
     if (err instanceof Error.DocumentNotFoundError)

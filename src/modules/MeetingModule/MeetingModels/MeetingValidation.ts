@@ -10,11 +10,7 @@ export const CreateMeetingSchema = Yup.object({
     .trim(),
   
   liveRegion: Yup.string()
-    .required("Live region is required")
-    .oneOf(
-      ["gulf", "apac", "canada-usa", "uk-europe"],
-      "Invalid region selected"
-    ),
+    .required("Live region is required"),
   
   liveTime: Yup.string()
     .required("Live time is required")
@@ -39,8 +35,7 @@ export const CreateMeetingSchema = Yup.object({
   autoRecording: Yup.boolean()
     .required("Auto recording option is required"),
   
-  rotationEnabled: Yup.boolean()
-    .required("Rotation enabled option is required"),
+  rotationEnabled: Yup.boolean(),
 
   startDate: Yup.string()
     .required("Start date is required")

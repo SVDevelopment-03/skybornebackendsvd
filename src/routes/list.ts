@@ -6,6 +6,7 @@ import { MeetingRoute } from "../modules/MeetingModule/MeetingRoute";
 import { NewsLetterRoute } from "../modules/NewsLetterModule.ts/NewsLetterRoute";
 import { PaymentApiRoutes } from "../modules/PaymentModule/routes/paymentRoutes";
 import { PlanRoute } from "../modules/PlanModule/routes/PlanRoutes";
+import { RegionRoute } from "../modules/RegionModule/region.routes";
 import { ServiceRoute } from "../modules/ServiceModule/routes/ServiceRoute";
 import { TestimonialRoute } from "../modules/TestimonialModule/routes/TestimonialRoute";
 import { TrainerRoute } from "../modules/TrainerModule/TrainerRoute";
@@ -22,7 +23,8 @@ const appApiRoutes: any = [
   ...TrainerRoute,
   ...UserRoute,
   ...CountryRoute,
-  ...AdminRoutes
+  ...AdminRoutes,
+  ...RegionRoute
 ];
 
 export default appApiRoutes;

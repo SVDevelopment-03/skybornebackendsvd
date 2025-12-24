@@ -10,6 +10,7 @@ export interface ICoach extends Document {
   email: string;
   phoneNumber?: string;
   charges: number;
+  status : 'active' | 'inactive';
 }
 
 const CoachesSchema = new Schema<ICoach>(
@@ -52,7 +53,12 @@ const CoachesSchema = new Schema<ICoach>(
         "Phone number must be between 7–18 digits and may start with +",
       ],
     },
-
+    status:{
+      type: String,
+      enum: ['active', 'inactive'],
+      default: 'active',
+    },
+    
     charges: {
       type: Number,
       required: true,

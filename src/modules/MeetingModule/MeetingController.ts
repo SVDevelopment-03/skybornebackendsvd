@@ -11,8 +11,7 @@ import { ServiceType } from "../UserModule/interface/userInterface";
 import CountryRepository from "../CountryModule/country.repository";
 import { ICountry } from "../CountryModule/country.model";
 
-
-const _countryRepository= new CountryRepository();
+const _countryRepository = new CountryRepository();
 
 export default class MeetingController {
   static async CreateMeeting(req: Request, res: Response) {
@@ -21,7 +20,7 @@ export default class MeetingController {
       console.log("📝 [CreateMeeting] Request body:", req.body);
 
       const token = await getZoomAccessToken();
-      console.log("✅ [CreateMeeting] Zoom access token retrieved");
+      console.log("✅ [CreateMeeting] Zoom access token retrieved", token);
 
       const {
         service,
@@ -81,35 +80,32 @@ export default class MeetingController {
       const topic = `${title} - Live Class`;
       console.log("📌 [CreateMeeting] Meeting topic generated:", topic);
 
-      // 1. Create ONE meeting on Zoom for the LIVE region only
-      console.log("🔗 [CreateMeeting] Sending request to Zoom API...");
-      console.log("📤 [CreateMeeting] Zoom payload:", {
-        topic,
-        type: 2,
-        start_time: localTime,
-        duration,
-      });
+      const startDateTime = new Date(localTime);
+
+      // Get weekday for Zoom (1–7)
+      const zoomWeekDay =
+        startDateTime.getUTCDay() === 0 ? 1 : startDateTime.getUTCDay() + 1;
 
       const zoomResponse = await axios.post(
         "https://api.zoom.us/v2/users/me/meetings",
         {
           topic,
-          type: 2, // Scheduled meeting
+          type: 2, // Recurring scheduled meeting
           start_time: localTime,
           duration,
+          // recurrence: {
+          //   type: 2,
+          //   repeat_interval: 1,
+          //   end_times: 10,
+          // },
           settings: {
-            // Mute on entry for all participants
             mute_upon_entry: true,
             allow_multiple_audio_unmute: false,
             allow_participants_to_unmute_themselves: false,
             allow_participants_to_unmute: false,
-            // Enable recording
             auto_recording: autoRecording ? "cloud" : "none",
-            // Host video on
             host_video: true,
-            // Participant video on
             participant_video: true,
-            // Enable waiting room
             waiting_room: true,
           },
         },
@@ -120,7 +116,6 @@ export default class MeetingController {
           },
         }
       );
-
       console.log("✅ [CreateMeeting] Zoom API response received");
       console.log(
         "📊 [CreateMeeting] Zoom response status:",
@@ -158,7 +153,8 @@ export default class MeetingController {
         trainer,
         duration,
         autoRecording,
-        rotationEnabled,
+        rotationEnabled:false,
+        isRecurring: true,
         isLive: true, // This is the live meeting
         startDate: new Date(startDate),
         localTime: new Date(localTime),
@@ -216,8 +212,6 @@ export default class MeetingController {
     }
   }
 
-
-
   static async GetUpcomingMeetings(req: Request, res: Response) {
     try {
       const { search = "" } = req?.query;
@@ -231,7 +225,9 @@ export default class MeetingController {
       }
 
       // Fetch user with their plan
-      const user = await User.findById(userId).select("plan country countryCode");
+      const user = await User.findById(userId).select(
+        "plan country countryCode"
+      );
 
       if (!user) {
         return res.status(404).json({
@@ -240,27 +236,26 @@ export default class MeetingController {
         });
       }
 
-    //   const userCountry = await _countryRepository.searchModel({
-    //   code: user.countryCode,
-    // } as Partial<ICountry>);
+      //   const userCountry = await _countryRepository.searchModel({
+      //   code: user.countryCode,
+      // } as Partial<ICountry>);
 
+      // if (!userCountry) {
+      //   return res.status(404).json({
+      //     success: false,
+      //     message: "Country information not found",
+      //   });
+      // }
 
-    // if (!userCountry) {
-    //   return res.status(404).json({
-    //     success: false,
-    //     message: "Country information not found",
-    //   });
-    // }
-
-    // if (userCountry.status === "inactive") {
-    //   return res.json({
-    //     success: true,
-    //     count: 0,
-    //     meetings: [],
-    //     userPlan: user.plan,
-    //     message: "Classes are not available in your country at this time",
-    //   });
-    // }
+      // if (userCountry.status === "inactive") {
+      //   return res.json({
+      //     success: true,
+      //     count: 0,
+      //     meetings: [],
+      //     userPlan: user.plan,
+      //     message: "Classes are not available in your country at this time",
+      //   });
+      // }
 
       const now = new Date();
       const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
@@ -314,19 +309,105 @@ export default class MeetingController {
     }
   }
 
+  static async GetTrainerUpcomingMeetings(req: Request, res: Response) {
+  try {
+    const userId = req.user?.id; // User ID from auth
+    const { search = "", date } = req.query;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "User not authenticated",
+      });
+    }
+
+    // Fetch user and get their trainer ID
+    const user = await User.findById(userId).select("trainer");
+    
+    if (!user || !user.trainer) {
+      return res.status(400).json({
+        success: false,
+        message: "User is not associated with a trainer profile",
+      });
+    }
+
+    const trainerId = user.trainer;
+
+    // Get today's date at midnight
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Get tomorrow at midnight
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    // If specific date is provided, use that
+    let startTime = today;
+    let endTime = tomorrow;
+
+    if (date) {
+      const specifiedDate = new Date(date as string);
+      specifiedDate.setHours(0, 0, 0, 0);
+      startTime = specifiedDate;
+      endTime = new Date(specifiedDate);
+      endTime.setDate(endTime.getDate() + 1);
+    }
+
+    // Find meetings where this trainer is assigned
+    const meetings = await Meeting.find({
+      trainer: trainerId, // Filter by trainer
+      localTime: {
+        $gte: startTime,
+        $lt: endTime,
+      },
+      title: { $regex: search || "", $options: "i" },
+    })
+      .sort({ localTime: 1 })
+      .populate("service", "title name _id")
+      .populate("trainer", "name email _id")
+      .populate("createdBy", "firstName lastName email _id")
+      .lean();
+
+    // Transform response to include region info
+    const formattedMeetings = meetings.map((meeting: any) => ({
+      ...meeting,
+      regions: [
+        {
+          region: meeting.region || "IN",
+          mode: meeting.isLive ? "live" : "recorded",
+        },
+      ],
+    }));
+
+    res.setHeader("Cache-Control", "no-store");
+
+    return res.json({
+      success: true,
+      count: formattedMeetings.length,
+      meetings: formattedMeetings,
+      date: date || today.toISOString().split("T")[0],
+    });
+  } catch (error: any) {
+    console.error("Error fetching trainer upcoming meetings:", error.message);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Error fetching upcoming meetings",
+    });
+  }
+}
+
   static async JoinMeeting(req: Request, res: Response) {
     try {
       const { meetingId, userId, region } = req.body;
       const user = req.user;
 
-
       const userData = await User.findById(userId);
-    if (!userData) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
+      if (!userData) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found",
+        });
+      }
 
       // Find the meeting
       const meeting = await Meeting.findById(meetingId).populate(
@@ -341,27 +422,30 @@ export default class MeetingController {
         });
       }
 
+      // Determine service type
+      const serviceType =
+        (meeting?.service as IService)?.title?.toLowerCase() == "zumba dance"
+          ? "zumba"
+          : (meeting?.service as IService)?.title?.toLowerCase();
+      console.log("service type", serviceType);
 
-    // Determine service type
-    const serviceType = (meeting?.service as IService)?.title?.toLowerCase() == "zumba dance" ? "zumba": (meeting?.service as IService)?.title?.toLowerCase();
-    console.log("service type", serviceType);
-    
-    if (!["yoga", "zumba", "specialty"].includes(serviceType)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid service type for meeting",
-      });
-    }
+      if (!["yoga", "zumba", "specialty"].includes(serviceType)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid service type for meeting",
+        });
+      }
 
-    // Check class credits
-    const credits :any= userData.classCredits?.[serviceType as ServiceType]   || 0;
+      // Check class credits
+      const credits: any =
+        userData.classCredits?.[serviceType as ServiceType] || 0;
 
-    if (credits <= 0) {
-      return res.status(403).json({
-        success: false,
-        message: `You do not have enough ${serviceType} credits to join this session`,
-      });
-    }
+      if (credits <= 0) {
+        return res.status(403).json({
+          success: false,
+          message: `You do not have enough ${serviceType} credits to join this session`,
+        });
+      }
 
       // Find the region entry for this specific region
       const regionEntry = meeting.regions.find(
@@ -410,7 +494,6 @@ export default class MeetingController {
       }
 
       console.log("meeting id", meeting.zoomMeetingId);
-      
 
       const participantRecord = await MeetingParticipant.create({
         meetingId,
@@ -423,7 +506,7 @@ export default class MeetingController {
       // Find or create attendance record
       let attendance = await MeetingAttendance.findOne({
         meeting: meetingId,
-        user: userId
+        user: userId,
       });
 
       if (!attendance) {
@@ -431,7 +514,7 @@ export default class MeetingController {
           meeting: meetingId,
           user: userId,
           region, // Store which region user is accessing from
-          joinedAt:new Date(),
+          joinedAt: new Date(),
           sessions: [{ joinTime: new Date(), mode: regionEntry.mode }],
         });
       } else {
@@ -584,7 +667,7 @@ export default class MeetingController {
     try {
       const userId = req.user?.id;
       console.log("user", userId);
-      
+
       const { period = "6months" } = req.query;
 
       if (!userId) {
@@ -611,7 +694,7 @@ export default class MeetingController {
       const monthlyData = await MeetingAttendance.aggregate([
         {
           $match: {
-             user: new mongoose.Types.ObjectId(userId),
+            user: new mongoose.Types.ObjectId(userId),
             status: { $in: ["joined", "completed"] },
             createdAt: {
               $gte: periodAgo,
@@ -636,7 +719,7 @@ export default class MeetingController {
       ]);
 
       console.log("monthlyData", monthlyData);
-      
+
       // Format the response with month names
       const monthNames = [
         "Jan",
@@ -693,17 +776,17 @@ export default class MeetingController {
     }
   }
 
-
   static async getAllMeetings(
     req: Request,
     res: Response,
-    next:NextFunction
+    next: NextFunction
   ): Promise<void> {
     try {
       const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 10;
       const search = (req.query.search as string) || "";
-      const status = (req.query.status as string) || ""; // optional filter
+      const status = (req.query.status as string) || "";
+      const filter = (req.query.filter as string) || "";
 
       // Calculate skip for pagination
       const skip = (page - 1) * limit;
@@ -722,6 +805,12 @@ export default class MeetingController {
       // Add status filter if provided
       if (status) {
         searchQuery.isLive = status === "live" ? true : false;
+      }
+
+      // Add service filter (ObjectId)
+      if (filter) {
+        const filterIds = filter.split(",").map((id) => id.trim());
+        searchQuery.service = { $in: filterIds };
       }
 
       // Fetch meetings with pagination and populate references
@@ -752,257 +841,263 @@ export default class MeetingController {
           },
         },
       });
-    } catch (error:any) {
+    } catch (error: any) {
       console.error("Error fetching monthly attendance:", error.message);
-      next()
-    
+      next();
     }
   }
-
 
   static async GetMeetingById(req: Request, res: Response) {
-  try {
-    const { id } = req.params;
-
-    // Validate MongoDB ID
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid meeting ID",
-      });
-    }
-
-    const meeting = await Meeting.findById(id)
-      .populate("service", "_id title description image isActive")
-      .populate("trainer", "_id name email")
-      .populate("createdBy", "_id firstName lastName email")
-      .lean();
-
-    if (!meeting) {
-      return res.status(404).json({
-        success: false,
-        message: "Meeting not found",
-      });
-    }
-
-    return res.json({
-      success: true,
-      data: meeting,
-    });
-  } catch (error: any) {
-    console.error("Error fetching meeting:", error.message);
-    return res.status(500).json({
-      success: false,
-      message: error.message || "Error fetching meeting",
-    });
-  }
-}
-
-static async UpdateMeeting(req: Request, res: Response) {
-  try {
-    console.log("🚀 [UpdateMeeting] Starting meeting update process");
-    const { id } = req.params;
-
-    // Validate MongoDB ID
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid meeting ID",
-      });
-    }
-
-    const {
-      service,
-      title,
-      liveRegion,
-      liveTime,
-      trainer,
-      duration,
-      autoRecording,
-      rotationEnabled,
-      startDate,
-      localTime,
-      regions,
-    } = req.body;
-
-    console.log("📋 [UpdateMeeting] Extracted parameters:", {
-      service,
-      title,
-      liveRegion,
-      liveTime,
-      trainer,
-      duration,
-      autoRecording,
-      rotationEnabled,
-      startDate,
-      localTime,
-    });
-
-    // Validate required fields
-    if (
-      !service ||
-      !title ||
-      !liveRegion ||
-      !liveTime ||
-      !trainer ||
-      !duration ||
-      !startDate ||
-      !localTime ||
-      !regions
-    ) {
-      console.warn(
-        "⚠️ [UpdateMeeting] Validation failed - Missing required fields"
-      );
-      return res.status(400).json({
-        success: false,
-        message: "Missing required fields",
-      });
-    }
-
-    // Find the meeting
-    const meeting = await Meeting.findById(id);
-
-    if (!meeting) {
-      return res.status(404).json({
-        success: false,
-        message: "Meeting not found",
-      });
-    }
-
-    console.log("✅ [UpdateMeeting] Meeting found, updating fields...");
-
-    // Update meeting fields
-    meeting.service = service;
-    meeting.title = title;
-    meeting.liveRegion = liveRegion;
-    meeting.liveTime = liveTime;
-    meeting.trainer = trainer;
-    meeting.duration = duration;
-    meeting.autoRecording = autoRecording;
-    meeting.rotationEnabled = rotationEnabled;
-    meeting.startDate = new Date(startDate);
-    meeting.localTime = new Date(localTime);
-    meeting.regions = regions; // Update all regions
-
-    // Update Zoom meeting settings if needed
     try {
-      const token = await getZoomAccessToken();
-      const meetingTopic = `${title} - Live Class`;
+      const { id } = req.params;
 
-      await axios.patch(
-        `https://api.zoom.us/v2/meetings/${meeting.zoomMeetingId}`,
-        {
-          topic: meetingTopic,
-          start_time: localTime,
-          duration,
-          settings: {
-            mute_upon_entry: true,
-            allow_multiple_audio_unmute: false,
-            allow_participants_to_unmute_themselves: false,
-            allow_participants_to_unmute: false,
-            auto_recording: autoRecording ? "cloud" : "none",
-            host_video: true,
-            participant_video: true,
-            waiting_room: true,
+      // Validate MongoDB ID
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid meeting ID",
+        });
+      }
+
+      const meeting = await Meeting.findById(id)
+        .populate("service", "_id title description image isActive")
+        .populate("trainer", "_id name email")
+        .populate("createdBy", "_id firstName lastName email")
+        .lean();
+
+      if (!meeting) {
+        return res.status(404).json({
+          success: false,
+          message: "Meeting not found",
+        });
+      }
+
+      return res.json({
+        success: true,
+        data: meeting,
+      });
+    } catch (error: any) {
+      console.error("Error fetching meeting:", error.message);
+      return res.status(500).json({
+        success: false,
+        message: error.message || "Error fetching meeting",
+      });
+    }
+  }
+
+  static async UpdateMeeting(req: Request, res: Response) {
+    try {
+      console.log("🚀 [UpdateMeeting] Starting meeting update process");
+      const { id } = req.params;
+
+      // Validate MongoDB ID
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid meeting ID",
+        });
+      }
+
+      const {
+        service,
+        title,
+        liveRegion,
+        liveTime,
+        trainer,
+        duration,
+        autoRecording,
+        rotationEnabled=false,
+        startDate,
+        localTime,
+        regions,
+      } = req.body;
+
+      console.log("📋 [UpdateMeeting] Extracted parameters:", {
+        service,
+        title,
+        liveRegion,
+        liveTime,
+        trainer,
+        duration,
+        autoRecording,
+        rotationEnabled,
+        startDate,
+        localTime,
+      });
+
+      // Validate required fields
+      if (
+        !service ||
+        !title ||
+        !liveRegion ||
+        !liveTime ||
+        !trainer ||
+        !duration ||
+        !startDate ||
+        !localTime ||
+        !regions
+      ) {
+        console.warn(
+          "⚠️ [UpdateMeeting] Validation failed - Missing required fields"
+        );
+        return res.status(400).json({
+          success: false,
+          message: "Missing required fields",
+        });
+      }
+
+      // Find the meeting
+      const meeting = await Meeting.findById(id);
+
+      if (!meeting) {
+        return res.status(404).json({
+          success: false,
+          message: "Meeting not found",
+        });
+      }
+
+      console.log("✅ [UpdateMeeting] Meeting found, updating fields...");
+
+      // Update meeting fields
+      meeting.service = service;
+      meeting.title = title;
+      meeting.liveRegion = liveRegion;
+      meeting.liveTime = liveTime;
+      meeting.trainer = trainer;
+      meeting.duration = duration;
+      meeting.autoRecording = autoRecording;
+      meeting.rotationEnabled = rotationEnabled;
+      meeting.startDate = new Date(startDate);
+      meeting.localTime = new Date(localTime);
+      meeting.regions = regions; // Update all regions
+
+      // Update Zoom meeting settings if needed
+      try {
+        const token = await getZoomAccessToken();
+        const meetingTopic = `${title} - Live Class`;
+
+        await axios.patch(
+          `https://api.zoom.us/v2/meetings/${meeting.zoomMeetingId}`,
+          {
+            topic: meetingTopic,
+            start_time: localTime,
+            duration,
+            settings: {
+              mute_upon_entry: true,
+              allow_multiple_audio_unmute: false,
+              allow_participants_to_unmute_themselves: false,
+              allow_participants_to_unmute: false,
+              auto_recording: autoRecording ? "cloud" : "none",
+              host_video: true,
+              participant_video: true,
+              waiting_room: true,
+            },
           },
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+          }
+        );
+
+        console.log("✅ [UpdateMeeting] Zoom meeting updated successfully");
+      } catch (zoomError: any) {
+        console.error(
+          "⚠️ [UpdateMeeting] Error updating Zoom meeting:",
+          zoomError.message
+        );
+        // Don't fail the entire request if Zoom update fails
+      }
+
+      // Save the meeting
+      await meeting.save();
+
+      console.log("✅ [UpdateMeeting] Meeting saved to database");
+      console.log(
+        "📊 [UpdateMeeting] Updated regions count:",
+        meeting.regions.length
+      );
+
+      const responseMessage = `Meeting "${title}" updated successfully. Live session for ${liveRegion}.`;
+
+      return res.json({
+        success: true,
+        data: {
+          meeting,
+          message: responseMessage,
         },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-        }
-      );
+      });
+    } catch (error: any) {
+      console.error("❌ [UpdateMeeting] ERROR CAUGHT");
+      console.error("📝 [UpdateMeeting] Error message:", error.message);
+      console.error("🔍 [UpdateMeeting] Error details:", error);
 
-      console.log("✅ [UpdateMeeting] Zoom meeting updated successfully");
-    } catch (zoomError: any) {
-      console.error("⚠️ [UpdateMeeting] Error updating Zoom meeting:", zoomError.message);
-      // Don't fail the entire request if Zoom update fails
+      return res.status(500).json({
+        success: false,
+        message: error.message || "Error updating meeting",
+        error: error.response?.data,
+      });
     }
-
-    // Save the meeting
-    await meeting.save();
-
-    console.log("✅ [UpdateMeeting] Meeting saved to database");
-    console.log("📊 [UpdateMeeting] Updated regions count:", meeting.regions.length);
-
-    const responseMessage = `Meeting "${title}" updated successfully. Live session for ${liveRegion}.`;
-
-    return res.json({
-      success: true,
-      data: {
-        meeting,
-        message: responseMessage,
-      },
-    });
-  } catch (error: any) {
-    console.error("❌ [UpdateMeeting] ERROR CAUGHT");
-    console.error("📝 [UpdateMeeting] Error message:", error.message);
-    console.error("🔍 [UpdateMeeting] Error details:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: error.message || "Error updating meeting",
-      error: error.response?.data,
-    });
   }
-}
 
-static async DeleteMeeting(req: Request, res: Response) {
-  try {
-    console.log("🚀 [DeleteMeeting] Starting meeting deletion process");
-    const { id } = req.params;
-
-    // Validate MongoDB ID
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid meeting ID",
-      });
-    }
-
-    const meeting = await Meeting.findByIdAndDelete(id);
-
-    if (!meeting) {
-      return res.status(404).json({
-        success: false,
-        message: "Meeting not found",
-      });
-    }
-
-    // Try to delete from Zoom
+  static async DeleteMeeting(req: Request, res: Response) {
     try {
-      const token = await getZoomAccessToken();
-      await axios.delete(
-        `https://api.zoom.us/v2/meetings/${meeting.zoomMeetingId}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-      console.log("✅ [DeleteMeeting] Zoom meeting deleted successfully");
-    } catch (zoomError: any) {
-      console.error("⚠️ [DeleteMeeting] Error deleting Zoom meeting:", zoomError.message);
-      // Don't fail if Zoom deletion fails
+      console.log("🚀 [DeleteMeeting] Starting meeting deletion process");
+      const { id } = req.params;
+
+      // Validate MongoDB ID
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid meeting ID",
+        });
+      }
+
+      const meeting = await Meeting.findByIdAndDelete(id);
+
+      if (!meeting) {
+        return res.status(404).json({
+          success: false,
+          message: "Meeting not found",
+        });
+      }
+
+      // Try to delete from Zoom
+      try {
+        const token = await getZoomAccessToken();
+        await axios.delete(
+          `https://api.zoom.us/v2/meetings/${meeting.zoomMeetingId}`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
+        console.log("✅ [DeleteMeeting] Zoom meeting deleted successfully");
+      } catch (zoomError: any) {
+        console.error(
+          "⚠️ [DeleteMeeting] Error deleting Zoom meeting:",
+          zoomError.message
+        );
+        // Don't fail if Zoom deletion fails
+      }
+
+      console.log("✅ [DeleteMeeting] Meeting deleted from database");
+
+      return res.json({
+        success: true,
+        message: "Meeting deleted successfully",
+        data: { meetingId: id },
+      });
+    } catch (error: any) {
+      console.error("❌ [DeleteMeeting] ERROR CAUGHT");
+      console.error("📝 [DeleteMeeting] Error message:", error.message);
+
+      return res.status(500).json({
+        success: false,
+        message: error.message || "Error deleting meeting",
+      });
     }
-
-    console.log("✅ [DeleteMeeting] Meeting deleted from database");
-
-    return res.json({
-      success: true,
-      message: "Meeting deleted successfully",
-      data: { meetingId: id },
-    });
-  } catch (error: any) {
-    console.error("❌ [DeleteMeeting] ERROR CAUGHT");
-    console.error("📝 [DeleteMeeting] Error message:", error.message);
-
-    return res.status(500).json({
-      success: false,
-      message: error.message || "Error deleting meeting",
-    });
   }
-}
-
 }
