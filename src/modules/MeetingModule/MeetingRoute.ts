@@ -38,6 +38,12 @@ export const MeetingRoute = [
     action: MeetingController.getAllMeetings,
     method: "get",
   },
+   {
+    path: "/meetings/getAllTrainerMeetings",
+    request: null,
+    action: MeetingController.GetAllTrainerMeetings,
+    method: "get",
+  },
   {
     path: "/meetings/attendance/monthly",
     request: null,

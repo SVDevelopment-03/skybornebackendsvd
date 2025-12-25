@@ -5,7 +5,42 @@ import MeetingAttendance from "../../MeetingModule/MeetingModels/MeetingAttendan
 import Service from "../../ServiceModule/models/Service";
 import Meeting from "../../MeetingModule/MeetingModels/Meeting";
 
+const userService = new UserService();
+
 export class UserController {
+static async getAll(req: Request, res: Response) {
+    try {
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 10;
+      const search = (req.query.search as string) || "";
+      const filter = (req.query.filter as string) || "";
+
+      const skip = (page - 1) * limit;
+
+      const result = await userService.getAll({
+        search,
+        skip,
+        limit,
+        filter,
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: "Users fetched successfully",
+        data: result.users,
+        pagination: {
+          currentPage: page,
+          totalPages: Math.ceil((result.total as number) / limit),
+          total: result.total,
+          limit,
+        },
+      });
+    } catch (error) {
+      return res.status(500).json({ success: false, error });
+    }
+  }
+
+
   static async GetDashboardStats(req: Request, res: Response) {
     try {
       const userId = req.user?.id;

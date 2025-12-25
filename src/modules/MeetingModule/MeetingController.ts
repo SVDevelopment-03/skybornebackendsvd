@@ -14,7 +14,7 @@ import { ICountry } from "../CountryModule/country.model";
 const _countryRepository = new CountryRepository();
 
 export default class MeetingController {
-  static async CreateMeeting(req: Request, res: Response) {
+static async CreateMeeting(req: Request, res: Response) {
     try {
       console.log("🚀 [CreateMeeting] Starting meeting creation process");
       console.log("📝 [CreateMeeting] Request body:", req.body);
@@ -29,12 +29,13 @@ export default class MeetingController {
         liveTime,
         trainer,
         duration,
-        autoRecording,
+        autoRecording=true,
         rotationEnabled,
         startDate,
         localTime,
         regions,
         adminId,
+        weeklyEndDate,
       } = req.body;
 
       console.log("📋 [CreateMeeting] Extracted parameters:", {
@@ -50,6 +51,7 @@ export default class MeetingController {
         localTime,
         regions,
         adminId,
+        weeklyEndDate,
       });
 
       // Validate required fields
@@ -82,28 +84,54 @@ export default class MeetingController {
 
       const startDateTime = new Date(localTime);
 
-      // Get weekday for Zoom (1–7)
-      const zoomWeekDay =
-        startDateTime.getUTCDay() === 0 ? 1 : startDateTime.getUTCDay() + 1;
+      // Get weekday for Zoom (1–7, where 1 = Monday, 7 = Sunday)
+      const jsWeekDay = startDateTime.getUTCDay();
+      const zoomWeekDay = jsWeekDay === 0 ? 7 : jsWeekDay;
+
+      // Format time as HH:MM for Zoom API
+      const hours = String(startDateTime.getUTCHours()).padStart(2, "0");
+      const minutes = String(startDateTime.getUTCMinutes()).padStart(2, "0");
+      const startTimeForZoom = `${hours}:${minutes}`;
+
+      console.log("⏰ [CreateMeeting] Recurrence settings:", {
+        zoomWeekDay,
+        startTimeForZoom,
+        weeklyEndDate: weeklyEndDate || "No end date (unlimited)",
+      });
+
+      // Build recurrence object
+      const recurrenceSettings: any = {
+        type: 2,
+        repeat_interval: 1,
+        weekly_days: zoomWeekDay,
+      };
+
+      if (weeklyEndDate) {
+        const endDate = new Date(weeklyEndDate);
+        const endDateString = endDate.toISOString().split("T")[0];
+        recurrenceSettings.end_date_time = endDateString;
+      } else {
+        const defaultEndDate = new Date(startDateTime);
+        defaultEndDate.setFullYear(defaultEndDate.getFullYear() + 1);
+        const endDateString = defaultEndDate.toISOString().split("T")[0];
+        recurrenceSettings.end_date_time = endDateString;
+      }
 
       const zoomResponse = await axios.post(
         "https://api.zoom.us/v2/users/me/meetings",
         {
           topic,
-          type: 2, // Recurring scheduled meeting
+          type: 8,
           start_time: localTime,
           duration,
-          // recurrence: {
-          //   type: 2,
-          //   repeat_interval: 1,
-          //   end_times: 10,
-          // },
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          recurrence: recurrenceSettings,
           settings: {
             mute_upon_entry: true,
             allow_multiple_audio_unmute: false,
             allow_participants_to_unmute_themselves: false,
             allow_participants_to_unmute: false,
-            auto_recording: autoRecording ? "cloud" : "none",
+            auto_recording: "cloud",
             host_video: true,
             participant_video: true,
             waiting_room: true,
@@ -124,10 +152,13 @@ export default class MeetingController {
 
       const meetingId = zoomResponse.data.id;
       const password = zoomResponse.data.password;
+      const occurrences = zoomResponse.data.occurrences;
 
       console.log("🎯 [CreateMeeting] Meeting created on Zoom:", {
         meetingId,
         password,
+        isRecurring: true,
+        occurrences: occurrences?.length || 0,
       });
 
       // Web client URLs
@@ -139,32 +170,33 @@ export default class MeetingController {
         webStartUrl,
       });
 
-      // 2. Save ONE meeting with all regions in DB
-      console.log("💾 [CreateMeeting] Saving meeting to database...");
+      // Save parent meeting record
+      console.log("💾 [CreateMeeting] Saving parent meeting to database...");
       console.log("📍 [CreateMeeting] Regions data:", regions);
 
       const meetingRecord = await Meeting.create({
         zoomMeetingId: meetingId,
         service,
         title,
-        regions, // Store all regions with mode (live/replay)
+        regions,
         liveRegion,
         liveTime,
         trainer,
         duration,
         autoRecording,
-        rotationEnabled:false,
+        rotationEnabled: false,
         isRecurring: true,
-        isLive: true, // This is the live meeting
+        isLive: true,
         startDate: new Date(startDate),
         localTime: new Date(localTime),
         joinUrl: webJoinUrl,
         startUrl: webStartUrl,
-        recordingUrl: "", // Will be populated after recording is available
+        recordingUrl: "",
         createdBy: adminId,
+        weeklyEndDate: weeklyEndDate ? new Date(weeklyEndDate) : null,
       });
 
-      console.log("✅ [CreateMeeting] Meeting saved to DB:", {
+      console.log("✅ [CreateMeeting] Parent meeting saved to DB:", {
         id: meetingRecord._id,
         zoomMeetingId: meetingRecord.zoomMeetingId,
         isLive: meetingRecord.isLive,
@@ -172,18 +204,72 @@ export default class MeetingController {
         title: meetingRecord.title,
       });
 
+      // Store all recurring instances in database
+      console.log("📦 [CreateMeeting] Storing recurring instances...");
+      const storedInstances: any[] = [];
+
+      if (occurrences && occurrences.length > 0) {
+        for (const occurrence of occurrences) {
+          try {
+            const instanceRecord = await Meeting.create({
+              zoomMeetingId: meetingId,
+              occurrenceId: occurrence.occurrence_id, // Zoom's occurrence ID
+              service,
+              title,
+              regions,
+              liveRegion,
+              liveTime,
+              trainer,
+              duration,
+              autoRecording,
+              rotationEnabled: false,
+              isRecurring: false, // Individual instances are not recurring
+              isLive: true,
+              startDate: new Date(occurrence.start_time),
+              localTime: new Date(occurrence.start_time),
+              joinUrl: webJoinUrl,
+              startUrl: webStartUrl,
+              recordingUrl: "",
+              createdBy: adminId,
+              parentMeetingId: meetingRecord._id, // Reference to parent meeting
+              status: "scheduled",
+            });
+
+            storedInstances.push({
+              _id: instanceRecord._id,
+              occurrenceId: occurrence.occurrence_id,
+              startTime: occurrence.start_time,
+            });
+
+            console.log(`  ✅ Instance saved: ${occurrence.occurrence_id} - ${occurrence.start_time}`);
+          } catch (error: any) {
+            console.error(
+              `  ❌ Error saving instance ${occurrence.occurrence_id}:`,
+              error.message
+            );
+          }
+        }
+      }
+
+      console.log(
+        `📊 [CreateMeeting] Successfully stored ${storedInstances.length} recurring instances`
+      );
+
       console.log("📊 [CreateMeeting] Regions breakdown:");
       meetingRecord.regions.forEach((region) => {
         console.log(`  - ${region.region}: ${region.mode}`);
       });
 
-      const responseMessage = `Meeting "${title}" created successfully. Live session for ${liveRegion}. Recording available for other regions.`;
+      const responseMessage = `Weekly recurring meeting "${title}" created successfully. Live session for ${liveRegion}. Recording available for other regions.`;
 
       console.log("📤 [CreateMeeting] Sending success response");
       console.log("📊 [CreateMeeting] Response summary:", {
         meetingId: meetingRecord._id,
         title: meetingRecord.title,
         regionsCount: meetingRecord.regions.length,
+        isRecurring: true,
+        nextOccurrences: occurrences?.length || 0,
+        storedInstances: storedInstances.length,
         message: responseMessage,
       });
 
@@ -192,6 +278,9 @@ export default class MeetingController {
         data: {
           meeting: meetingRecord,
           message: responseMessage,
+          occurrences: occurrences,
+          storedInstances: storedInstances,
+          totalInstancesStored: storedInstances.length,
         },
       });
     } catch (error: any) {
@@ -1097,6 +1186,228 @@ export default class MeetingController {
       return res.status(500).json({
         success: false,
         message: error.message || "Error deleting meeting",
+      });
+    }
+  }
+
+  static async GetAllTrainerMeetings(req: Request, res: Response) {
+    try {
+      console.log("🚀 [GetAllMeetings] Starting to fetch all meetings");
+
+      const {
+        search = "",
+        page = 1,
+        limit = 10,
+        sortBy = "localTime",
+        sortOrder = "asc",
+        service,
+        isLive,
+        isRecurring,
+        startDate,
+        endDate,
+      } = req?.query;
+
+      const userId = req.user?.id;
+
+      if (!userId) {
+        console.warn("⚠️ [GetAllMeetings] User not authenticated");
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated",
+        });
+      }
+
+      console.log("👤 [GetAllMeetings] Fetching user:", userId);
+
+      // Fetch user to get their trainer reference
+      const user = await User.findById(userId).select("_id name email trainer");
+
+      if (!user) {
+        console.warn("⚠️ [GetAllMeetings] User not found:", userId);
+        return res.status(404).json({
+          success: false,
+          message: "User not found",
+        });
+      }
+
+      console.log("✅ [GetAllMeetings] User fetched:", {
+        id: user._id,
+        name: user.firstName,
+      });
+
+      // Get trainer ID from user's trainer reference
+      const trainerId = user.trainer;
+
+      if (!trainerId) {
+        console.warn("⚠️ [GetAllMeetings] No trainer assigned to user:", userId);
+        return res.status(400).json({
+          success: false,
+          message: "No trainer assigned to this user",
+        });
+      }
+
+      console.log("👨‍🏫 [GetAllMeetings] Trainer ID found:", trainerId);
+
+      // Fetch trainer details
+      const trainer = await User.findById(trainerId).select(
+        "_id name email profileImage"
+      );
+
+      if (!trainer) {
+        console.warn("⚠️ [GetAllMeetings] Trainer not found:", trainerId);
+        return res.status(404).json({
+          success: false,
+          message: "Assigned trainer not found",
+        });
+      }
+
+      console.log("✅ [GetAllMeetings] Trainer fetched:", {
+        id: trainer._id,
+        name: trainer.firstName,
+      });
+
+      // Build filter object
+      const filter: any = {};
+
+      // Filter by trainer (get only assigned trainer's meetings)
+      filter.trainer = trainerId;
+      console.log("👨‍🏫 [GetAllMeetings] Trainer filter applied:", trainerId);
+
+      // Search by title
+      if (search) {
+        filter.title = { $regex: search, $options: "i" };
+        console.log("🔍 [GetAllMeetings] Search filter applied:", search);
+      }
+
+      // Filter by service if provided
+      if (service) {
+        filter.service = service;
+        console.log("🎯 [GetAllMeetings] Service filter applied:", service);
+      }
+
+      // Filter by isLive status
+      if (isLive !== undefined) {
+        filter.isLive = isLive === "true";
+        console.log("📡 [GetAllMeetings] Live status filter applied:", isLive);
+      }
+
+      // Filter by isRecurring status
+      if (isRecurring !== undefined) {
+        filter.isRecurring = isRecurring === "true";
+        console.log(
+          "🔄 [GetAllMeetings] Recurring status filter applied:",
+          isRecurring
+        );
+      }
+
+      // Filter by date range
+      if (startDate || endDate) {
+        filter.localTime = {};
+        if (startDate) {
+          filter.localTime.$gte = new Date(startDate as string);
+          console.log("📅 [GetAllMeetings] Start date filter applied:", startDate);
+        }
+        if (endDate) {
+          filter.localTime.$lte = new Date(endDate as string);
+          console.log("📅 [GetAllMeetings] End date filter applied:", endDate);
+        }
+      }
+
+      // Parse pagination
+      const pageNum = parseInt(page as string) || 1;
+      const limitNum = Math.min(parseInt(limit as string) || 10, 100); // Max 100 per page
+      const skip = (pageNum - 1) * limitNum;
+
+      console.log("📄 [GetAllMeetings] Pagination:", {
+        page: pageNum,
+        limit: limitNum,
+        skip,
+      });
+
+      // Build sort object
+      const sortObj: any = {};
+      const sortField = sortBy || "localTime";
+      const sortDir = sortOrder === "desc" ? -1 : 1;
+      sortObj[sortField as string] = sortDir;
+
+      console.log("🔀 [GetAllMeetings] Sort settings:", sortObj);
+
+      console.log(
+        "📊 [GetAllMeetings] Final filter object:",
+        JSON.stringify(filter, null, 2)
+      );
+
+      // Execute query with pagination
+      const [meetings, totalCount] = await Promise.all([
+        Meeting.find(filter)
+          .sort(sortObj)
+          .skip(skip)
+          .limit(limitNum)
+          .populate("service", "title name image _id description")
+          .populate("trainer", "name email profileImage _id")
+          .populate("createdBy", "firstName lastName email _id")
+          .lean(),
+        Meeting.countDocuments(filter),
+      ]);
+
+      console.log("✅ [GetAllMeetings] Meetings fetched:", {
+        returned: meetings.length,
+        total: totalCount,
+        page: pageNum,
+      });
+
+      // Calculate pagination metadata
+      const totalPages = Math.ceil(totalCount / limitNum);
+      const hasNextPage = pageNum < totalPages;
+      const hasPrevPage = pageNum > 1;
+
+      console.log("📊 [GetAllMeetings] Pagination metadata:", {
+        totalPages,
+        hasNextPage,
+        hasPrevPage,
+        currentPage: pageNum,
+      });
+
+      res.setHeader("Cache-Control", "no-store");
+
+      return res.json({
+        success: true,
+        data: {
+          meetings,
+          pagination: {
+            currentPage: pageNum,
+            totalPages,
+            limit: limitNum,
+            total: totalCount,
+            hasNextPage,
+            hasPrevPage,
+          },
+          user: {
+            id: user._id,
+            name: user.firstName + " " + user.lastName,
+          },
+          trainer: {
+            id: trainer._id,
+            name: trainer.firstName + " " + trainer.lastName,
+            email: trainer.email,
+          },
+          filters: {
+            search: search || null,
+            service: service || null,
+            isLive: isLive || null,
+            isRecurring: isRecurring || null,
+            dateRange: startDate || endDate ? { startDate, endDate } : null,
+          },
+        },
+      });
+    } catch (error: any) {
+      console.error("❌ [GetAllMeetings] ERROR CAUGHT");
+      console.error("📝 [GetAllMeetings] Error message:", error.message);
+      console.error("📊 [GetAllMeetings] Full error object:", error);
+
+      return res.status(500).json({
+        success: false,
+        message: error.message || "Error fetching meetings",
       });
     }
   }

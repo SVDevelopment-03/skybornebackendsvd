@@ -76,7 +76,6 @@ const seedAdmin = async () => {
     console.log("  Email: info@skybornedrop.com");
     console.log("  Password: Admin123@$#k");
     console.log("  User ID:", savedAdmin._id);
-
     // Verify it was saved
     const verifyAdmin = await User.findOne({
       email: "info@skybornedrop.com",

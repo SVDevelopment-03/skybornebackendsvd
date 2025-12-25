@@ -516,6 +516,207 @@ export default class PaymentController {
     }
   }
 
+  /**
+   * 🆕 Get all payments (Admin only)
+   * GET /api/payment/admin/all?search=&status=COMPLETED|PENDING|FAILED
+   * Status options: COMPLETED, PENDING, FAILED, or empty for all
+   */
+  static async getAllPayments(req: Request, res: Response) {
+    try {
+      const { search, status, page = 1, limit = 10 } = req.query;
+
+      const pageNum = parseInt(page as string) || 1;
+      const limitNum = parseInt(limit as string) || 10;
+      const skip = (pageNum - 1) * limitNum;
+
+      const query: any = {};
+
+      // ✅ Filter by status - support COMPLETED, PENDING, FAILED
+      const validStatuses = ["COMPLETED", "PENDING", "FAILED"];
+      if (status && status !== "all" && validStatuses.includes(String(status).toUpperCase())) {
+        query.status = String(status).toUpperCase();
+      }
+
+      // Base query for payments with pagination
+      let payments = await Payment.find(query)
+        .populate("userId", "firstName lastName email")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .lean();
+
+      // Get total count for pagination (based on query filter)
+      const totalCount = await Payment.countDocuments(query);
+
+      // Apply search filter (client-side after population)
+      let filteredPayments = payments;
+      if (search) {
+        const searchLower = String(search).toLowerCase();
+        filteredPayments = payments.filter((payment) => {
+          const user = payment.userId as any;
+          const username = user
+            ? `${user.firstName} ${user.lastName || ""}`.trim()
+            : "Unknown";
+
+          return (
+            user?.email?.toLowerCase().includes(searchLower) ||
+            username.toLowerCase().includes(searchLower) ||
+            payment._id?.toString().includes(searchLower) ||
+            payment.orderRef?.toLowerCase().includes(searchLower) ||
+            payment.reference?.toLowerCase().includes(searchLower)
+          );
+        });
+      }
+
+      // Format response
+      const formattedPayments = filteredPayments.map((payment) => {
+        const user = payment.userId as any;
+        const username = user
+          ? `${user.firstName} ${user.lastName || ""}`.trim()
+          : "Unknown";
+
+        return {
+          _id: payment._id,
+          userId: payment.userId,
+          username,
+          email: user?.email || "N/A",
+          orderRef: payment.orderRef,
+          reference: payment.reference,
+          amount: payment.amount,
+          localAmount: payment.localAmount,
+          currency: payment.currency,
+          plan: payment.plan,
+          status: payment.status,
+          invoiceId: payment.invoiceId,
+          createdAt: payment.createdAt,
+          updatedAt: payment.updatedAt,
+          paymentMethod: payment.reference
+            ? `Visa ****${String(payment.reference).slice(-4)}`
+            : "N/A",
+        };
+      });
+
+      return res.status(200).json({
+        success: true,
+        payments: formattedPayments,
+        total: totalCount,
+        filteredCount: filteredPayments.length,
+        page: pageNum,
+        limit: limitNum,
+        totalPages: Math.ceil(totalCount / limitNum),
+        currentFilters: {
+          status: status || "all",
+          search: search || "",
+        },
+      });
+    } catch (error) {
+      console.error("❌ Error fetching all payments:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to fetch payments",
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  }
+
+  /**
+   * 🆕 Get admin dashboard statistics
+   * GET /api/payment/admin/stats
+   */
+  static async getAdminPaymentStats(req: Request, res: Response) {
+    try {
+      const payments = await Payment.find().lean();
+
+      if (!payments || payments.length === 0) {
+        return res.status(200).json({
+          success: true,
+          stats: {
+            totalRevenue: 0,
+            thisMonth: 0,
+            lastPaymentAmount: 0,
+            totalCount: 0,
+            completedCount: 0,
+            failedCount: 0,
+            pendingCount: 0,
+            successRate: 0,
+            averageTransactionValue: 0,
+            activeSubscriptions: 0,
+          },
+        });
+      }
+
+      const completedPayments = payments.filter(
+        (p) => p.status.toUpperCase() === "COMPLETED"
+      );
+      const failedPayments = payments.filter(
+        (p) => p.status.toUpperCase() === "FAILED"
+      );
+      const pendingPayments = payments.filter(
+        (p) => p.status.toUpperCase() === "PENDING"
+      );
+
+      const totalRevenue = completedPayments.reduce((sum, p) => sum + p.amount, 0);
+
+      const now = new Date();
+      const currentMonth = now.getMonth();
+      const currentYear = now.getFullYear();
+
+      const thisMonth = completedPayments
+        .filter((p) => {
+          const paymentDate = new Date(p.createdAt);
+          return (
+            paymentDate.getMonth() === currentMonth &&
+            paymentDate.getFullYear() === currentYear
+          );
+        })
+        .reduce((sum, p) => sum + p.amount, 0);
+
+      const lastPaymentAmount =
+        completedPayments.length > 0
+          ? completedPayments[completedPayments.length - 1].amount
+          : 0;
+
+      const successRate =
+        payments.length > 0
+          ? parseFloat(
+              ((completedPayments.length / payments.length) * 100).toFixed(2)
+            )
+          : 0;
+
+      const averageTransactionValue =
+        completedPayments.length > 0
+          ? parseFloat((totalRevenue / completedPayments.length).toFixed(2))
+          : 0;
+
+      // Get unique active subscriptions
+      const activeUsers = await User.countDocuments({
+        "subscription.status": "active",
+      });
+
+      return res.status(200).json({
+        success: true,
+        stats: {
+          totalRevenue,
+          thisMonth,
+          lastPaymentAmount,
+          totalCount: payments.length,
+          completedCount: completedPayments.length,
+          failedCount: failedPayments.length,
+          pendingCount: pendingPayments.length,
+          successRate,
+          averageTransactionValue,
+          activeSubscriptions: activeUsers,
+        },
+      });
+    } catch (error) {
+      console.error("❌ Error fetching admin stats:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to fetch payment statistics",
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  }
 }
 
 async function getUsdToAedRate() {
@@ -539,4 +740,5 @@ function addCredits(current: any, additional: any) {
     zumba: (current?.zumba || 0) + (additional?.zumba || 0),
     specialty: (current?.specialty || 0) + (additional?.specialty || 0),
   };
+  
 }

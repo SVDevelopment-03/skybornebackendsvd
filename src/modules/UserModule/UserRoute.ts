@@ -7,6 +7,12 @@ export const UserRoute = [
     action: UserController.me,
     method: "get",
   },
+  {
+    path: "/users",
+    request: null,
+    action: UserController.getAll,
+    method: "get",
+  },
    {
     path: "/dashboardStats",
     request: null,

@@ -45,4 +45,17 @@ export const PaymentApiRoutes = [
     request: null,
     method: "get",
   },
+
+{
+    path: "/payment/admin/all",
+    action: PaymentController.getAllPayments,
+    request: null,
+    method: "get",
+  },
+  {
+    path: "/payment/admin/stats",
+    action: PaymentController.getAdminPaymentStats,
+    request: null,
+    method: "get",
+  },
 ];
