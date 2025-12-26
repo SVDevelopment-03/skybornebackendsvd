@@ -59,9 +59,15 @@ export const TrainerRoute: RouteConfig[] = [
     method: "get",
   },
   {
-    path: "/trainer/earnings",
+    path: "/trainer/earnings-list",
     request: null,
-    action: TrainerController.GetTrainerEarnings,
+    action: TrainerController.getEarningsList,
+    method: "get",
+  },
+   {
+    path: "/trainer/earnings-summary",
+    request: null,
+    action: TrainerController.getEarningsSummary,
     method: "get",
   },
   {

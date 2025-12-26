@@ -952,4 +952,418 @@ export default class TrainerController {
       });
     }
   }
+
+
+   static async getEarningsList(req: Request, res: Response) {
+    try {
+      const userId = req.user?.id;
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 10;
+      const search = (req.query.search as string) || "";
+      const period = (req.query.period as string) || "6months";
+
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated",
+        });
+      }
+
+      // Get trainer ID from user
+      const user = await User.findById(userId).select("trainer");
+      if (!user?.trainer) {
+        return res.status(404).json({
+          success: false,
+          message: "Trainer profile not found",
+        });
+      }
+
+      const trainerId = user.trainer.toString();
+
+      // Calculate date range based on period
+      const now = new Date();
+      let monthsBack = 5;
+
+      if (period === "3months") {
+        monthsBack = 2;
+      } else if (period === "1year") {
+        monthsBack = 11;
+      }
+
+      const periodAgo = new Date(now);
+      periodAgo.setMonth(periodAgo.getMonth() - monthsBack);
+
+      // Aggregate earnings data by month from Meeting schema only
+      const earningsData = await Meeting.aggregate([
+        {
+          $match: {
+            trainer: new Types.ObjectId(trainerId),
+            createdAt: { $gte: periodAgo },
+          },
+        },
+        {
+          $group: {
+            _id: {
+              year: { $year: "$createdAt" },
+              month: { $month: "$createdAt" },
+            },
+            sessionCount: { $sum: 1 },
+            totalDuration: { $sum: "$duration" },
+            earnings: { $sum: "$duration" }, // Earnings based on duration in minutes
+          },
+        },
+        {
+          $project: {
+            _id: 1,
+            sessionCount: 1,
+            totalDuration: 1,
+            earnings: { $multiply: ["$sessionCount", 1000] }, // $10 per session in cents
+          },
+        },
+        {
+          $sort: {
+            "_id.year": -1,
+            "_id.month": -1,
+          },
+        },
+      ]);
+
+      // Enrich data with additional metrics
+      const enrichedData = await Promise.all(
+        earningsData.map(async (item) => {
+          const monthStart = new Date(item._id.year, item._id.month - 1, 1);
+          const monthEnd = new Date(item._id.year, item._id.month, 0);
+
+          // Get all meetings for this trainer in this month
+          const meetings = await Meeting.find({
+            trainer: new Types.ObjectId(trainerId),
+            createdAt: { $gte: monthStart, $lte: monthEnd },
+          }).lean();
+
+          // Count unique creators (students/participants who created meetings with this trainer)
+          const uniqueCreators = new Set(
+            meetings.map((m) => m.createdBy.toString())
+          );
+          const activeStudentsCount = uniqueCreators.size;
+
+          // Calculate completion rate based on isLive status
+          const liveCount = meetings.filter((m) => m.isLive).length;
+          const completionRate =
+            meetings.length > 0
+              ? Math.round((liveCount / meetings.length) * 100)
+              : 0;
+
+          return {
+            month: item._id.month.toString().padStart(2, "0"),
+            year: item._id.year,
+            earnings: item.earnings,
+            sessions: item.sessionCount,
+            activeStudents: activeStudentsCount,
+            completionRate: completionRate,
+          };
+        })
+      );
+
+      // Apply search filter if provided
+      let filtered = enrichedData;
+      if (search) {
+        filtered = enrichedData.filter((item) => {
+          const monthStr = item.month;
+          const yearStr = item.year.toString();
+          return monthStr.includes(search) || yearStr.includes(search);
+        });
+      }
+
+      // Pagination
+      const total = filtered.length;
+      const skip = (page - 1) * limit;
+      const paginatedData = filtered.slice(skip, skip + limit);
+      const totalPages = Math.ceil(total / limit);
+
+      return res.status(200).json({
+        success: true,
+        message: "Earnings list fetched successfully",
+        earnings: paginatedData,
+        pagination: {
+          currentPage: page,
+          totalPages,
+          total,
+          limit,
+        },
+      });
+    } catch (error: any) {
+      console.error("Error fetching earnings list:", error.message);
+      return res.status(500).json({
+        success: false,
+        message: error.message || "Error fetching earnings list",
+      });
+    }
+  }
+
+  /**
+   * Export earnings report as CSV
+   * GET /trainer/earnings-export
+   */
+  static async exportEarnings(req: Request, res: Response) {
+    try {
+      const userId = req.user?.id;
+      const period = (req.query.period as string) || "6months";
+
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated",
+        });
+      }
+
+      // Get trainer ID
+      const user = await User.findById(userId).select("trainer");
+      if (!user?.trainer) {
+        return res.status(404).json({
+          success: false,
+          message: "Trainer profile not found",
+        });
+      }
+
+      const trainerId = user.trainer.toString();
+
+      // Calculate date range
+      const now = new Date();
+      let monthsBack = 5;
+      if (period === "3months") {
+        monthsBack = 2;
+      } else if (period === "1year") {
+        monthsBack = 11;
+      }
+
+      const periodAgo = new Date(now);
+      periodAgo.setMonth(periodAgo.getMonth() - monthsBack);
+
+      // Get all earnings data from Meeting schema
+      const earningsData = await Meeting.aggregate([
+        {
+          $match: {
+            trainer: new Types.ObjectId(trainerId),
+            createdAt: { $gte: periodAgo },
+          },
+        },
+        {
+          $group: {
+            _id: {
+              year: { $year: "$createdAt" },
+              month: { $month: "$createdAt" },
+            },
+            sessionCount: { $sum: 1 },
+            totalDuration: { $sum: "$duration" },
+            earnings: { $sum: "$duration" },
+          },
+        },
+        {
+          $project: {
+            _id: 1,
+            sessionCount: 1,
+            totalDuration: 1,
+            earnings: { $multiply: ["$sessionCount", 1000] },
+          },
+        },
+        {
+          $sort: {
+            "_id.year": -1,
+            "_id.month": -1,
+          },
+        },
+      ]);
+
+      // Generate CSV content
+      const csvHeader =
+        "Month,Year,Sessions,Active Students,Earnings (USD),Completion Rate\n";
+      const csvRows = await Promise.all(
+        earningsData.map(async (item) => {
+          const monthStart = new Date(item._id.year, item._id.month - 1, 1);
+          const monthEnd = new Date(item._id.year, item._id.month, 0);
+
+          const meetings = await Meeting.find({
+            trainer: new Types.ObjectId(trainerId),
+            createdAt: { $gte: monthStart, $lte: monthEnd },
+          }).lean();
+
+          const uniqueCreators = new Set(
+            meetings.map((m) => m.createdBy.toString())
+          );
+          const activeStudentsCount = uniqueCreators.size;
+
+          const liveCount = meetings.filter((m) => m.isLive).length;
+          const completionRate =
+            meetings.length > 0
+              ? Math.round((liveCount / meetings.length) * 100)
+              : 0;
+
+          const earningsUSD = (item.earnings / 100).toFixed(2);
+
+          return `${item._id.month},${item._id.year},${item.sessionCount},${activeStudentsCount},${earningsUSD},${completionRate}%`;
+        })
+      );
+
+      const csv = csvHeader + csvRows.join("\n");
+
+      // Set response headers for CSV download
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="earnings-report-${new Date().toISOString().split("T")[0]}.csv"`
+      );
+
+      return res.send(csv);
+    } catch (error: any) {
+      console.error("Error exporting earnings:", error.message);
+      return res.status(500).json({
+        success: false,
+        message: error.message || "Error exporting earnings",
+      });
+    }
+  }
+
+  /**
+   * Get earnings summary statistics
+   * Uses only Meeting schema
+   * GET /trainer/earnings-summary
+   */
+  static async getEarningsSummary(req: Request, res: Response) {
+    try {
+      const userId = req.user?.id;
+
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated",
+        });
+      }
+
+      const user = await User.findById(userId).select("trainer");
+      if (!user?.trainer) {
+        return res.status(404).json({
+          success: false,
+          message: "Trainer profile not found",
+        });
+      }
+
+      const trainerId = user.trainer.toString();
+      const now = new Date();
+
+      // This month
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+
+      // Last month
+      const lastMonthStart = new Date(
+        now.getFullYear(),
+        now.getMonth() - 1,
+        1
+      );
+      const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+
+      // Get this month's meetings
+      const thisMonthMeetings = await Meeting.find({
+        trainer: new Types.ObjectId(trainerId),
+        createdAt: { $gte: monthStart, $lte: monthEnd },
+      }).lean();
+
+      const thisMonthSessionCount = thisMonthMeetings.length;
+      const thisMonthEarnings = thisMonthSessionCount * 1000; // $10 per session in cents
+
+      // Get last month's meetings
+      const lastMonthMeetings = await Meeting.find({
+        trainer: new Types.ObjectId(trainerId),
+        createdAt: { $gte: lastMonthStart, $lte: lastMonthEnd },
+      }).lean();
+
+      const lastMonthSessionCount = lastMonthMeetings.length;
+      const lastMonthEarnings = lastMonthSessionCount * 1000;
+
+      // Calculate percentage changes
+      const earningsChange =
+        lastMonthEarnings > 0
+          ? Math.round(
+              ((thisMonthEarnings - lastMonthEarnings) / lastMonthEarnings) *
+                100
+            )
+          : 0;
+
+      const sessionsChange =
+        lastMonthSessionCount > 0
+          ? Math.round(
+              ((thisMonthSessionCount - lastMonthSessionCount) /
+                lastMonthSessionCount) *
+                100
+            )
+          : 0;
+
+      // Count active students (unique creators) this month
+      const thisMonthCreators = new Set(
+        thisMonthMeetings.map((m) => m.createdBy.toString())
+      );
+      const activeStudentsCount = thisMonthCreators.size;
+
+      // Count active students last month
+      const lastMonthCreators = new Set(
+        lastMonthMeetings.map((m) => m.createdBy.toString())
+      );
+      const lastMonthStudentsCount = lastMonthCreators.size;
+
+      const studentsChange =
+        lastMonthStudentsCount > 0
+          ? Math.round(
+              ((activeStudentsCount - lastMonthStudentsCount) /
+                lastMonthStudentsCount) *
+                100
+            )
+          : 0;
+
+      // Completion rate (based on isLive status)
+      const liveCount = thisMonthMeetings.filter((m) => m.isLive).length;
+      const completionRate =
+        thisMonthMeetings.length > 0
+          ? Math.round((liveCount / thisMonthMeetings.length) * 100)
+          : 0;
+
+      const lastMonthLiveCount = lastMonthMeetings.filter(
+        (m) => m.isLive
+      ).length;
+      const lastMonthCompletionRate =
+        lastMonthMeetings.length > 0
+          ? Math.round((lastMonthLiveCount / lastMonthMeetings.length) * 100)
+          : 0;
+
+      const completionRateChange =
+        completionRate - lastMonthCompletionRate;
+
+      return res.json({
+        success: true,
+        data: {
+          monthlyEarnings: {
+            value: thisMonthEarnings,
+            change: earningsChange,
+          },
+          sessionsThisMonth: {
+            value: thisMonthSessionCount,
+            change: sessionsChange,
+          },
+          activeStudents: {
+            value: activeStudentsCount,
+            change: studentsChange,
+          },
+          completionRate: {
+            value: completionRate,
+            change: completionRateChange,
+          },
+        },
+      });
+    } catch (error: any) {
+      console.error("Error fetching earnings summary:", error.message);
+      return res.status(500).json({
+        success: false,
+        message: error.message || "Error fetching earnings summary",
+      });
+    }
+  }
 }

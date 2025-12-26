@@ -10,6 +10,7 @@ import Service from "../ServiceModule/models/Service";
 import { ServiceType } from "../UserModule/interface/userInterface";
 import CountryRepository from "../CountryModule/country.repository";
 import { ICountry } from "../CountryModule/country.model";
+import TrainerModel from "../TrainerModule/TrainerModel";
 
 const _countryRepository = new CountryRepository();
 
@@ -1235,6 +1236,8 @@ static async CreateMeeting(req: Request, res: Response) {
         name: user.firstName,
       });
 
+      console.log("user", user);
+
       // Get trainer ID from user's trainer reference
       const trainerId = user.trainer;
 
@@ -1249,7 +1252,7 @@ static async CreateMeeting(req: Request, res: Response) {
       console.log("👨‍🏫 [GetAllMeetings] Trainer ID found:", trainerId);
 
       // Fetch trainer details
-      const trainer = await User.findById(trainerId).select(
+      const trainer = await TrainerModel.findById(trainerId).select(
         "_id name email profileImage"
       );
 
