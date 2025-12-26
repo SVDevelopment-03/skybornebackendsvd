@@ -214,7 +214,7 @@ static async CreateMeeting(req: Request, res: Response) {
           try {
             const instanceRecord = await Meeting.create({
               zoomMeetingId: meetingId,
-              occurrenceId: occurrence.occurrence_id, // Zoom's occurrence ID
+              occurrenceId: occurrence.occurrence_id,
               service,
               title,
               regions,

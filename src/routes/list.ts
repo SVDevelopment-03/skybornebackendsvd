@@ -2,6 +2,7 @@ import { AdminRoutes } from "../modules/AdminModule/admin.route";
 import { ConsultationRoute } from "../modules/ConsultationModule/ConsultationRoute";
 import { CountryRoute } from "../modules/CountryModule/country.route";
 import { FAQRoute } from "../modules/FAQModule/FAQRoute";
+import { FeedbackRoute } from "../modules/FeedbackModule/FeedbackRoute";
 import { MeetingRoute } from "../modules/MeetingModule/MeetingRoute";
 import { NewsLetterRoute } from "../modules/NewsLetterModule.ts/NewsLetterRoute";
 import { PaymentApiRoutes } from "../modules/PaymentModule/routes/paymentRoutes";
@@ -24,7 +25,8 @@ const appApiRoutes: any = [
   ...UserRoute,
   ...CountryRoute,
   ...AdminRoutes,
-  ...RegionRoute
+  ...RegionRoute,
+  ...FeedbackRoute,
 ];
 
 export default appApiRoutes;

@@ -25,4 +25,11 @@ export const UserRoute = [
     action: UserController.updateProfile,
     method: "put",
   },
+    {
+    path: "/update-user/:userId",
+    request: null,
+    action: UserController.updateUserStatus,
+    method: "put",
+    roles: ["admin"]
+  },
 ];

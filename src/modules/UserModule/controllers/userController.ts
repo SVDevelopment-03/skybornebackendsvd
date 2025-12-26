@@ -183,6 +183,7 @@ static async getAll(req: Request, res: Response) {
         "lastName",
         "phoneNumber",
         "country",
+        "status"
       ];
 
       // Filter payload to only include allowed fields
@@ -240,6 +241,58 @@ static async getAll(req: Request, res: Response) {
       next(error);
     }
   }
+
+  static async updateUserStatus(req: Request, res: Response) {
+  try {
+    const { userId } = req.params;
+    const { status } = req.body;
+
+    // Validate status
+    const allowedStatuses = ["active", "inactive", "blocked"];
+    if (!allowedStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid status value",
+      });
+    }
+
+    // Map status → isActive (since schema uses isActive)
+    const updatePayload: any = {
+      isActive: status === "active",
+    };
+
+    // Optional: store blocked users logic
+    if (status === "blocked") {
+      updatePayload.isActive = false;
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { $set: updatePayload },
+      { new: true }
+    ).select("-password");
+
+    if (!updatedUser) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "User status updated successfully",
+      data: updatedUser,
+    });
+  } catch (error: any) {
+    console.error("Error updating user status:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to update user status",
+    });
+  }
+}
+
 }
 
 // Helper function to get display name for plans
