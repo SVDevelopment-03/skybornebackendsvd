@@ -1,4 +1,5 @@
 import FeedbackController from "./FeedbackController";
+import { createFeedbackValidationSchema } from "./FeedbackRequest";
 
 export const FeedbackRoute = [
   {
@@ -6,5 +7,11 @@ export const FeedbackRoute = [
     request: null,
     // action: FeedbackController.getAll,
     method: "get",
+  },
+  {
+    path: "/feedback",
+    request: createFeedbackValidationSchema,
+    action: FeedbackController.createFeedback,
+    method: "post",
   },
 ];
