@@ -20,31 +20,16 @@ interface TrainerSearchParams extends FeedbackSearchParams {
 
 
 export default class FeedbackServices {
-async createFeedback(userId: string, payload: SubmitFeedbackRequest) {
+  async createFeedback(userId: string, payload: SubmitFeedbackRequest) {
+    // Validate userId
+    if (!userId || !Types.ObjectId.isValid(userId)) {
+      throw new NotFoundError("Invalid user ID");
+    }
 
-    const trainerObjectId = new Types.ObjectId(payload.trainerId);
     const userObjectId = new Types.ObjectId(userId);
-
-    const trainerExists = await _trainerRepo.getOneModel(payload.trainerId);
-
-    if (!trainerExists) {
-      throw new NotFoundError("Trainer not found");
-    }
-
-    const existingFeedback = await _feedbackRepo.searchModel({
-      userId: userObjectId,
-      trainerId: trainerObjectId,
-    });
-
-    if (existingFeedback) {
-      throw new ConflictError(
-        "You have already submitted feedback for this trainer"
-      );
-    }
 
     const feedbackData = {
       userId: userObjectId,
-      trainerId: trainerObjectId,
       rating: payload.rating,
       comment: payload.comment,
     };
@@ -64,26 +49,18 @@ async createFeedback(userId: string, payload: SubmitFeedbackRequest) {
     });
   }
 
+  async getUserFeedback(params: FeedbackSearchParams & { userId: string }) {
+  const { page, limit, search, sortBy, userId } = params;
+  const skip = (page - 1) * limit;
 
-
- async getAllTrainerFeedback(params: TrainerSearchParams) {
-    const { page, limit, search, sortBy, trainerId } = params;
-
-    // Validate trainerId exists
-    if (!trainerId) {
-      throw new NotFoundError("Trainer ID is required");
-    }
-
-    const skip = (page - 1) * limit;
-
-    return await _feedbackRepo.searchTrainerFeedback({
-      search,
-      skip,
-      limit,
-      sortBy,
-      trainerId,
-    });
-  }
+  return await _feedbackRepo.searchFeedback({
+    search,
+    skip,
+    limit,
+    sortBy,
+    userId,
+  });
+}
 
 }
 

@@ -4,7 +4,6 @@ import autopopulate from "mongoose-autopopulate";
 
 export interface IFeedback extends Document {
   userId: Types.ObjectId;
-  trainerId: Types.ObjectId;
   rating: number;
   comment: string;
   createdAt: Date;
@@ -22,13 +21,6 @@ const FeedbackSchema: Schema<IFeedback> = new Schema(
         select: "firstName lastName email",
         options: { lean: true },
       },
-    },
-    trainerId: {
-      type: Schema.Types.ObjectId,
-      ref: "Coach",
-      required: true,
-      index: true,
-      autopopulate: { select: "name email", options: { lean: true } },
     },
     rating: {
       type: Number,

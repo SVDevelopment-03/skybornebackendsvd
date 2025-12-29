@@ -1,11 +1,7 @@
-// validations/feedbackValidation.ts
 import * as Yup from "yup";
 
 export const createFeedbackValidationSchema = Yup.object({
   body: Yup.object({
-    trainerId: Yup.string()
-      .required("Trainer ID is required")
-      .matches(/^[0-9a-fA-F]{24}$/, "Invalid trainer ID format"),
     rating: Yup.number()
       .required("Rating is required")
       .min(1, "Rating must be at least 1")

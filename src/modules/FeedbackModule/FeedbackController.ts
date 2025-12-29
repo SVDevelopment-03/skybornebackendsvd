@@ -4,17 +4,20 @@ import User from "../UserModule/models/User";
 import { BadRequestError } from "../../handlers/httpError.handler";
 
 const feedbackService = new FeedbackServices();
+export interface SubmitFeedbackRequest {
+  rating: number;
+  comment: string;
+}
 
 export default class FeedbackController {
   static async createFeedback(req: Request, res: Response) {
     const userId = req.user?.id;
-    const { trainerId, rating, comment } = req.body;
+    const { rating, comment } = req.body;
 
     const feedback = await feedbackService.createFeedback(userId as string, {
-      trainerId,
       rating,
       comment,
-    });
+    } );
 
     res.status(200).json({
       success: true,
@@ -40,34 +43,24 @@ export default class FeedbackController {
     });
   };
 
-  static getAllTrainerFeedback = async (req: Request, res: Response) => {
-    const { search, page = 1, limit = 10, sortBy = "-createdAt" } = req.query;
-    const userId = req?.user?.id;
+  static getUserFeedback = async (req: Request, res: Response) => {
+  const { userId } = req.params;
+  const { search, page = 1, limit = 10, sortBy = "-createdAt" } = req.query;
 
-    if (!userId) {
-      throw new BadRequestError("User ID is required");
-    }
+  const result = await feedbackService.getUserFeedback({
+    userId,
+    search: search as string,
+    page: Number(page),
+    limit: Number(limit),
+    sortBy: sortBy as string,
+  });
 
-    // Get current user's trainer ID
-    const user = await User.findById(userId).select("trainer");
-    const trainerId = user?.trainer;
+  res.status(200).json({
+    success: true,
+    message: "User feedbacks retrieved successfully",
+    data: result,
+  });
+};
 
-    if (!trainerId) {
-      throw new BadRequestError("Trainer information not found for this user");
-    }
-
-    const result = await feedbackService.getAllTrainerFeedback({
-      search: search as string,
-      page: Number(page),
-      limit: Number(limit),
-      sortBy: sortBy as string,
-      trainerId: trainerId.toString(),
-    });
-
-    res.status(200).json({
-      success: true,
-      message: "Trainer feedbacks retrieved successfully",
-      data: result,
-    });
-  };
 }
+

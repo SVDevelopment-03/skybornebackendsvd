@@ -1,6 +1,5 @@
 // FeedbackTypes.ts
 export interface SubmitFeedbackRequest {
-  trainerId: string;
   rating: number;
   comment: string;
 }

@@ -8,16 +8,18 @@ export const FeedbackRoute = [
     action: FeedbackController.getAllFeedback,
     method: "get",
   },
-  {
-    path: "/trainer-feedback",
-    request: null,
-    action: FeedbackController.getAllTrainerFeedback,
-    method: "get",
-  },
+
   {
     path: "/feedback",
     request: createFeedbackValidationSchema,
     action: FeedbackController.createFeedback,
     method: "post",
+  },
+
+   {
+    path: "/feedback/user/:userId",
+    request: null,
+    action: FeedbackController.getUserFeedback,
+    method: "get",
   },
 ];
