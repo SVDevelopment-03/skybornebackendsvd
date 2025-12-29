@@ -8,6 +8,16 @@ import { Types } from "mongoose";
 const _feedbackRepo = new FeedbackRepository();
 const _trainerRepo = new TrainerRepository();
 
+interface FeedbackSearchParams {
+  search?: string;
+  page: number;
+  limit: number;
+  sortBy?: string;
+}
+interface TrainerSearchParams extends FeedbackSearchParams {
+  trainerId: string;
+}
+
 
 export default class FeedbackServices {
 async createFeedback(userId: string, payload: SubmitFeedbackRequest) {
@@ -42,4 +52,38 @@ async createFeedback(userId: string, payload: SubmitFeedbackRequest) {
     return await _feedbackRepo.createModel(feedbackData);
   }
 
+  async getAllFeedback(params: FeedbackSearchParams) {
+    const { page, limit, search, sortBy } = params;
+    const skip = (page - 1) * limit;
+
+    return await _feedbackRepo.searchFeedback({
+      search,
+      skip,
+      limit,
+      sortBy,
+    });
+  }
+
+
+
+ async getAllTrainerFeedback(params: TrainerSearchParams) {
+    const { page, limit, search, sortBy, trainerId } = params;
+
+    // Validate trainerId exists
+    if (!trainerId) {
+      throw new NotFoundError("Trainer ID is required");
+    }
+
+    const skip = (page - 1) * limit;
+
+    return await _feedbackRepo.searchTrainerFeedback({
+      search,
+      skip,
+      limit,
+      sortBy,
+      trainerId,
+    });
+  }
+
 }
+

@@ -486,7 +486,7 @@ static async CreateMeeting(req: Request, res: Response) {
   }
 }
 
-  static async JoinMeeting(req: Request, res: Response) {
+ static async JoinMeeting(req: Request, res: Response) {
     try {
       const { meetingId, userId, region } = req.body;
       const user = req.user;
@@ -512,29 +512,28 @@ static async CreateMeeting(req: Request, res: Response) {
         });
       }
 
+      // Check if user is a trainer or admin
+      const isTrainer = userData.trainer ? true : false;
+      const isAdmin = userData.role === "admin" ? true : false;
+      const isTrainerOrAdmin = isTrainer || isAdmin;
+
       // Determine service type
       const serviceType =
         (meeting?.service as IService)?.title?.toLowerCase() == "zumba dance"
           ? "zumba"
           : (meeting?.service as IService)?.title?.toLowerCase();
-      console.log("service type", serviceType);
 
-      if (!["yoga", "zumba", "specialty"].includes(serviceType)) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid service type for meeting",
-        });
-      }
+      // Check class credits only for regular participants (not trainers or admins)
+      if (!isTrainerOrAdmin) {
+        const credits: any =
+          userData.classCredits?.[serviceType as ServiceType] || 0;
 
-      // Check class credits
-      const credits: any =
-        userData.classCredits?.[serviceType as ServiceType] || 0;
-
-      if (credits <= 0) {
-        return res.status(403).json({
-          success: false,
-          message: `You do not have enough ${serviceType} credits to join this session`,
-        });
+        if (credits <= 0) {
+          return res.status(403).json({
+            success: false,
+            message: `You do not have enough ${serviceType} credits to join this session`,
+          });
+        }
       }
 
       // Find the region entry for this specific region
@@ -587,7 +586,7 @@ static async CreateMeeting(req: Request, res: Response) {
 
       const participantRecord = await MeetingParticipant.create({
         meetingId,
-        zoomMeetingId: meeting.zoomMeetingId, // ✅ Add this line
+        zoomMeetingId: meeting.zoomMeetingId,
         userId: user!.id,
         email: user!.email,
         // zoomParticipantId will be filled when webhook fires
@@ -616,19 +615,13 @@ static async CreateMeeting(req: Request, res: Response) {
         await attendance.save();
       }
 
-      // Determine user role (1 = trainer/admin, 0 = participant)
-      const isTrainerOrAdmin =
-        meeting.createdBy._id.toString() === userId ||
-        meeting.trainer.toString() === userId;
-      const role = isTrainerOrAdmin ? 1 : 0;
-
       return res.json({
         success: true,
         data: {
           accessUrl, // Returns joinUrl for live, recordingUrl for replay
           mode: regionEntry.mode,
           attendanceId: attendance._id,
-          role,
+          role: isTrainerOrAdmin ? 1 : 0,
           meetingDetails: {
             meetingId: meeting._id,
             region: regionEntry.region,

@@ -1,5 +1,6 @@
 // models/Feedback.ts
 import mongoose, { Schema, Document, Types } from "mongoose";
+import autopopulate from "mongoose-autopopulate";
 
 export interface IFeedback extends Document {
   userId: Types.ObjectId;
@@ -17,12 +18,17 @@ const FeedbackSchema: Schema<IFeedback> = new Schema(
       ref: "User",
       required: true,
       index: true,
+      autopopulate: {
+        select: "firstName lastName email",
+        options: { lean: true },
+      },
     },
     trainerId: {
       type: Schema.Types.ObjectId,
-      ref: "Trainer",
+      ref: "Coach",
       required: true,
       index: true,
+      autopopulate: { select: "name email", options: { lean: true } },
     },
     rating: {
       type: Number,
@@ -47,39 +53,8 @@ const FeedbackSchema: Schema<IFeedback> = new Schema(
   }
 );
 
-
+FeedbackSchema.plugin(autopopulate);
 
 export const Feedback =
   mongoose.models.Feedback ||
   mongoose.model<IFeedback>("Feedback", FeedbackSchema);
-
-// ============================================
-
-// types/feedback.ts
-export interface SubmitFeedbackRequest {
-  trainerId: string;
-  rating: number;
-  comment: string;
-}
-
-export interface FeedbackResponse {
-  id: string;
-  userId: string;
-  trainerId: string;
-  rating: number;
-  comment: string;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-export interface FeedbackListResponse {
-  totalCount: number;
-  averageRating: number;
-  feedbacks: FeedbackResponse[];
-}
-
-export interface TrainerFeedbackStats {
-  trainerId: string;
-  totalFeedback: number;
-  averageRating: number;
-}

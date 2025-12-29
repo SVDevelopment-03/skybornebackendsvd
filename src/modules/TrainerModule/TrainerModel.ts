@@ -17,7 +17,7 @@ const CoachesSchema = new Schema<ICoach>(
   {
     name: {
       type: String,
-      required: true,
+      required: true, 
       trim: true,
     },
     specialization: {

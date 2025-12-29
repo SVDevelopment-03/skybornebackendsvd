@@ -5,7 +5,13 @@ export const FeedbackRoute = [
   {
     path: "/feedback",
     request: null,
-    // action: FeedbackController.getAll,
+    action: FeedbackController.getAllFeedback,
+    method: "get",
+  },
+  {
+    path: "/trainer-feedback",
+    request: null,
+    action: FeedbackController.getAllTrainerFeedback,
     method: "get",
   },
   {
