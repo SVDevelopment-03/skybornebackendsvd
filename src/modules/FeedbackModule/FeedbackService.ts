@@ -19,6 +19,24 @@ interface TrainerSearchParams extends FeedbackSearchParams {
 }
 
 
+interface FeedbackSearchParams {
+  search?: string;
+  page: number;
+  limit: number;
+  sortBy?: string;
+}
+
+interface TrainerSearchParams extends FeedbackSearchParams {
+  trainerId: string;
+}
+
+interface FeedbackListResponse {
+  data: any[];
+  totalPages: number;
+  totalCount: number;
+  currentPage: number;
+}
+
 export default class FeedbackServices {
   async createFeedback(userId: string, payload: SubmitFeedbackRequest) {
     // Validate userId
@@ -37,30 +55,60 @@ export default class FeedbackServices {
     return await _feedbackRepo.createModel(feedbackData);
   }
 
-  async getAllFeedback(params: FeedbackSearchParams) {
+async getAllFeedback(params: FeedbackSearchParams): Promise<FeedbackListResponse> {
     const { page, limit, search, sortBy } = params;
     const skip = (page - 1) * limit;
 
-    return await _feedbackRepo.searchFeedback({
+    // Get total count
+    const totalCount = await _feedbackRepo.countFeedback({ search });
+
+    // Get paginated data
+    const data = await _feedbackRepo.searchFeedback({
       search,
       skip,
       limit,
       sortBy,
     });
+
+    const totalPages = Math.ceil(totalCount / limit);
+
+    return {
+      data,
+      totalPages,
+      totalCount,
+      currentPage: page,
+    };
   }
 
-  async getUserFeedback(params: FeedbackSearchParams & { userId: string }) {
-  const { page, limit, search, sortBy, userId } = params;
-  const skip = (page - 1) * limit;
+  async getUserFeedback(
+    params: FeedbackSearchParams & { userId: string }
+  ): Promise<FeedbackListResponse> {
+    const { page, limit, search, sortBy, userId } = params;
+    const skip = (page - 1) * limit;
 
-  return await _feedbackRepo.searchFeedback({
-    search,
-    skip,
-    limit,
-    sortBy,
-    userId,
-  });
+    // Get total count for this user
+    const totalCount = await _feedbackRepo.countFeedback({ search, userId });
+
+    // Get paginated data
+    const data = await _feedbackRepo.searchFeedback({
+      search,
+      skip,
+      limit,
+      sortBy,
+      userId,
+    });
+
+    const totalPages = Math.ceil(totalCount / limit);
+
+    return {
+      data,
+      totalPages,
+      totalCount,
+      currentPage: page,
+    };
+  }
 }
 
-}
+
+
 

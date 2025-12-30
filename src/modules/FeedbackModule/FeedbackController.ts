@@ -26,8 +26,8 @@ export default class FeedbackController {
     });
   }
 
-  static getAllFeedback = async (req: Request, res: Response) => {
-    const { search, page = 1, limit = 10, sortBy = "-createdAt" } = req.query;
+ static getAllFeedback = async (req: Request, res: Response) => {
+    const { search = "", page = 1, limit = 10, sortBy = "-createdAt" } = req.query;
 
     const result = await feedbackService.getAllFeedback({
       search: search as string,
@@ -39,28 +39,34 @@ export default class FeedbackController {
     res.status(200).json({
       success: true,
       message: "Feedbacks retrieved successfully",
-      data: result,
+      data: result.data,
+      totalPages: result.totalPages,
+      totalCount: result.totalCount,
+      currentPage: result.currentPage,
     });
   };
 
   static getUserFeedback = async (req: Request, res: Response) => {
-  const { userId } = req.params;
-  const { search, page = 1, limit = 10, sortBy = "-createdAt" } = req.query;
+    const { userId } = req.params;
+    const { search = "", page = 1, limit = 10, sortBy = "-createdAt" } = req.query;
 
-  const result = await feedbackService.getUserFeedback({
-    userId,
-    search: search as string,
-    page: Number(page),
-    limit: Number(limit),
-    sortBy: sortBy as string,
-  });
+    const result = await feedbackService.getUserFeedback({
+      userId,
+      search: search as string,
+      page: Number(page),
+      limit: Number(limit),
+      sortBy: sortBy as string,
+    });
 
-  res.status(200).json({
-    success: true,
-    message: "User feedbacks retrieved successfully",
-    data: result,
-  });
-};
+    res.status(200).json({
+      success: true,
+      message: "User feedbacks retrieved successfully",
+      data: result.data,
+      totalPages: result.totalPages,
+      totalCount: result.totalCount,
+      currentPage: result.currentPage,
+    });
+  };
 
 }
 
