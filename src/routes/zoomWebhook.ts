@@ -71,7 +71,11 @@ router.post("/zoom-webhook", async (req, res) => {
 
       await Meeting.findByIdAndUpdate(
         meetingDoc._id,
-        { recordingUrl },
+        {
+          recordingUrl,
+          status: "completed",
+          isLive: false,
+        },
         { new: true }
       );
 
@@ -253,10 +257,20 @@ router.post("/zoom-webhook", async (req, res) => {
   // ======================================================
   if (event === "meeting.started") {
     console.log("🎬 [MEETING] Meeting started →", zoomMeetingId);
+
+    await Meeting.findByIdAndUpdate(meetingDoc._id, {
+      status: "pending",
+      isLive: true,
+    });
   }
 
   if (event === "meeting.ended") {
     console.log("🏁 [MEETING] Meeting ended →", zoomMeetingId);
+
+    await Meeting.findByIdAndUpdate(meetingDoc._id, {
+      status: "completed",
+      isLive: false,
+    });
   }
 
   return res.status(200).send("OK");

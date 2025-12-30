@@ -47,6 +47,8 @@ export interface IMeeting extends Document {
   // NEW FIELD: recording cloud URL from Zoom
   recordingUrl: string;
 
+  status: "pending"| "completed"| "failed";
+
   createdBy: Types.ObjectId;
 }
 
@@ -132,6 +134,13 @@ const MeetingSchema = new Schema<IMeeting>(
     isLive: {
       type: Boolean,
       default: true,
+    },
+
+    status: {
+      type: String,
+      enum: ["pending", "completed", "failed"],
+      default: "pending",
+      index: true,
     },
 
     joinUrl: {

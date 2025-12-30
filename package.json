@@ -2,7 +2,7 @@
   "name": "skyborne-backend",
   "version": "1.0.0",
   "main": "server.js",
- "scripts": {
+  "scripts": {
     "start": "node dist/server.js & node dist/workers/emailWorker.js & node dist/workers/invoiceEmailWorker.js",
     "start:concurrently": "concurrently --handle-input \"node dist/server.js\" \"node dist/workers/emailWorker.js\" \"node dist/workers/invoiceEmailWorker.js\"",
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
@@ -14,6 +14,8 @@
     "seed:testimonials": "ts-node --transpike-only src/seeders/testimonial.seeder.ts",
     "seed:coaches": "ts-node --transpile-only src/seeders/coach.seeder.ts",
     "seed:user": "ts-node --transpile-only src/seeders/user.seeder.ts",
+    "seed:countries": "ts-node --transpile-only src/seeders/country.seeder.ts",
+    "seed:trainerspecific": "ts-node --transpile-only src/seeders/trainer4-attendance.seeder.ts",
     "build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -77,6 +79,7 @@
     "@types/passport-google-oauth20": "^2.0.17",
     "@types/passport-jwt": "^4.0.1",
     "@types/pdfkit": "^0.17.4",
+    "@types/uuid": "^11.0.0",
     "concurrently": "^9.2.1",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",

@@ -323,6 +323,7 @@ export default class TrainerController {
    * Get trainer overview statistics
    * Sessions this month, monthly earnings, active students, completion rate
    */
+
   static async GetTrainerStats(req: Request, res: Response) {
     try {
       const userId = req.user?.id;
@@ -335,7 +336,7 @@ export default class TrainerController {
         });
       }
 
-      // Get trainer ID from user ✅ KEY FIX
+      // Get trainer ID
       const trainerId = await TrainerController.getTrainerIdFromUser(userId);
       console.log("trainer id", trainerId);
 
@@ -343,86 +344,53 @@ export default class TrainerController {
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
       const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
 
-      // Sessions this month
+      /* =========================
+        SESSIONS
+      ========================= */
       const sessionsThisMonth = await Meeting.countDocuments({
         trainer: new Types.ObjectId(trainerId),
+        status: "completed",
         localTime: { $gte: monthStart, $lte: monthEnd },
       });
 
-      // Previous month sessions for comparison
       const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
       const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+
       const sessionsLastMonth = await Meeting.countDocuments({
         trainer: new Types.ObjectId(trainerId),
+        status: "completed",
         localTime: { $gte: prevMonthStart, $lte: prevMonthEnd },
       });
-
-      console.log("month", sessionsThisMonth);
 
       const sessionsChange =
         sessionsLastMonth > 0
           ? Math.round(
-              ((sessionsThisMonth - sessionsLastMonth) / sessionsLastMonth) *
-                100
+              ((sessionsThisMonth - sessionsLastMonth) / sessionsLastMonth) * 100
             )
           : 0;
 
-      // Monthly earnings from attendance
-      const attendanceData = await MeetingAttendance.aggregate([
-        {
-          $match: {
-            createdAt: { $gte: monthStart, $lte: monthEnd },
-            status: { $in: ["joined", "completed"] },
-          },
-        },
-        {
-          $lookup: {
-            from: "meetings",
-            localField: "meeting",
-            foreignField: "_id",
-            as: "meetingData",
-          },
-        },
-        {
-          $unwind: "$meetingData",
-        },
-        {
-          $match: {
-            "meetingData.trainer": new Types.ObjectId(trainerId),
-          },
-        },
-      ]);
+      /* =========================
+        ✅ EARNINGS (FIXED - Using Meeting Schema)
+      ========================= */
+      // Get this month's completed meetings
+      const thisMonthMeetings = await Meeting.find({
+        trainer: new Types.ObjectId(trainerId),
+        status: "completed",
+        createdAt: { $gte: monthStart, $lte: monthEnd },
+      }).lean();
 
-      // Calculate earnings (assuming $10 per attendance)
-      const monthlyEarnings = attendanceData.length * 1000; // in cents
+      // Calculate earnings: $10 per session = 1000 cents
+      const monthlyEarnings = thisMonthMeetings.length * 1000;
 
-      // Previous month earnings
-      const prevMonthAttendance = await MeetingAttendance.aggregate([
-        {
-          $match: {
-            createdAt: { $gte: prevMonthStart, $lte: prevMonthEnd },
-            status: { $in: ["joined", "completed"] },
-          },
-        },
-        {
-          $lookup: {
-            from: "meetings",
-            localField: "meeting",
-            foreignField: "_id",
-            as: "meetingData",
-          },
-        },
-        {
-          $unwind: "$meetingData",
-        },
-        {
-          $match: {
-            "meetingData.trainer": new Types.ObjectId(trainerId),
-          },
-        },
-      ]);
+      // Get last month's completed meetings
+      const lastMonthMeetings = await Meeting.find({
+        trainer: new Types.ObjectId(trainerId),
+        status: "completed",
+        createdAt: { $gte: prevMonthStart, $lte: prevMonthEnd },
+      }).lean();
 
-      const prevMonthEarnings = prevMonthAttendance.length * 1000;
+      const prevMonthEarnings = lastMonthMeetings.length * 1000;
+
       const earningsChange =
         prevMonthEarnings > 0
           ? Math.round(
@@ -430,71 +398,21 @@ export default class TrainerController {
             )
           : 0;
 
-      // Active students (unique users who attended this month)
-      const activeStudents = await MeetingAttendance.aggregate([
-        {
-          $match: {
-            createdAt: { $gte: monthStart, $lte: monthEnd },
-            status: { $in: ["joined", "completed"] },
-          },
-        },
-        {
-          $lookup: {
-            from: "meetings",
-            localField: "meeting",
-            foreignField: "_id",
-            as: "meetingData",
-          },
-        },
-        {
-          $unwind: "$meetingData",
-        },
-        {
-          $match: {
-            "meetingData.trainer": new Types.ObjectId(trainerId),
-          },
-        },
-        {
-          $group: {
-            _id: "$user",
-          },
-        },
-      ]);
+      /* =========================
+        ✅ ACTIVE STUDENTS (FIXED - Using Meeting Schema)
+      ========================= */
+      // Count unique creators (students) this month
+      const thisMonthCreators = new Set(
+        thisMonthMeetings.map((m) => m.createdBy.toString())
+      );
+      const activeStudentsCount = thisMonthCreators.size;
 
-      const activeStudentsCount = activeStudents.length;
+      // Count unique creators last month
+      const lastMonthCreators = new Set(
+        lastMonthMeetings.map((m) => m.createdBy.toString())
+      );
+      const prevActiveStudentsCount = lastMonthCreators.size;
 
-      // Previous month active students
-      const prevActiveStudents = await MeetingAttendance.aggregate([
-        {
-          $match: {
-            createdAt: { $gte: prevMonthStart, $lte: prevMonthEnd },
-            status: { $in: ["joined", "completed"] },
-          },
-        },
-        {
-          $lookup: {
-            from: "meetings",
-            localField: "meeting",
-            foreignField: "_id",
-            as: "meetingData",
-          },
-        },
-        {
-          $unwind: "$meetingData",
-        },
-        {
-          $match: {
-            "meetingData.trainer": new Types.ObjectId(trainerId),
-          },
-        },
-        {
-          $group: {
-            _id: "$user",
-          },
-        },
-      ]);
-
-      const prevActiveStudentsCount = prevActiveStudents.length;
       const studentsChange =
         prevActiveStudentsCount > 0
           ? Math.round(
@@ -504,34 +422,42 @@ export default class TrainerController {
             )
           : 0;
 
-      // Completion rate
-      const totalAttendance = await MeetingAttendance.countDocuments({
-        createdAt: { $gte: monthStart, $lte: monthEnd },
+      /* =========================
+        ✅ COMPLETION RATE (FIXED)
+      ========================= */
+      // Total sessions this month (excluding future sessions)
+      const totalSessionsThisMonth = await Meeting.countDocuments({
+        trainer: new Types.ObjectId(trainerId),
+        localTime: { $gte: monthStart, $lte: now },
       });
 
-      const completedAttendance = await MeetingAttendance.countDocuments({
-        createdAt: { $gte: monthStart, $lte: monthEnd },
+      // Completed sessions this month
+      const completedSessions = await Meeting.countDocuments({
+        trainer: new Types.ObjectId(trainerId),
         status: "completed",
+        localTime: { $gte: monthStart, $lte: monthEnd < now ? monthEnd : now  },
       });
 
       const completionRate =
-        totalAttendance > 0
-          ? Math.round((completedAttendance / totalAttendance) * 100)
+        totalSessionsThisMonth > 0
+          ? Math.round((completedSessions / totalSessionsThisMonth) * 100)
           : 0;
 
-      // Previous completion rate
-      const prevTotalAttendance = await MeetingAttendance.countDocuments({
-        createdAt: { $gte: prevMonthStart, $lte: prevMonthEnd },
+      /* ===== Previous Month Completion Rate ===== */
+      const prevTotalSessions = await Meeting.countDocuments({
+        trainer: new Types.ObjectId(trainerId),
+        localTime: { $gte: prevMonthStart, $lte: prevMonthEnd },
       });
 
-      const prevCompletedAttendance = await MeetingAttendance.countDocuments({
-        createdAt: { $gte: prevMonthStart, $lte: prevMonthEnd },
+      const prevCompletedSessions = await Meeting.countDocuments({
+        trainer: new Types.ObjectId(trainerId),
         status: "completed",
+        localTime: { $gte: prevMonthStart, $lte: prevMonthEnd },
       });
 
       const prevCompletionRate =
-        prevTotalAttendance > 0
-          ? Math.round((prevCompletedAttendance / prevTotalAttendance) * 100)
+        prevTotalSessions > 0
+          ? Math.round((prevCompletedSessions / prevTotalSessions) * 100)
           : 0;
 
       const completionRateChange = completionRate - prevCompletionRate;
@@ -544,7 +470,7 @@ export default class TrainerController {
             change: sessionsChange,
           },
           monthlyEarnings: {
-            value: monthlyEarnings,
+            value: monthlyEarnings, // Already in cents (1000 = $10.00)
             change: earningsChange,
           },
           activeStudents: {
@@ -617,6 +543,7 @@ export default class TrainerController {
         {
           $match: {
             "meetingData.trainer": new Types.ObjectId(trainerId),
+            "meetingData.status": "completed",
           },
         },
         {
@@ -808,7 +735,7 @@ export default class TrainerController {
   static async GetSessionsAttendance(req: Request, res: Response) {
     try {
       const userId = req.user?.id;
-      const { period = "6months" } = req.query;
+      const { period = "1week" } = req.query;
 
       if (!userId) {
         return res.status(401).json({
@@ -817,53 +744,122 @@ export default class TrainerController {
         });
       }
 
-      // Get trainer ID from user ✅ KEY FIX
+      // Get trainer ID from user
       const trainerId = await TrainerController.getTrainerIdFromUser(userId);
 
       const now = new Date();
-      let monthsBack = 5;
+      let startDate: Date;
+      let labels: string[];
+      let groupByDay = false;
 
-      if (period === "3months") {
-        monthsBack = 2;
-      } else if (period === "1year") {
-        monthsBack = 11;
+      // Determine the date range and labels based on period
+      if (period === "1week") {
+        // Last 7 days
+        startDate = new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000);
+        startDate.setHours(0, 0, 0, 0);
+        groupByDay = true;
+        
+        // Generate day labels (Mon, Tue, Wed, etc.)
+        labels = [];
+        const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+        for (let i = 0; i < 7; i++) {
+          const date = new Date(startDate.getTime() + i * 24 * 60 * 60 * 1000);
+          labels.push(dayNames[date.getDay()]);
+        }
+      } else if (period === "1month") {
+        // Current month
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        groupByDay = true;
+        
+        // Get number of days in current month
+        const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+        labels = Array.from({ length: daysInMonth }, (_, i) => String(i + 1));
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid period. Use '1week' or '1month'",
+        });
       }
 
-      const periodAgo = new Date(now);
-      periodAgo.setMonth(periodAgo.getMonth() - monthsBack);
-
-      // Get sessions by trainer and attendance rate
+      // Get all meetings in the period for this trainer
       const meetings = await Meeting.find({
         trainer: new Types.ObjectId(trainerId),
-        localTime: { $gte: periodAgo },
-      }).select("_id title");
+        localTime: { $gte: startDate, $lte: now },
+      }).select("_id localTime").lean();
 
-      const attendanceRates = await Promise.all(
-        meetings.map(async (meeting) => {
-          const totalRegistered = await MeetingAttendance.countDocuments({
-            meeting: meeting._id,
-            status: { $in: ["registered", "joined", "completed"] },
-          });
+      if (meetings.length === 0) {
+        // No meetings found, return zeros
+        return res.json({
+          success: true,
+          data: {
+            labels,
+            values: new Array(labels.length).fill(0),
+          },
+        });
+      }
 
-          const attended = await MeetingAttendance.countDocuments({
-            meeting: meeting._id,
-            status: { $in: ["joined", "completed"] },
-          });
+      // Group meetings by day
+      const meetingsByDay: { [key: string]: string[] } = {};
+      
+      if (period === "1week") {
+        // Group by day of week
+        meetings.forEach((meeting) => {
+          const meetingDate = new Date(meeting.localTime);
+          const daysDiff = Math.floor(
+            (meetingDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000)
+          );
+          
+          if (daysDiff >= 0 && daysDiff < 7) {
+            const key = String(daysDiff);
+            if (!meetingsByDay[key]) {
+              meetingsByDay[key] = [];
+            }
+            meetingsByDay[key].push(meeting._id.toString());
+          }
+        });
+      } else if (period === "1month") {
+        // Group by day of month
+        meetings.forEach((meeting) => {
+          const meetingDate = new Date(meeting.localTime);
+          const dayOfMonth = meetingDate.getDate();
+          const key = String(dayOfMonth - 1); // 0-indexed
+          
+          if (!meetingsByDay[key]) {
+            meetingsByDay[key] = [];
+          }
+          meetingsByDay[key].push(meeting._id.toString());
+        });
+      }
 
-          const rate =
-            totalRegistered > 0
-              ? Math.round((attended / totalRegistered) * 100)
-              : 0;
+      // Calculate attendance rate for each day
+      const attendanceRates: number[] = [];
 
-          return {
-            title: meeting.title,
-            rate,
-          };
-        })
-      );
+      for (let i = 0; i < labels.length; i++) {
+        const key = String(i);
+        const dayMeetingIds = meetingsByDay[key];
 
-      const labels = attendanceRates.map((r) => r.title);
-      const values = attendanceRates.map((r) => r.rate);
+        if (!dayMeetingIds || dayMeetingIds.length === 0) {
+          attendanceRates.push(0);
+          continue;
+        }
+
+        // Get attendance stats for this day's meetings
+        const totalRegistered = await MeetingAttendance.countDocuments({
+          meeting: { $in: dayMeetingIds.map(id => new Types.ObjectId(id)) },
+          status: { $in: ["registered", "joined", "completed"] },
+        });
+
+        const attended = await MeetingAttendance.countDocuments({
+          meeting: { $in: dayMeetingIds.map(id => new Types.ObjectId(id)) },
+          status: { $in: ["joined", "completed"] },
+        });
+
+        // const rate = totalRegistered > 0
+        //   ? Math.round((attended / totalRegistered) * 100)
+        //   : 0;
+
+        attendanceRates.push(attended);
+      }
 
       res.setHeader("Cache-Control", "no-store");
 
@@ -871,7 +867,7 @@ export default class TrainerController {
         success: true,
         data: {
           labels,
-          values,
+          values: attendanceRates,
         },
       });
     } catch (error: any) {
@@ -998,6 +994,7 @@ export default class TrainerController {
         {
           $match: {
             trainer: new Types.ObjectId(trainerId),
+            status: "completed",
             createdAt: { $gte: periodAgo },
           },
         },
@@ -1143,6 +1140,7 @@ export default class TrainerController {
       // Get this month's meetings
       const thisMonthMeetings = await Meeting.find({
         trainer: new Types.ObjectId(trainerId),
+        status: "completed",
         createdAt: { $gte: monthStart, $lte: monthEnd },
       }).lean();
 
@@ -1152,6 +1150,7 @@ export default class TrainerController {
       // Get last month's meetings
       const lastMonthMeetings = await Meeting.find({
         trainer: new Types.ObjectId(trainerId),
+        status: "completed",
         createdAt: { $gte: lastMonthStart, $lte: lastMonthEnd },
       }).lean();
 
