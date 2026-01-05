@@ -29,9 +29,8 @@ export class StripeService {
     if (!process.env.STRIPE_SECRET_KEY) {
       throw new Error('STRIPE_SECRET_KEY is not defined');
     }
-    this.stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-      apiVersion: '2025-12-15.clover',
-    });
+this.stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+
   }
 
   /**
