@@ -129,6 +129,10 @@ classCredits: {
   },
 },
 
+totalClassCredits: {
+  type: Number,
+  default: 0,
+},
 
 subscription: {
   type: {
@@ -159,6 +163,37 @@ subscription: {
   },
 },
 
+gateway: {
+  type: String,
+  enum: ['ngenius', 'stripe'],
+  default: 'ngenius', // Will be set based on country on first payment
+  index: true,
+},
+
+// nGenius customer reference
+ngeniusCustomerId: {
+  type: String,
+  sparse: true,
+  unique: true,
+},
+lastPaymentGateway: {
+  type: String,
+  enum: ['ngenius', 'stripe'],
+  sparse: true,
+},
+
+// Stripe customer reference
+stripeCustomerId: {
+  type: String,
+  sparse: true,
+  unique: true,
+},
+
+// Stripe subscription ID
+stripeSubscriptionId: {
+  type: String,
+  sparse: true,
+},
 
 
 
@@ -168,6 +203,7 @@ subscription: {
       enum: Object.values(UserRole),
       default: UserRole.MEMBER,
     },
+  
     isActive: {
       type: Boolean,
       default: false,

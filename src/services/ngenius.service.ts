@@ -79,9 +79,9 @@ export class NgeniusService {
 
       for (const user of activeUsers) {
         try {
-          await this.chargeRecurringPayment(user?._id.toString(), user?.plan as string);
+          await this.chargeRecurringPayment(user?.id.toString(), user?.plan as string);
         } catch (err) {
-          console.error(`❌ Error charging user ${user._id}:`, err);
+          console.error(`❌ Error charging user ${user.id}:`, err);
         }
       }
 
@@ -204,7 +204,7 @@ export class NgeniusService {
       }
 
       // Update payment record
-      payment.status = paymentStatus;
+      payment.status = paymentStatus as any;
       payment.gatewayResponse = orderStatus;
       payment.verifiedAt = new Date();
       await payment.save();

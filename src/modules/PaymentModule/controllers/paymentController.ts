@@ -1,5 +1,8 @@
+// modules/PaymentModule/controllers/PaymentController.ts
+
 import { Request, Response } from "express";
 import { NgeniusService } from "../../../services/ngenius.service";
+import { StripeService } from "../services/stripe.servise"; 
 import Payment from "../models/Payment";
 import User from "../../UserModule/models/User";
 import { PLAN_CONFIG } from "../../../config/planConfig";
@@ -8,22 +11,30 @@ import { addWelcomeEmailJob } from "../../../services/queues/emailQueue";
 import { addInvoiceEmailJob } from "../../../services/queues/invoiceEmailQueue";
 import { generateInvoicePDF } from "../../../services/invoiceService";
 import { v4 as uuidv4 } from "uuid";
+import {
+  getPreferredGateway,
+  isGatewaySupported,
+} from "../../../config/paymentGatewayConfig";
 
 export default class PaymentController {
-  /**
-   * Initialize recurring payment system (call this in your app startup)
+/**
+   * Initialize both payment gateways
    */
-  static initRecurringPayments() {
+  static initPaymentSystems() {
     NgeniusService.initRecurringPaymentCron();
+    StripeService.initialize();
+    StripeService.initRecurringPaymentCron();
   }
 
   /**
-   * Create initial payment order (first-time or manual payment)
+   * Create payment order with automatic gateway selection
+   * For Stripe: Returns checkoutUrl for direct redirect
+   * For nGenius: Returns paymentLink for redirect
    */
   static async createPaymentOrder(req: Request, res: Response) {
     try {
       let { amount, currency = "USD", userId, plan } = req.body;
-      const userAmount=amount;
+      const userAmount = amount;
 
       // Validation
       if (!userId || !plan) {
@@ -33,30 +44,70 @@ export default class PaymentController {
         });
       }
 
-      // Convert USD to AED if needed
-      if (currency === "USD") {
+      const user = await User.findById(userId);
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found",
+        });
+      }
+
+      // Determine preferred gateway based on country
+      const countryCode = user.country || user.countryCode;
+      const preferredGateway = getPreferredGateway(countryCode);
+
+      console.log(
+        `🌍 Country: ${countryCode}, Preferred Gateway: ${preferredGateway}`
+      );
+
+      // Handle currency conversion for nGenius
+      if (preferredGateway === "ngenius" && currency === "USD") {
         const rate = await getUsdToAedRate();
         amount = Number((amount * rate).toFixed(2));
         currency = "AED";
       }
 
       console.log(
-        `💳 Creating payment order - Amount: ${amount} ${currency}, Plan: ${plan}`
+        `💳 Creating payment order - Gateway: ${preferredGateway}, Amount: ${amount} ${currency}, Plan: ${plan}`
       );
 
-      // const { orderRef, paymentLink, reference } =
-      //   await NgeniusService.createOrder(amount, currency, userId, plan);
+      let paymentData: any;
 
-      const { orderRef, paymentLink, reference } =
-        await NgeniusService.createOrder(amount, currency, userId, plan,userAmount);
+      if (preferredGateway === "ngenius") {
+        paymentData = await NgeniusService.createOrder(
+          amount,
+          currency,
+          userId,
+          plan,
+          userAmount
+        );
+      } else if (preferredGateway === "stripe") {
+        // For Stripe: Create checkout session (redirect method)
+        paymentData = await StripeService.createCheckoutSession(
+          userId,
+          amount,
+          currency,
+          plan,
+          userAmount
+        );
+        // Return paymentLink for compatibility with frontend
+        paymentData.paymentLink = paymentData.checkoutUrl;
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: "No suitable payment gateway found for your country",
+        });
+      }
 
-      // The order is already saved in NgeniusService.createOrder
+      // Update user with gateway preference
+      user.gateway = preferredGateway;
+      user.lastPaymentGateway = preferredGateway;
+      await user.save();
 
       return res.status(200).json({
         success: true,
-        orderRef,
-        reference,
-        paymentLink,
+        gateway: preferredGateway,
+        ...paymentData,
         message: "Payment order created successfully",
       });
     } catch (err) {
@@ -69,7 +120,53 @@ export default class PaymentController {
   }
 
   /**
-   * Get payment status
+ * Verify Stripe payment after user returns from Stripe Checkout
+ */
+static async verifyStripeCheckout(req: Request, res: Response) {
+  try {
+    const { sessionId } = req.body;
+
+    if (!sessionId) {
+      return res.status(400).json({
+        success: false,
+        error: "Session ID is required",
+      });
+    }
+
+    // Get session details from Stripe
+    const session = await StripeService.getCheckoutSession(sessionId);
+
+    if (session.payment_status === "paid") {
+      // Fulfill the order (creates Payment record)
+      const payment = await StripeService.fulfillOrder(sessionId);
+
+      if (payment) {
+        // ✅ Return success - user will call verifyPayment endpoint next
+        // DO NOT activate subscription here - let verifyPayment do it
+        return res.status(200).json({
+          success: true,
+          message: "✅ Payment verified! Processing subscription...",
+          orderRef: payment.orderRef,
+          status: "paid",
+        });
+      }
+    }
+
+    return res.status(400).json({
+      success: false,
+      error: "Payment verification failed",
+    });
+  } catch (error) {
+    console.error("❌ Stripe checkout verification error:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Failed to verify payment",
+    });
+  }
+}
+
+  /**
+   * Get payment status (works with both gateways)
    */
   static async getPaymentStatus(req: Request, res: Response) {
     try {
@@ -87,6 +184,7 @@ export default class PaymentController {
       return res.status(200).json({
         success: true,
         status: payment.status,
+        gateway: payment.gateway,
         orderRef: payment.orderRef,
         isRecurring: payment.isRecurring,
         recurringCycle: payment.recurringCycle,
@@ -100,255 +198,433 @@ export default class PaymentController {
     }
   }
 
-  /**
-   * Verify payment and activate subscription
-   * Called after user completes payment on nGenius hosted page
-   */
-  static async verifyPayment(req: Request, res: Response, next: any) {
-    try {
-      const { orderRef, reference } = req.body;
+/**
+ * Verify payment - routes to appropriate gateway handler
+ * Works for both nGenius and Stripe
+ */
+static async verifyPayment(req: Request, res: Response, next: any) {
+  try {
+    const { orderRef, paymentIntentId } = req.body;
 
-      if (!orderRef) {
-        return res.status(400).json({
-          success: false,
-          error: "Order reference is required",
-        });
-      }
+    if (paymentIntentId) {
+      // ✅ Stripe
+      return PaymentController.verifyStripePayment(req, res, next);
+    }
 
-      // Step 1: Find payment in database
-      let payment = await Payment.findOne({ orderRef });
+    if (orderRef) {
+      // ✅ nGenius
+      return PaymentController.verifyNgeniusPayment(req, res, next);
+    }
 
-      if (!payment) {
-        return res.status(404).json({
-          success: false,
-          error: "Payment record not found",
-        });
-      }
-
-      console.log(`✅ Payment found: ${payment._id}`);
-
-      // Step 2: Fetch order status from nGenius
-      let orderStatus: any = {};
-      let ngeniusStatus = "PENDING";
-
-      const refToCheck = reference || payment.reference;
-
-      if (refToCheck) {
-        try {
-          orderStatus = await NgeniusService.getOrderStatus(refToCheck);
-
-          if (
-            orderStatus?._embedded?.payment &&
-            orderStatus._embedded.payment.length > 0
-          ) {
-            const paymentData = orderStatus._embedded.payment[0];
-            ngeniusStatus = paymentData.state;
-          } else {
-            ngeniusStatus = orderStatus?.status || "PENDING";
-            console.log(
-              "⚠️ No payment in order, using order status:",
-              ngeniusStatus
-            );
-          }
-
-          console.log("✅ Order Status from nGenius:", ngeniusStatus);
-        } catch (error) {
-          console.error("❌ Error fetching order status:", error);
-          ngeniusStatus = "PENDING";
-        }
-      }
-
-      // Step 3: Map nGenius status to payment status
-      let paymentStatus = "PENDING";
-
-      if (
-        ngeniusStatus === "CAPTURED" ||
-        ngeniusStatus === "AUTHORISED" ||
-        ngeniusStatus === "SETTLED"
-      ) {
-        paymentStatus = "COMPLETED";
-      } else if (ngeniusStatus === "DECLINED" || ngeniusStatus === "FAILED") {
-        paymentStatus = "FAILED";
-      } else if (ngeniusStatus === "CANCELLED") {
-        paymentStatus = "CANCELLED";
-      }
-
-      // Step 4: Update payment in database
-      payment = await Payment.findOneAndUpdate(
-        { orderRef },
-        {
-          status: paymentStatus,
-          ngeniusStatus,
-          reference: refToCheck,
-          gatewayResponse: orderStatus,
-          verifiedAt: new Date(),
-        },
-        { new: true }
-      );
-
-      console.log(`✅ Payment updated - Status: ${paymentStatus}`);
-
-      // Step 5: Activate subscription if payment successful
-      const isSuccessful = paymentStatus === "COMPLETED";
-
-      if (isSuccessful) {
-        try {
-          const user = await User.findById(payment?.userId);
-
-    if (!user) {
-      console.error("❌ User not found:", payment?.userId);
-    } else {
-      const plan = payment?.plan as PlanType;
-      const newCredits = PLAN_CONFIG[plan];
-
-      // ========== UPGRADE LOGIC: Check if user has existing plan ==========
-      const hasExistingPlan = user.plan && user.subscription?.status === "active";
-      
-      if (hasExistingPlan) {
-        // UPGRADE: Add new credits to existing ones
-        console.log(`📈 Upgrading from ${user.plan} to ${plan} - Adding credits`);
-        user.classCredits = addCredits(user.classCredits, newCredits);
-      } else {
-        // NEW SUBSCRIPTION: Replace credits
-        console.log(`✨ New subscription plan: ${plan}`);
-        user.classCredits = newCredits;
-      }
-
-      // Update subscription details
-      user.subscription = {
-        startDate: user.subscription?.startDate || new Date(),
-        endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // Extend 30 days
-        status: "active",
-      };
-      user.plan = plan;
-      user.onboardingCompleted = true;
-
-      await user.save();
-
-      console.log(
-        `✅ Subscription activated - Credits: ${JSON.stringify(user.classCredits)} - Next billing: ${user.subscription.endDate}`
-      );
+    return res.status(400).json({
+      success: false,
+      error: "orderRef or paymentIntentId is required",
+    });
+  } catch (error) {
+    console.error("❌ Verify Payment Error:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Failed to verify payment",
+    });
+  }
+}
 
 
-             // ========== NEW: Generate and Queue Invoice ==========
-          const invoiceId = `INV-${Date.now()}-${uuidv4().slice(0, 8).toUpperCase()}`;
+/**
+ * Verify nGenius payment
+ */
+private static async verifyNgeniusPayment(
+  req: Request,
+  res: Response,
+  next: any
+) {
+  try {
+    const { orderRef, reference } = req.body;
 
-          try {
-            console.log(`📄 Generating invoice: ${invoiceId}`);
-
-            const invoicePDF = await generateInvoicePDF({
-              invoiceId,
-              orderRef: payment!.orderRef,
-              userId: user._id.toString(),
-              userEmail: user.email,
-              userName: user.firstName + " " + user.lastName,
-              plan: plan.charAt(0).toUpperCase() + plan.slice(1),
-              amount: payment!.amount,
-              currency:"USD",
-              date: new Date(),
-              subscriptionEndDate:new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-              paymentMethod: "nGenius Payment Gateway",
-            });
-
-            console.log(`✅ Invoice PDF generated successfully`);
-
-            // Convert PDF buffer to base64 for queue
-            const invoicePDFBase64 = invoicePDF.toString("base64");
-
-            // Queue invoice email
-            addInvoiceEmailJob(
-              {
-                invoiceId,
-                orderRef: payment?.orderRef as string,
-                userId: user._id.toString(),
-                email: user.email,
-                userName: user.firstName + " " + user.lastName,
-                plan: plan,
-                amount: payment!.amount,
-                currency: "USD",
-                date: new Date(), // Will be serialized to ISO string in queue
-                subscriptionEndDate:new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // Will be serialized to ISO string in queue
-                paymentMethod: "nGenius Payment Gateway",
-              },
-              invoicePDFBase64
-            ).catch((err) => console.error("❌ Invoice queue add failed:", err));
-
-            // Save invoice ID to payment record
-            if(payment)
-            payment.invoiceId = invoiceId;
-            await payment?.save();
-
-          } catch (invoiceErr) {
-            console.error("❌ Error generating/sending invoice:", invoiceErr);
-            // Continue with welcome email even if invoice fails
-          }
-
-
-            addWelcomeEmailJob({
-              userId: user._id.toString(),
-              email: user.email,
-              firstName: user.firstName,
-              plan: user.plan,
-              subscriptionStartDate: user.subscription.startDate as Date,
-              subscriptionEndDate: user.subscription.endDate as Date,
-            }).catch((err) => console.error("❌ Queue add failed:", err));
-          }
-        } catch (err) {
-          console.error("❌ Error activating subscription:", err);
-          next(err);
-        }
-      }
-
-      // Step 6: Return response
-      return res.status(isSuccessful ? 200 : 400).json({
-        success: isSuccessful,
-        orderRef: payment?.orderRef,
-        reference: payment?.reference,
-        amount: payment?.amount,
-        currency: payment?.currency,
-        status: payment?.status,
-        plan: payment?.plan,
-        message: isSuccessful
-          ? "✅ Payment successful! Subscription activated. Monthly billing will begin."
-          : `❌ Payment ${paymentStatus.toLowerCase()}`,
-      });
-    } catch (error) {
-      console.error("❌ Verify Payment Error:", error);
-      return res.status(500).json({
+    if (!orderRef) {
+      return res.status(400).json({
         success: false,
-        error: "Failed to verify payment",
+        error: "Order reference is required",
       });
     }
-  }
 
-  /**
-   * Cancel recurring subscription
-   */
-  static async cancelSubscription(req: Request, res: Response) {
-    try {
-      const { userId } = req.body;
+    let payment = await Payment.findOne({ orderRef });
 
-      if (!userId) {
-        return res.status(400).json({
-          success: false,
-          message: "userId is required",
-        });
-      }
+    if (!payment) {
+      return res.status(404).json({
+        success: false,
+        error: "Payment record not found",
+      });
+    }
 
-      await NgeniusService.cancelRecurringSubscription(userId);
-
+    // ✅ NEW: Check if subscription already activated to prevent duplicate updates
+    if (payment.status === "COMPLETED") {
       return res.status(200).json({
         success: true,
-        message: "Subscription cancelled successfully",
-      });
-    } catch (err) {
-      console.error("❌ Error cancelling subscription:", err);
-      return res.status(500).json({
-        success: false,
-        message: "Failed to cancel subscription",
+        message: "✅ Payment already processed",
+        gateway: payment.gateway,
+        orderRef: payment.orderRef,
+        status: payment.status,
+        plan: payment.plan,
       });
     }
+
+    console.log(`✅ Payment found: ${payment._id}, Gateway: ${payment.gateway}`);
+
+    let orderStatus: any = {};
+    let ngeniusStatus = "PENDING";
+
+    const refToCheck = reference || payment.reference;
+
+    if (refToCheck) {
+      try {
+        orderStatus = await NgeniusService.getOrderStatus(refToCheck);
+
+        if (
+          orderStatus?._embedded?.payment &&
+          orderStatus._embedded.payment.length > 0
+        ) {
+          const paymentData = orderStatus._embedded.payment[0];
+          ngeniusStatus = paymentData.state;
+        } else {
+          ngeniusStatus = orderStatus?.status || "PENDING";
+        }
+
+        console.log("✅ nGenius Status:", ngeniusStatus);
+      } catch (error) {
+        console.error("❌ Error fetching order status:", error);
+        ngeniusStatus = "PENDING";
+      }
+    }
+
+    let paymentStatus = "PENDING";
+
+    if (
+      ngeniusStatus === "CAPTURED" ||
+      ngeniusStatus === "AUTHORISED" ||
+      ngeniusStatus === "SETTLED"
+    ) {
+      paymentStatus = "COMPLETED";
+    } else if (ngeniusStatus === "DECLINED" || ngeniusStatus === "FAILED") {
+      paymentStatus = "FAILED";
+    } else if (ngeniusStatus === "CANCELLED") {
+      paymentStatus = "CANCELLED";
+    }
+
+    payment = await Payment.findOneAndUpdate(
+      { _id: payment._id },
+      {
+        status: paymentStatus,
+        ngeniusStatus,
+        reference: refToCheck,
+        gatewayResponse: orderStatus,
+        verifiedAt: new Date(),
+      },
+      { new: true }
+    );
+
+    console.log(`✅ nGenius Payment updated - Status: ${paymentStatus}`);
+
+    return this.activateSubscription(
+      payment,
+      paymentStatus === "COMPLETED",
+      res,
+      next
+    );
+  } catch (error) {
+    console.error("❌ nGenius Verification Error:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Failed to verify payment",
+    });
   }
+}
+
+/**
+ * Verify Stripe payment - UPDATED TO PREVENT DUPLICATE ACTIVATION
+ */
+private static async verifyStripePayment(
+  req: Request,
+  res: Response,
+  next: any
+) {
+  try {
+    const { paymentIntentId } = req.body;
+
+    if (!paymentIntentId) {
+      return res.status(400).json({
+        success: false,
+        error: "Payment intent ID (sessionId) is required",
+      });
+    }
+
+    let payment = await Payment.findOne({
+      reference: paymentIntentId, // session ID is stored in reference
+    });
+
+    if (!payment) {
+      return res.status(404).json({
+        success: false,
+        error: "Payment record not found",
+      });
+    }
+
+    // ✅ FIX: Check if subscription was already activated (subscription status field)
+    // This prevents double activation even if payment is marked COMPLETED
+    if (payment.subscriptionActivated) {
+      console.log(`✅ Subscription already activated for payment ${payment._id}`);
+      return res.status(200).json({
+        success: true,
+        message: "✅ Payment already processed",
+        gateway: payment.gateway,
+        orderRef: payment.orderRef,
+        status: payment.status,
+        plan: payment.plan,
+      });
+    }
+
+    // Retrieve the session from Stripe
+    const session = await StripeService.getCheckoutSession(paymentIntentId);
+
+    let paymentStatus = "PENDING";
+
+    if (session.payment_status === "paid") {
+      paymentStatus = "COMPLETED";
+    } else if (session.payment_status === "unpaid") {
+      paymentStatus = "FAILED";
+    }
+
+    // ✅ FIX: Mark that subscription is about to be activated
+    // This flag prevents activateSubscription from being called twice
+    payment = await Payment.findOneAndUpdate(
+      { _id: payment._id },
+      {
+        status: paymentStatus,
+        subscriptionActivated: true, // ✅ NEW: Flag set BEFORE activation
+        gatewayResponse: session,
+        verifiedAt: new Date(),
+      },
+      { new: true }
+    );
+
+    console.log(`✅ Stripe Payment updated - Status: ${paymentStatus}`);
+
+    return this.activateSubscription(
+      payment,
+      paymentStatus === "COMPLETED",
+      res,
+      next
+    );
+  } catch (error) {
+    console.error("❌ Stripe Verification Error:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Failed to verify payment",
+    });
+  }
+}
+
+/**
+ * Activate subscription for both gateways
+ * Updates user plan, subscription, classCredits, and totalClassCredits
+ * Only called once per payment flow
+ */
+private static async activateSubscription(
+  payment: any,
+  isSuccessful: boolean,
+  res: Response,
+  next: any
+) {
+  try {
+    if (isSuccessful) {
+      const user = await User.findById(payment?.userId);
+
+      if (!user) {
+        console.error("❌ User not found:", payment?.userId);
+      } else {
+        const plan = payment?.plan as PlanType;
+        const newCredits = PLAN_CONFIG[plan];
+
+        // Check if user has an existing active plan
+        const hasExistingPlan =
+          user.plan && user.subscription?.status === "active";
+
+        console.log(`📊 Current Credits:`, user.classCredits);
+        console.log(`📊 New Credits from Plan:`, newCredits);
+        console.log(`📊 Has Existing Plan:`, hasExistingPlan);
+
+        // Update classCredits
+        if (hasExistingPlan) {
+          console.log(
+            `📈 Upgrading from ${user.plan} to ${plan} - Adding credits`
+          );
+          user.classCredits = addCredits(user.classCredits, newCredits);
+        } else {
+          console.log(`✨ New subscription plan: ${plan}`);
+          user.classCredits = newCredits;
+        }
+
+        // Calculate new totalClassCredits (cumulative total)
+        const totalNewCredits =
+          (newCredits?.yoga || 0) +
+          (newCredits?.zumba || 0) +
+          (newCredits?.specialty || 0);
+
+        user.totalClassCredits =
+          (user.totalClassCredits || 0) + totalNewCredits;
+
+        // Update subscription
+        user.subscription = {
+          startDate: user.subscription?.startDate || new Date(),
+          endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+          status: "active",
+        };
+
+        // Update plan
+        user.plan = plan;
+        user.onboardingCompleted = true;
+
+        await user.save();
+
+        console.log(
+          `✅ Subscription activated - Credits: ${JSON.stringify(user.classCredits)}`
+        );
+        console.log(
+          `✅ Total Class Credits (Cumulative): ${user.totalClassCredits}`
+        );
+
+        // Generate and queue invoice
+        const invoiceId = `INV-${Date.now()}-${uuidv4()
+          .slice(0, 8)
+          .toUpperCase()}`;
+
+        try {
+          const invoicePDF = await generateInvoicePDF({
+            invoiceId,
+            orderRef: payment!.orderRef,
+            userId: user._id.toString(),
+            userEmail: user.email,
+            userName: user.firstName + " " + user.lastName,
+            plan: plan.charAt(0).toUpperCase() + plan.slice(1),
+            amount: payment!.amount,
+            currency: payment!.currency || "USD",
+            date: new Date(),
+            subscriptionEndDate: new Date(
+              Date.now() + 30 * 24 * 60 * 60 * 1000
+            ),
+            paymentMethod: `${payment.gateway.toUpperCase()} Payment Gateway`,
+          });
+
+          const invoicePDFBase64 = invoicePDF.toString("base64");
+
+          addInvoiceEmailJob(
+            {
+              invoiceId,
+              orderRef: payment?.orderRef as string,
+              userId: user._id.toString(),
+              email: user.email,
+              userName: user.firstName + " " + user.lastName,
+              plan: plan,
+              amount: payment!.amount,
+              currency: payment!.currency || "USD",
+              date: new Date(),
+              subscriptionEndDate: new Date(
+                Date.now() + 30 * 24 * 60 * 60 * 1000
+              ),
+              paymentMethod: `${payment.gateway.toUpperCase()} Payment Gateway`,
+            },
+            invoicePDFBase64
+          ).catch((err) =>
+            console.error("❌ Invoice queue add failed:", err)
+          );
+
+          if (payment) payment.invoiceId = invoiceId;
+          await payment?.save();
+        } catch (invoiceErr) {
+          console.error("❌ Error generating/sending invoice:", invoiceErr);
+        }
+
+        addWelcomeEmailJob({
+          userId: user._id.toString(),
+          email: user.email,
+          firstName: user.firstName,
+          plan: user.plan,
+          subscriptionStartDate: user.subscription.startDate as Date,
+          subscriptionEndDate: user.subscription.endDate as Date,
+        }).catch((err) => console.error("❌ Queue add failed:", err));
+      }
+    }
+
+    return res.status(isSuccessful ? 200 : 400).json({
+      success: isSuccessful,
+      gateway: payment?.gateway,
+      orderRef: payment?.orderRef,
+      reference: payment?.reference,
+      amount: payment?.amount,
+      currency: payment?.currency,
+      status: payment?.status,
+      plan: payment?.plan,
+      message: isSuccessful
+        ? "✅ Payment successful! Subscription activated. Monthly billing will begin."
+        : `❌ Payment ${payment?.status.toLowerCase()}`,
+    });
+  } catch (error) {
+    console.error("❌ Subscription Activation Error:", error);
+    next(error);
+  }
+}
+
+
+  /**
+   * Cancel subscription (works with both gateways)
+   */
+  // static async cancelSubscription(req: Request, res: Response) {
+  //   try {
+  //     const { userId } = req.body;
+
+  //     if (!userId) {
+  //       return res.status(400).json({
+  //         success: false,
+  //         message: "userId is required",
+  //       });
+  //     }
+
+  //     const user = await User.findById(userId);
+  //     if (!user) {
+  //       return res.status(404).json({
+  //         success: false,
+  //         message: "User not found",
+  //       });
+  //     }
+
+  //     const gateway = user.gateway || "ngenius";
+
+  //     if (gateway === "stripe" && user.stripeSubscriptionId) {
+  //       await StripeService.cancelSubscription(user.stripeSubscriptionId);
+  //     } else {
+  //       await NgeniusService.cancelRecurringSubscription(userId);
+  //     }
+
+  //     // Update user subscription status
+  //     user.subscription = {
+  //       ...user.subscription,
+  //       status: "cancelled",
+  //       cancelledAt: new Date(),
+  //     };
+  //     await user.save();
+
+  //     return res.status(200).json({
+  //       success: true,
+  //       message: "Subscription cancelled successfully",
+  //     });
+  //   } catch (err) {
+  //     console.error("❌ Error cancelling subscription:", err);
+  //     return res.status(500).json({
+  //       success: false,
+  //       message: "Failed to cancel subscription",
+  //     });
+  //   }
+  // }
 
   /**
    * Get subscription status
@@ -357,7 +633,9 @@ export default class PaymentController {
     try {
       const { userId } = req.params;
 
-      const user = await User.findById(userId).select("subscription plan");
+      const user = await User.findById(userId).select(
+        "subscription plan gateway"
+      );
 
       if (!user) {
         return res.status(404).json({
@@ -379,6 +657,7 @@ export default class PaymentController {
           endDate: user.subscription?.endDate,
           isActive,
           plan: user.plan,
+          gateway: user.gateway,
           daysRemaining: isActive
             ? Math.ceil(
                 ((user?.subscription?.endDate?.getTime?.() ?? 0) - Date.now()) /
@@ -397,8 +676,7 @@ export default class PaymentController {
   }
 
   /**
-    * Get payment history for a user
-   * GET /api/payments/history/:userId
+   * Get payment history for a user
    */
   static async getPaymentHistory(req: Request, res: Response) {
     try {
@@ -411,16 +689,16 @@ export default class PaymentController {
         });
       }
 
-      // Fetch all payments for the user, sorted by most recent first
       const payments = await Payment.find({ userId })
         .sort({ createdAt: -1 })
         .lean();
 
-      if (!payments) {
-        return res.status(404).json({
-          success: false,
+      if (!payments || payments.length === 0) {
+        return res.status(200).json({
+          success: true,
           message: "No payments found for this user",
           payments: [],
+          total: 0,
         });
       }
 
@@ -435,10 +713,13 @@ export default class PaymentController {
           currency: payment.currency,
           plan: payment.plan,
           status: payment.status,
+          gateway: payment.gateway,
           invoiceId: payment.invoiceId,
           createdAt: payment.createdAt,
           updatedAt: payment.updatedAt,
-          paymentMethod: payment.reference ? `Visa ****${String(payment.reference).slice(-4)}` : "N/A",
+          paymentMethod: payment.reference
+            ? `Visa ****${String(payment.reference).slice(-4)}`
+            : "N/A",
         })),
         total: payments.length,
       });
@@ -454,7 +735,6 @@ export default class PaymentController {
 
   /**
    * Get payment statistics for dashboard
-   * GET /api/payments/stats/:userId
    */
   static async getPaymentStats(req: Request, res: Response) {
     try {
@@ -517,13 +797,11 @@ export default class PaymentController {
   }
 
   /**
-   * 🆕 Get all payments (Admin only)
-   * GET /api/payment/admin/all?search=&status=COMPLETED|PENDING|FAILED
-   * Status options: COMPLETED, PENDING, FAILED, or empty for all
+   * Get all payments (Admin only)
    */
   static async getAllPayments(req: Request, res: Response) {
     try {
-      const { search, status, page = 1, limit = 10 } = req.query;
+      const { search, status, gateway, page = 1, limit = 10 } = req.query;
 
       const pageNum = parseInt(page as string) || 1;
       const limitNum = parseInt(limit as string) || 10;
@@ -531,10 +809,16 @@ export default class PaymentController {
 
       const query: any = {};
 
-      // ✅ Filter by status - support COMPLETED, PENDING, FAILED
-      const validStatuses = ["COMPLETED", "PENDING", "FAILED"];
+      // Filter by status
+      const validStatuses = ["COMPLETED", "PENDING", "FAILED", "CANCELLED"];
       if (status && status !== "all" && validStatuses.includes(String(status).toUpperCase())) {
         query.status = String(status).toUpperCase();
+      }
+
+      // Filter by gateway
+      const validGateways = ["ngenius", "stripe"];
+      if (gateway && gateway !== "all" && validGateways.includes(String(gateway).toLowerCase())) {
+        query.gateway = String(gateway).toLowerCase();
       }
 
       // Base query for payments with pagination
@@ -545,7 +829,7 @@ export default class PaymentController {
         .limit(limitNum)
         .lean();
 
-      // Get total count for pagination (based on query filter)
+      // Get total count for pagination
       const totalCount = await Payment.countDocuments(query);
 
       // Apply search filter (client-side after population)
@@ -586,6 +870,7 @@ export default class PaymentController {
           localAmount: payment.localAmount,
           currency: payment.currency,
           plan: payment.plan,
+          gateway: payment.gateway,
           status: payment.status,
           invoiceId: payment.invoiceId,
           createdAt: payment.createdAt,
@@ -606,6 +891,7 @@ export default class PaymentController {
         totalPages: Math.ceil(totalCount / limitNum),
         currentFilters: {
           status: status || "all",
+          gateway: gateway || "all",
           search: search || "",
         },
       });
@@ -620,8 +906,7 @@ export default class PaymentController {
   }
 
   /**
-   * 🆕 Get admin dashboard statistics
-   * GET /api/payment/admin/stats
+   * Get admin dashboard statistics
    */
   static async getAdminPaymentStats(req: Request, res: Response) {
     try {
@@ -641,21 +926,24 @@ export default class PaymentController {
             successRate: 0,
             averageTransactionValue: 0,
             activeSubscriptions: 0,
+            byGateway: {
+              ngenius: { count: 0, revenue: 0 },
+              stripe: { count: 0, revenue: 0 },
+            },
           },
         });
       }
 
       const completedPayments = payments.filter(
-        (p) => p.status.toUpperCase() === "COMPLETED"
+        (p) => p.status === "COMPLETED"
       );
-      const failedPayments = payments.filter(
-        (p) => p.status.toUpperCase() === "FAILED"
-      );
-      const pendingPayments = payments.filter(
-        (p) => p.status.toUpperCase() === "PENDING"
-      );
+      const failedPayments = payments.filter((p) => p.status === "FAILED");
+      const pendingPayments = payments.filter((p) => p.status === "PENDING");
 
-      const totalRevenue = completedPayments.reduce((sum, p) => sum + p.amount, 0);
+      const totalRevenue = completedPayments.reduce(
+        (sum, p) => sum + p.amount,
+        0
+      );
 
       const now = new Date();
       const currentMonth = now.getMonth();
@@ -693,11 +981,25 @@ export default class PaymentController {
         "subscription.status": "active",
       });
 
+      // Revenue by gateway
+      const ngeniusPayments = completedPayments.filter(
+        (p) => p.gateway === "ngenius"
+      );
+      const stripePayments = completedPayments.filter(
+        (p) => p.gateway === "stripe"
+      );
+
+      const ngeniusRevenue = ngeniusPayments.reduce(
+        (sum, p) => sum + p.amount,
+        0
+      );
+      const stripeRevenue = stripePayments.reduce((sum, p) => sum + p.amount, 0);
+
       return res.status(200).json({
         success: true,
         stats: {
-          totalRevenue,
-          thisMonth,
+          totalRevenue: parseFloat(totalRevenue.toFixed(2)),
+          thisMonth: parseFloat(thisMonth.toFixed(2)),
           lastPaymentAmount,
           totalCount: payments.length,
           completedCount: completedPayments.length,
@@ -706,6 +1008,16 @@ export default class PaymentController {
           successRate,
           averageTransactionValue,
           activeSubscriptions: activeUsers,
+          byGateway: {
+            ngenius: {
+              count: ngeniusPayments.length,
+              revenue: parseFloat(ngeniusRevenue.toFixed(2)),
+            },
+            stripe: {
+              count: stripePayments.length,
+              revenue: parseFloat(stripeRevenue.toFixed(2)),
+            },
+          },
         },
       });
     } catch (error) {
@@ -719,6 +1031,8 @@ export default class PaymentController {
   }
 }
 
+// ==================== HELPER FUNCTIONS ====================
+
 async function getUsdToAedRate() {
   try {
     const res = await fetch(
@@ -731,6 +1045,7 @@ async function getUsdToAedRate() {
     return 3.6725;
   }
 }
+
 
 
 // Helper function to add credits (for upgrades)

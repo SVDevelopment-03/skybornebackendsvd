@@ -15,6 +15,12 @@ export interface IUser extends Document {
   firstName: string;
   lastName?: string;
   email: string;
+  totalClassCredits?: number;
+  gateway?: 'stripe' | 'ngenius';
+  ngeniusCustomerId?: string;
+  stripeCustomerId?: string;
+  stripeSubscriptionId?: string;
+  lastPaymentGateway?: 'stripe' | 'ngenius';
   password?: string;
   country: string;
   countryCode: string;
