@@ -1029,6 +1029,162 @@ private static async activateSubscription(
       });
     }
   }
+
+
+  /**
+ * Cancel subscription for a user
+ * Works with both Stripe and nGenius gateways
+ */
+static async cancelSubscription(req: Request, res: Response) {
+  try {
+    const { userId } = req.params;
+
+    // Validate userId
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "User ID is required",
+      });
+    }
+
+    // Find user
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    // Check if user has an active subscription
+    if (!user.subscription || user.subscription.status !== "active") {
+      return res.status(400).json({
+        success: false,
+        message: "No active subscription found to cancel",
+      });
+    }
+
+    console.log(`📋 Cancelling subscription for user ${userId}`);
+
+    const gateway = user.gateway || user.lastPaymentGateway;
+
+    // Cancel based on gateway
+    if (gateway === "stripe") {
+      await PaymentController.cancelStripeSubscription(user);
+    } else if (gateway === "ngenius") {
+      await PaymentController.cancelNgeniusSubscription(user);
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: "Unable to determine payment gateway for cancellation",
+      });
+    }
+
+    // Update user subscription status
+    user.subscription.status = "cancelled";
+    user.subscription.cancelledAt = new Date();
+    await user.save();
+
+    console.log(`✅ Subscription cancelled for user ${userId}`);
+
+    return res.status(200).json({
+      success: true,
+      message: "Subscription cancelled successfully",
+      subscription: {
+        status: user.subscription.status,
+        cancelledAt: user.subscription.cancelledAt,
+        plan: user.plan,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Cancel subscription error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to cancel subscription",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+}
+
+/**
+ * Cancel Stripe subscription
+ */
+private static async cancelStripeSubscription(user: any) {
+  try {
+    const payment = await Payment.findOne({
+      userId: user._id,
+      gateway: "stripe",
+      status: "COMPLETED",
+    }).sort({ createdAt: -1 });
+
+    if (payment && payment.paymentIntentId) {
+      // If using subscriptions, cancel the subscription
+      const stripeCustomerId = user.stripeCustomerId;
+      
+      if (stripeCustomerId) {
+        // Get active subscriptions
+        const subscriptions = await StripeService.getCustomerSubscriptions(
+          stripeCustomerId
+        );
+
+        for (const subscription of subscriptions) {
+          await StripeService.cancelSubscription(subscription.id);
+          console.log(`✅ Stripe subscription cancelled: ${subscription.id}`);
+        }
+      }
+
+      // Also mark related payments as cancelled
+      await Payment.updateMany(
+        {
+          userId: user._id,
+          gateway: "stripe",
+          status: { $in: ["PENDING", "COMPLETED"] },
+        },
+        {
+          status: "CANCELLED",
+          cancelledAt: new Date(),
+        }
+      );
+
+      console.log(`✅ Stripe payments marked as cancelled for user ${user._id}`);
+    }
+  } catch (error) {
+    console.error("❌ Error cancelling Stripe subscription:", error);
+    throw error;
+  }
+}
+
+/**
+ * Cancel nGenius subscription
+ */
+private static async cancelNgeniusSubscription(user: any) {
+  try {
+    // For nGenius, we don't cancel at gateway level
+    // Instead, we mark payments as cancelled in our system
+    // and stop the cron job from processing further charges
+
+    const cancelledPayments = await Payment.updateMany(
+      {
+        userId: user._id,
+        gateway: "ngenius",
+        status: { $in: ["PENDING", "COMPLETED"] },
+      },
+      {
+        status: "CANCELLED",
+        cancelledAt: new Date(),
+      }
+    );
+
+    console.log(
+      `✅ nGenius payments marked as cancelled for user ${user._id}:`,
+      cancelledPayments.modifiedCount
+    );
+  } catch (error) {
+    console.error("❌ Error cancelling nGenius subscription:", error);
+    throw error;
+  }
+}
+
 }
 
 // ==================== HELPER FUNCTIONS ====================

@@ -33,6 +33,29 @@ this.stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
   }
 
+  // ========================================
+// ADD THIS TO StripeService
+// ========================================
+
+/**
+ * Get all subscriptions for a customer
+ */
+static async getCustomerSubscriptions(
+  customerId: string
+): Promise<Stripe.Subscription[]> {
+  try {
+    const subscriptions = await this.stripe.subscriptions.list({
+      customer: customerId,
+      status: "active",
+    });
+
+    return subscriptions.data;
+  } catch (error) {
+    console.error("❌ Error fetching customer subscriptions:", error);
+    throw error;
+  }
+}
+
   /**
    * Create a checkout session for payment (REDIRECT METHOD)
    * User is redirected directly to Stripe Checkout

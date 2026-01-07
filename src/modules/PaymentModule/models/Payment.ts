@@ -92,7 +92,7 @@ const PaymentSchema = new Schema<IPayment>(
     gateway: {
       type: String,
       enum: ['ngenius', 'stripe'],
-      required: true,
+      required: false,
       index: true,
     },
 

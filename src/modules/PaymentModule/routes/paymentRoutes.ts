@@ -53,6 +53,12 @@ export const PaymentApiRoutes = [
     method: "get",
   },
   {
+    path: "/subscription/:userId/cancel",
+    action: PaymentController.cancelSubscription,
+    request: null,
+    method: "post",
+  },
+  {
     path: "/payment/admin/stats",
     action: PaymentController.getAdminPaymentStats,
     request: null,
