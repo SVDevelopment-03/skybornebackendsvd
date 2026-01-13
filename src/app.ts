@@ -42,57 +42,6 @@ dotenv.config();
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!;
 
-app.use(
-  cors({
-    origin: true,
-    credentials: true,
-  })
-);
-
-app.use(cookieParser());
-
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-app.use(compression());
-
-app.use(helmet({ crossOriginResourcePolicy: false }));
-
-if (process.env.APP_ENV === "production") {
-  app.use(rateLimitMiddleware);
-}
-
-// Initialize email queue
-emailQueue.on('ready', () => {
-  console.log('✅ Email queue is ready');
-});
-
-emailQueue.on('error', (err) => {
-  console.error('❌ Email queue error:', err);
-});
-
-try {
-  PaymentController.initPaymentSystems();
-  console.log('✅ All payment systems ready');
-} catch (error) {
-  console.error('❌ Error initializing payment systems:', error);
-  process.exit(1);
-}
-
-// nGenius webhook callback
-app.post('/webhooks/ngenius', (req, res) => {
-  try {
-    const { orderRef, status } = req.body;
-    console.log(`📨 nGenius Webhook - OrderRef: ${orderRef}, Status: ${status}`);
-    // Handle webhook
-    res.json({ received: true });
-  } catch (error) {
-    console.error('❌ nGenius webhook error:', error);
-    res.status(500).json({ error: 'Webhook processing failed' });
-  }
-});
-
-
 // Stripe webhook endpoint
 app.post(
   '/webhooks/stripe',
@@ -186,6 +135,59 @@ app.post(
       res.status(500).json({ error: 'Event processing failed' });
     }
   });
+
+app.use(
+  cors({
+    origin: true,
+    credentials: true,
+  })
+);
+
+app.use(cookieParser());
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+app.use(compression());
+
+app.use(helmet({ crossOriginResourcePolicy: false }));
+
+if (process.env.APP_ENV === "production") {
+  app.use(rateLimitMiddleware);
+}
+
+// Initialize email queue
+emailQueue.on('ready', () => {
+  console.log('✅ Email queue is ready');
+});
+
+emailQueue.on('error', (err) => {
+  console.error('❌ Email queue error:', err);
+});
+
+try {
+  PaymentController.initPaymentSystems();
+  console.log('✅ All payment systems ready');
+} catch (error) {
+  console.error('❌ Error initializing payment systems:', error);
+  process.exit(1);
+}
+
+// nGenius webhook callback
+app.post('/webhooks/ngenius', (req, res) => {
+  try {
+    const { orderRef, status } = req.body;
+    console.log(`📨 nGenius Webhook - OrderRef: ${orderRef}, Status: ${status}`);
+    // Handle webhook
+    res.json({ received: true });
+  } catch (error) {
+    console.error('❌ nGenius webhook error:', error);
+    res.status(500).json({ error: 'Webhook processing failed' });
+  }
+});
+
+
+
 
 
 

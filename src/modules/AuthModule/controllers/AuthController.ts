@@ -17,6 +17,7 @@ import { logAuthEvent, logger } from "../../../utils/winston.utils";
 import { AuthService } from "../services/authService";
 import TempUser from "../../UserModule/models/TempUser";
 import extractPhoneDetails from "../../../utils/extractPhoneDetail";
+import { request } from "http";
 
 // Helper function for logging auth events
 
@@ -26,18 +27,28 @@ export class AuthController {
       const ip = req.ip || req.headers["x-forwarded-for"] || "unknown";
       const userAgent = req.headers["user-agent"] || "unknown";
 
-      const { dialingCode, localNumber, countryCode, country } =
-        extractPhoneDetails(req.body.phoneNumber);
+      console.log("body", req.body);
+      let payload: any = {};
 
-      const payload = {
-        ...req.body,
-        dialingCode,
-        country,
-        countryCode,
-        localNumber,
-        ip,
-        userAgent,
-      };
+      if (req?.body?.phoneNumber) {
+        const { dialingCode, localNumber, countryCode, country } =
+          extractPhoneDetails(req?.body?.phoneNumber);
+        payload = {
+          ...req.body,
+          dialingCode,
+          country,
+          countryCode,
+          localNumber,
+          ip,
+          userAgent,
+        };
+      } else {
+        payload = {
+          ...req.body,
+          ip,
+          userAgent,
+        };
+      }
 
       let result;
 
@@ -199,123 +210,124 @@ export class AuthController {
   }
 
   // Social Login (Google / Apple)
-static async socialLogin(req: Request, res: Response) {
-  try {
-    const { provider, email, googleId, appleId } = req.body;
+  static async socialLogin(req: Request, res: Response) {
+    try {
+      const { provider, email, googleId, appleId } = req.body;
 
-    if (!provider || !email) {
-      return res.status(400).json({
-        success: false,
-        message: "Provider and email are required",
-      });
-    }
+      if (!provider || !email) {
+        return res.status(400).json({
+          success: false,
+          message: "Provider and email are required",
+        });
+      }
 
-    const ip =
-      (req.ip || req.headers["x-forwarded-for"] || "unknown") as string;
-    const userAgent = req.headers["user-agent"] || "unknown";
+      const ip = (req.ip ||
+        req.headers["x-forwarded-for"] ||
+        "unknown") as string;
+      const userAgent = req.headers["user-agent"] || "unknown";
 
-    // User MUST already exist
-    const user = await User.findOne({ email });
+      // User MUST already exist
+      const user = await User.findOne({ email });
 
-    if (!user) {
-      logAuthEvent({
-        email,
-        event: "social_login",
-        success: false,
-        ip,
-        userAgent,
-        error: "User not found",
-      });
+      if (!user) {
+        logAuthEvent({
+          email,
+          event: "social_login",
+          success: false,
+          ip,
+          userAgent,
+          error: "User not found",
+        });
 
-      return res.status(404).json({
-        success: false,
-        message:
-          "No account found. Please signup first with " + provider.toUpperCase(),
-      });
-    }
+        return res.status(404).json({
+          success: false,
+          message:
+            "No account found. Please signup first with " +
+            provider.toUpperCase(),
+        });
+      }
 
-    // Check if same provider is used
-    if (provider !== user.authProvider) {
+      // Check if same provider is used
+      if (provider !== user.authProvider) {
+        logAuthEvent({
+          userId: user._id.toString(),
+          email,
+          event: "social_login",
+          success: false,
+          ip,
+          userAgent,
+          error: "Invalid provider",
+        });
+
+        return res.status(400).json({
+          success: false,
+          message: `Please login using your ${user.authProvider} account`,
+        });
+      }
+
+      // Check provider IDs
+      if (provider === "google" && user.googleId !== googleId) {
+        return res.status(400).json({
+          success: false,
+          message: "Google account mismatch",
+        });
+      }
+
+      if (provider === "apple" && user.appleId !== appleId) {
+        return res.status(400).json({
+          success: false,
+          message: "Apple account mismatch",
+        });
+      }
+
+      // Check if account is active
+      if (!user.isActive) {
+        return res.status(403).json({
+          success: false,
+          message: "Account is deactivated",
+        });
+      }
+
+      // Update login timestamp
+      user.lastLogin = new Date();
+      await user.save();
+
+      // Generate tokens
+      const tokens = generateTokens(user);
+
+      // Log event
       logAuthEvent({
         userId: user._id.toString(),
         email,
         event: "social_login",
-        success: false,
+        success: true,
         ip,
         userAgent,
-        error: "Invalid provider",
       });
 
-      return res.status(400).json({
-        success: false,
-        message: `Please login using your ${user.authProvider} account`,
-      });
-    }
-
-    // Check provider IDs
-    if (provider === "google" && user.googleId !== googleId) {
-      return res.status(400).json({
-        success: false,
-        message: "Google account mismatch",
-      });
-    }
-
-    if (provider === "apple" && user.appleId !== appleId) {
-      return res.status(400).json({
-        success: false,
-        message: "Apple account mismatch",
-      });
-    }
-
-    // Check if account is active
-    if (!user.isActive) {
-      return res.status(403).json({
-        success: false,
-        message: "Account is deactivated",
-      });
-    }
-
-    // Update login timestamp
-    user.lastLogin = new Date();
-    await user.save();
-
-    // Generate tokens
-    const tokens = generateTokens(user);
-
-    // Log event
-    logAuthEvent({
-      userId: user._id.toString(),
-      email,
-      event: "social_login",
-      success: true,
-      ip,
-      userAgent,
-    });
-
-    return res.status(200).json({
-      success: true,
-      message: "Login successful",
-      data: {
-        user: {
-          id: user._id,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          email: user.email,
-          role: user.role,
-          onboardingCompleted: user.onboardingCompleted,
+      return res.status(200).json({
+        success: true,
+        message: "Login successful",
+        data: {
+          user: {
+            id: user._id,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            email: user.email,
+            role: user.role,
+            onboardingCompleted: user.onboardingCompleted,
+          },
+          ...tokens,
         },
-        ...tokens,
-      },
-    });
-  } catch (error: any) {
-    logger.error("Social login error", error.message);
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+      });
+    } catch (error: any) {
+      logger.error("Social login error", error.message);
+      return res.status(500).json({
+        success: false,
+        message: error.message,
+      });
+    }
   }
-}
-
 
   // Step 3: Send OTP
   static async sendOTP(req: Request, res: Response) {
@@ -368,6 +380,8 @@ static async socialLogin(req: Request, res: Response) {
   static async verifyOTP(req: Request, res: Response) {
     try {
       const { email, otp } = req.body;
+
+      console.log("otp", email, otp);
 
       // 1️⃣ Validate OTP via Redis
       const valid = await OTPService.verifyOTP(email, otp);
@@ -502,8 +516,6 @@ static async socialLogin(req: Request, res: Response) {
       refreshToken: newRefreshToken,
     });
   }
-
- 
 
   static async requestPasswordReset(req: Request, res: Response) {
     const { email } = req.body;

@@ -42,29 +42,27 @@ const RegisterValidationSchema = yup.object({
     // PHONE NUMBER
     phoneNumber: yup
       .string()
-      .required("Phone number is required")
       .matches(/^[0-9+\-()\s]+$/, "Invalid phone number format"),
     // Uncomment for otp
     // OTP
     otp: yup
       .string()
-      .matches(/^\d{6}$/, "OTP must be a 6-digit number")
-      .required("OTP is required"),
+      .matches(/^\d{6}$/, "OTP must be a 6-digit number"),
 
     // TEMP USER ID
     tempUserId: yup.string().required("Temporary user ID is required"),
 
     // AGE GROUP
-    ageGroup: yup
-      .string()
-      .oneOf(["1", "2", "3", "4", "5"], "Invalid age group")
-      .required("Age group is required"),
+    // ageGroup: yup
+    //   .string()
+    //   .oneOf(["1", "2", "3", "4", "5"], "Invalid age group")
+    //   .required("Age group is required"),
 
     // WELLNESS ROLE
-    wellnessRole: yup
-      .string()
-      .oneOf(["1", "2", "3"], "Invalid wellness role")
-      .required("Wellness role is required"),
+    // wellnessRole: yup
+    //   .string()
+    //   .oneOf(["1", "2", "3"], "Invalid wellness role")
+    //   .required("Wellness role is required"),
 
     // GOAL
     goal: yup.string().required("Goal is required"),
@@ -73,9 +71,9 @@ const RegisterValidationSchema = yup.object({
     motivation: yup.string().trim().nullable().notRequired(),
 
     // TERMS & CONDITIONS
-    agreeTerms: yup
-      .boolean()
-      .oneOf([true], "You must agree to the terms & conditions"),
+    // agreeTerms: yup
+    //   .boolean()
+    //   .oneOf([true], "You must agree to the terms & conditions"),
   }),
 });
 

@@ -1,6 +1,7 @@
 import mongoose, { Schema, Document } from "mongoose";
 import bcrypt from "bcryptjs";
 import { AuthProvider, IUser, UserRole } from "../interface/userInterface";
+import { string } from "yup";
 
 const userSchema = new Schema<IUser>(
   {
@@ -16,6 +17,10 @@ const userSchema = new Schema<IUser>(
       trim: true,
       maxlength: 50,
     },
+    timeZone: {
+      type: String,
+      default: null,
+    },
     email: {
       type: String,
       required: true,
@@ -24,6 +29,25 @@ const userSchema = new Schema<IUser>(
       trim: true,
       index: true,
     },
+    fitnessLevel: {
+      type: Number,
+      default: null,
+    },
+
+    // Habits
+    habits: {
+      type: {
+        waterIntake: { type: Number, default: null },
+        sleepQuality: { type: Number, default: null },
+        exerciseFrequency: { type: Number, default: null },
+      },
+      default: {
+        waterIntake: null,
+        sleepQuality: null,
+        exerciseFrequency: null,
+      },
+    },
+
     password: {
       type: String,
       select: false,
@@ -51,8 +75,8 @@ const userSchema = new Schema<IUser>(
     dialingCode: {
       type: String,
     },
-    
-    trainer:{
+
+    trainer: {
       type: Schema.Types.ObjectId,
       ref: "Trainer",
     },
@@ -105,97 +129,86 @@ const userSchema = new Schema<IUser>(
     },
 
     // Step 7: Plan
-  plan: {
-  type: String,
-  enum: [
-    "gold-yoga",
-    "gold-zumba",
-    "gold-mixed",
-    "diamond",
-    "platinum"
-  ],
-},
-
-classCredits: {
-  type: {
-    yoga: { type: Number, default: 0 },
-    zumba: { type: Number, default: 0 },
-    specialty: { type: Number, default: 0 },
-  },
-  default: {
-    yoga: 0,
-    zumba: 0,
-    specialty: 0,
-  },
-},
-
-totalClassCredits: {
-  type: Number,
-  default: 0,
-},
-
-subscription: {
-  type: {
-    startDate: { type: Date },
-    endDate: { type: Date },
-    status: {
+    plan: {
       type: String,
-      enum: ["active", "expired", "inactive","suspended","cancelled"],
-      default: "active",
-    },
-      suspendedAt:{
-      type: Date,
-      required:false
-
-    },
-          cancelledAt:{
-      type: Date,
-      required:false
-
+      enum: ["gold-yoga", "gold-zumba", "gold-mixed", "diamond", "platinum"],
     },
 
-  },
-  default: {
-    startDate: null,
-    endDate: null,
-    status: "inactive",
-    suspendedAt:null
-  },
-},
+    classCredits: {
+      type: {
+        yoga: { type: Number, default: 0 },
+        zumba: { type: Number, default: 0 },
+        specialty: { type: Number, default: 0 },
+      },
+      default: {
+        yoga: 0,
+        zumba: 0,
+        specialty: 0,
+      },
+    },
 
-gateway: {
-  type: String,
-  enum: ['ngenius', 'stripe'],
-  default: 'ngenius', // Will be set based on country on first payment
-  index: true,
-},
+    totalClassCredits: {
+      type: Number,
+      default: 0,
+    },
 
-// nGenius customer reference
-ngeniusCustomerId: {
-  type: String,
-  sparse: true,
-  unique: true,
-},
-lastPaymentGateway: {
-  type: String,
-  enum: ['ngenius', 'stripe'],
-  sparse: true,
-},
+    subscription: {
+      type: {
+        startDate: { type: Date },
+        endDate: { type: Date },
+        status: {
+          type: String,
+          enum: ["active", "expired", "inactive", "suspended", "cancelled"],
+          default: "active",
+        },
+        suspendedAt: {
+          type: Date,
+          required: false,
+        },
+        cancelledAt: {
+          type: Date,
+          required: false,
+        },
+      },
+      default: {
+        startDate: null,
+        endDate: null,
+        status: "inactive",
+        suspendedAt: null,
+      },
+    },
 
-// Stripe customer reference
-stripeCustomerId: {
-  type: String,
-  sparse: true,
-  unique: true,
-},
+    gateway: {
+      type: String,
+      enum: ["ngenius", "stripe"],
+      default: "ngenius", // Will be set based on country on first payment
+      index: true,
+    },
 
-// Stripe subscription ID
-stripeSubscriptionId: {
-  type: String,
-  sparse: true,
-},
+    // nGenius customer reference
+    ngeniusCustomerId: {
+      type: String,
+      sparse: true,
+      unique: true,
+    },
+    lastPaymentGateway: {
+      type: String,
+      enum: ["ngenius", "stripe"],
+      sparse: true,
+    },
 
+    // Stripe customer reference
+    stripeCustomerId: {
+      type: String,
+      sparse: true,
+      unique: true,
+    },
 
+    // Stripe subscription ID
+    stripeSubscriptionId: {
+      type: String,
+      sparse: true,
+    },
 
     // System
     role: {
@@ -203,7 +216,7 @@ stripeSubscriptionId: {
       enum: Object.values(UserRole),
       default: UserRole.MEMBER,
     },
-  
+
     isActive: {
       type: Boolean,
       default: false,
@@ -219,7 +232,6 @@ stripeSubscriptionId: {
     lastLogin: {
       type: Date,
     },
-
   },
   {
     timestamps: true,

@@ -119,8 +119,8 @@ export default class PaymentController {
     }
   }
 
-  /**
- * Verify Stripe payment after user returns from Stripe Checkout
+/**
+ * Enhanced verifyStripeCheckout for mobile
  */
 static async verifyStripeCheckout(req: Request, res: Response) {
   try {
@@ -129,41 +129,81 @@ static async verifyStripeCheckout(req: Request, res: Response) {
     if (!sessionId) {
       return res.status(400).json({
         success: false,
-        error: "Session ID is required",
+        error: 'Session ID is required',
       });
     }
 
     // Get session details from Stripe
     const session = await StripeService.getCheckoutSession(sessionId);
 
-    if (session.payment_status === "paid") {
-      // Fulfill the order (creates Payment record)
-      const payment = await StripeService.fulfillOrder(sessionId);
+    console.log(`🔍 Stripe session status: ${session.payment_status}`);
 
-      if (payment) {
-        // ✅ Return success - user will call verifyPayment endpoint next
-        // DO NOT activate subscription here - let verifyPayment do it
-        return res.status(200).json({
-          success: true,
-          message: "✅ Payment verified! Processing subscription...",
-          orderRef: payment.orderRef,
-          status: "paid",
+    if (session.payment_status === 'paid') {
+      // Get or create payment record
+      let payment = await Payment.findOne({
+        reference: sessionId,
+      });
+
+      if (!payment) {
+        // Create payment record if it doesn't exist (shouldn't happen normally)
+        const metadata = session.metadata as any;
+        payment = await Payment.create({
+          userId: metadata?.userId,
+          orderRef: metadata?.orderRef,
+          reference: sessionId,
+          amount: metadata?.userAmount || (session.amount_total || 0) / 100,
+          localAmount: (session.amount_total || 0) / 100,
+          currency: session.currency?.toUpperCase() || 'USD',
+          plan: metadata?.plan,
+          status: 'COMPLETED',
+          gateway: 'stripe',
+          paymentIntentId: sessionId,
+          gatewayResponse: session,
+          verifiedAt: new Date(),
         });
+      } else {
+        // Update existing payment
+        payment.status = 'COMPLETED';
+        payment.gatewayResponse = session;
+        payment.verifiedAt = new Date();
+        await payment.save();
       }
-    }
 
-    return res.status(400).json({
-      success: false,
-      error: "Payment verification failed",
-    });
-  } catch (error) {
-    console.error("❌ Stripe checkout verification error:", error);
+      return res.status(200).json({
+        success: true,
+        message: '✅ Payment verified!',
+        status: 'SUCCESS',
+        orderRef: payment.orderRef,
+        amount: payment.amount,
+        currency: payment.currency,
+        plan: payment.plan,
+        gateway: 'stripe',
+      });
+    } else if (session.payment_status === 'unpaid') {
+      return res.status(200).json({
+        success: false,
+        message: 'Payment is still processing',
+        status: 'PENDING',
+        gateway: 'stripe',
+      });
+    } else {
+      return res.status(200).json({
+        success: false,
+        message: 'Payment was not completed',
+        status: 'FAILED',
+        gateway: 'stripe',
+      });
+    }
+  } catch (error: any) {
+    console.error('❌ Stripe checkout verification error:', error);
     return res.status(500).json({
       success: false,
-      error: "Failed to verify payment",
+      error: 'Failed to verify Stripe payment',
+      details: error.message,
     });
   }
 }
+
 
   /**
    * Get payment status (works with both gateways)
@@ -231,50 +271,54 @@ static async verifyPayment(req: Request, res: Response, next: any) {
 
 
 /**
- * Verify nGenius payment
+ * Enhanced verifyNgeniusPayment for mobile
  */
 private static async verifyNgeniusPayment(
   req: Request,
   res: Response,
-  next: any
+  next?: any
 ) {
   try {
     const { orderRef, reference } = req.body;
 
-    if (!orderRef) {
+    if (!orderRef && !reference) {
       return res.status(400).json({
         success: false,
-        error: "Order reference is required",
+        error: 'Order reference is required',
       });
     }
 
-    let payment = await Payment.findOne({ orderRef });
+    let payment = await Payment.findOne({
+      $or: [{ orderRef }, { reference }],
+    });
 
     if (!payment) {
       return res.status(404).json({
         success: false,
-        error: "Payment record not found",
+        error: 'Payment record not found',
       });
     }
 
-    // ✅ NEW: Check if subscription already activated to prevent duplicate updates
-    if (payment.status === "COMPLETED") {
+    console.log(`🔍 nGenius payment found: ${payment._id}`);
+
+    // Check if already verified
+    if (payment.status === 'COMPLETED' || payment.subscriptionActivated) {
       return res.status(200).json({
         success: true,
-        message: "✅ Payment already processed",
-        gateway: payment.gateway,
+        message: '✅ Payment already verified',
+        status: 'SUCCESS',
         orderRef: payment.orderRef,
-        status: payment.status,
+        amount: payment.amount,
+        currency: payment.currency,
         plan: payment.plan,
+        gateway: 'ngenius',
       });
     }
 
-    console.log(`✅ Payment found: ${payment._id}, Gateway: ${payment.gateway}`);
-
-    let orderStatus: any = {};
-    let ngeniusStatus = "PENDING";
-
+    // Fetch current status from nGenius
     const refToCheck = reference || payment.reference;
+    let ngeniusStatus = 'PENDING';
+    let orderStatus: any = {};
 
     if (refToCheck) {
       try {
@@ -287,30 +331,31 @@ private static async verifyNgeniusPayment(
           const paymentData = orderStatus._embedded.payment[0];
           ngeniusStatus = paymentData.state;
         } else {
-          ngeniusStatus = orderStatus?.status || "PENDING";
+          ngeniusStatus = orderStatus?.status || 'PENDING';
         }
 
-        console.log("✅ nGenius Status:", ngeniusStatus);
+        console.log('✅ nGenius Status:', ngeniusStatus);
       } catch (error) {
-        console.error("❌ Error fetching order status:", error);
-        ngeniusStatus = "PENDING";
+        console.error('❌ Error fetching order status:', error);
+        ngeniusStatus = 'PENDING';
       }
     }
 
-    let paymentStatus = "PENDING";
+    let paymentStatus = 'PENDING';
 
     if (
-      ngeniusStatus === "CAPTURED" ||
-      ngeniusStatus === "AUTHORISED" ||
-      ngeniusStatus === "SETTLED"
+      ngeniusStatus === 'CAPTURED' ||
+      ngeniusStatus === 'AUTHORISED' ||
+      ngeniusStatus === 'SETTLED'
     ) {
-      paymentStatus = "COMPLETED";
-    } else if (ngeniusStatus === "DECLINED" || ngeniusStatus === "FAILED") {
-      paymentStatus = "FAILED";
-    } else if (ngeniusStatus === "CANCELLED") {
-      paymentStatus = "CANCELLED";
+      paymentStatus = 'COMPLETED';
+    } else if (ngeniusStatus === 'DECLINED' || ngeniusStatus === 'FAILED') {
+      paymentStatus = 'FAILED';
+    } else if (ngeniusStatus === 'CANCELLED') {
+      paymentStatus = 'CANCELLED';
     }
 
+    // Update payment
     payment = await Payment.findOneAndUpdate(
       { _id: payment._id },
       {
@@ -325,21 +370,29 @@ private static async verifyNgeniusPayment(
 
     console.log(`✅ nGenius Payment updated - Status: ${paymentStatus}`);
 
-    return this.activateSubscription(
-      payment,
-      paymentStatus === "COMPLETED",
-      res,
-      next
-    );
-  } catch (error) {
-    console.error("❌ nGenius Verification Error:", error);
+    // For mobile, return immediately with status
+    // Subscription will be activated by a separate cron job or webhook
+    return res.status(200).json({
+      success: paymentStatus === 'COMPLETED',
+      message: paymentStatus === 'COMPLETED' 
+        ? '✅ Payment verified!' 
+        : `Payment ${paymentStatus}`,
+      status: paymentStatus,
+      orderRef: payment?.orderRef,
+      amount: payment?.amount,
+      currency: payment?.currency,
+      plan: payment?.plan,
+      gateway: 'ngenius',
+    });
+  } catch (error: any) {
+    console.error('❌ nGenius Verification Error:', error);
     return res.status(500).json({
       success: false,
-      error: "Failed to verify payment",
+      error: 'Failed to verify nGenius payment',
+      details: error.message,
     });
   }
 }
-
 /**
  * Verify Stripe payment - UPDATED TO PREVENT DUPLICATE ACTIVATION
  */
@@ -1185,6 +1238,44 @@ private static async cancelNgeniusSubscription(user: any) {
   }
 }
 
+
+/**
+ * Verify mobile payment - Called by React Native app after user closes payment browser
+ * Supports both Stripe and nGenius
+ */
+static async verifyMobilePayment(req: Request, res: Response) {
+  try {
+    const { sessionId, orderRef, reference } = req.body;
+
+    console.log('📱 Mobile payment verification:', { sessionId, orderRef, reference });
+
+    // Determine which gateway and call appropriate verification
+    if (sessionId) {
+      // ✅ Stripe verification
+      return this.verifyStripeCheckout(req, res);
+    } else if (orderRef || reference) {
+      // ✅ nGenius verification
+      return this.verifyNgeniusPayment(req, res, (err: any) => {
+        console.error('nGenius verification error:', err);
+        return res.status(500).json({
+          success: false,
+          error: 'nGenius verification failed',
+        });
+      });
+    }
+
+    return res.status(400).json({
+      success: false,
+      error: 'sessionId, orderRef, or reference is required',
+    });
+  } catch (error) {
+    console.error('❌ Mobile verification error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Payment verification failed',
+    });
+  }
+}
 }
 
 // ==================== HELPER FUNCTIONS ====================
@@ -1211,5 +1302,6 @@ function addCredits(current: any, additional: any) {
     zumba: (current?.zumba || 0) + (additional?.zumba || 0),
     specialty: (current?.specialty || 0) + (additional?.specialty || 0),
   };
+  
   
 }

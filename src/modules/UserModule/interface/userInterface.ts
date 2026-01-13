@@ -16,17 +16,24 @@ export interface IUser extends Document {
   lastName?: string;
   email: string;
   totalClassCredits?: number;
-  gateway?: 'stripe' | 'ngenius';
+  gateway?: "stripe" | "ngenius";
   ngeniusCustomerId?: string;
   stripeCustomerId?: string;
   stripeSubscriptionId?: string;
-  lastPaymentGateway?: 'stripe' | 'ngenius';
+  lastPaymentGateway?: "stripe" | "ngenius";
   password?: string;
   country: string;
   countryCode: string;
   dialingCode: string;
-  trainer?:string
+  trainer?: string;
+  timeZone?:string;
   localNumber: string;
+  fitnessLevel?: string;
+  habits?: {
+    waterIntake?: number | null;
+    sleepQuality?: number | null;
+    exerciseFrequency?: number | null;
+  };
 
   // OAuth
   authProvider: AuthProvider;

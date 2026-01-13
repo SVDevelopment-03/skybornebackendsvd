@@ -14,6 +14,13 @@ export const PaymentApiRoutes = [
     action: PaymentController.createPaymentOrder,
     method: "post",
   },
+    {
+    path: "/payment/verify-mobile",
+    request: null,
+    action: PaymentController.verifyMobilePayment,
+    method: "post",
+  },
+
   {
     path: "/payment/webhook",
     request: null,
