@@ -399,6 +399,87 @@ static async CreateMeeting(req: Request, res: Response) {
     }
   }
 
+  static async GetTodaysMeetings(req: Request, res: Response) {
+    try {
+      const { search = "" } = req?.query;
+      const userId = req.user?.id; // Assuming user is attached to request
+
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated",
+        });
+      }
+
+      // Fetch user with their plan
+      const user = await User.findById(userId).select(
+        "plan country countryCode"
+      );
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found",
+        });
+      }
+
+      // Get today's date range (start of day to end of day)
+      const now = new Date();
+      const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+
+      // Determine which service titles to filter based on plan
+      let serviceTitles: string[] = [];
+
+      if (user.plan === "gold-yoga") {
+        serviceTitles = ["Yoga"];
+      } else if (user.plan === "gold-zumba") {
+        serviceTitles = ["Zumba Dance"];
+      } else if (user.plan === "gold-mixed") {
+        serviceTitles = ["Yoga", "Zumba Dance"];
+      } else if (user.plan === "diamond" || user.plan === "platinum") {
+        // Diamond and Platinum can see all classes
+        serviceTitles = ["Yoga", "Zumba Dance", "Diet & Nutrition"];
+      }
+
+      // Fetch service IDs based on titles
+      const services = await Service.find({
+        title: { $in: serviceTitles },
+      }).select("_id");
+
+      const serviceIds = services.map((service) => service._id);
+
+      const meetings = await Meeting.find({
+        localTime: {
+          $gte: startOfDay,
+          $lt: endOfDay,
+        },
+        title: { $regex: search, $options: "i" },
+        service: { $in: serviceIds },
+      })
+        .sort({ localTime: 1 })
+        .populate("service", "title name _id")
+        .populate("trainer", "name email _id")
+        .populate("createdBy", "firstName lastName email _id")
+        .lean();
+
+      res.setHeader("Cache-Control", "no-store");
+
+      return res.json({
+        success: true,
+        count: meetings?.length,
+        meetings,
+        userPlan: user.plan,
+      });
+    } catch (error: any) {
+      console.error("Error fetching today's meetings:", error.message);
+      return res.status(500).json({
+        success: false,
+        message: error.message || "Error fetching today's meetings",
+      });
+    }
+  }
+
   static async GetTrainerUpcomingMeetings(req: Request, res: Response) {
   try {
     const userId = req.user?.id; // User ID from auth
@@ -485,6 +566,76 @@ static async CreateMeeting(req: Request, res: Response) {
     });
   }
 }
+
+static async getWeeklyActivity  (req: Request, res: Response)  {
+  try {
+    const userId = req.user?.id || req.params.userId;
+
+    if (!userId) {
+      return res.status(400).json({ message: "User ID required" });
+    }
+
+    // Get start & end of current week (Mon - Sun)
+    const now = new Date();
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+    startOfWeek.setHours(0, 0, 0, 0);
+
+    const endOfWeek = new Date(startOfWeek);
+    endOfWeek.setDate(startOfWeek.getDate() + 6);
+    endOfWeek.setHours(23, 59, 59, 999);
+
+    // Fetch attendance records for this week
+    const attendances = await MeetingAttendance.find({
+      user: new mongoose.Types.ObjectId(userId),
+      createdAt: { $gte: startOfWeek, $lte: endOfWeek },
+    }).lean();
+
+    // Prepare week map
+    const weekDays = ["M", "T", "W", "T", "F", "S", "S"];
+    const activityMap: Record<number, boolean> = {
+      0: false,
+      1: false,
+      2: false,
+      3: false,
+      4: false,
+      5: false,
+      6: false,
+    };
+
+    // Mark active days
+    attendances.forEach((attendance) => {
+      attendance.sessions?.forEach((session) => {
+        const dayIndex = (new Date(session.joinTime).getDay() + 6) % 7;
+        activityMap[dayIndex] = true;
+      });
+
+      if (attendance.status === "completed" && attendance.completedAt) {
+        const dayIndex =
+          (new Date(attendance.completedAt).getDay() + 6) % 7;
+        activityMap[dayIndex] = true;
+      }
+    });
+
+    const days = weekDays.map((day, index) => ({
+      day,
+      completed: activityMap[index],
+    }));
+
+    const completedDays = days.filter((d) => d.completed).length;
+    const progressPercent = Math.round((completedDays / 7) * 100);
+
+    res.json({
+      totalDays: 7,
+      completedDays,
+      progressPercent,
+      days,
+    });
+  } catch (error) {
+    console.error("Weekly activity error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
 
  static async JoinMeeting(req: Request, res: Response) {
     try {
