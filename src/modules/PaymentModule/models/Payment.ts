@@ -7,6 +7,7 @@ interface IPayment extends Document {
   orderRef: string;
   reference?: string;
   amount: number;
+  source?:string;
   localAmount: number;
   subscriptionActivated?: true;
   plan: string;
@@ -94,6 +95,10 @@ const PaymentSchema = new Schema<IPayment>(
       enum: ['ngenius', 'stripe'],
       required: false,
       index: true,
+    },
+    source: {
+      type: String,
+      required: false,
     },
 
     // nGenius specific

@@ -65,7 +65,8 @@ static async getCustomerSubscriptions(
     amount: number, // in dollars, not cents
     currency: string,
     plan: string,
-    userAmount: number
+    userAmount: number,
+    source: "app" | "web" = "web"
   ): Promise<{
     checkoutUrl: string;
     sessionId: string;
@@ -131,10 +132,10 @@ static async getCustomerSubscriptions(
           sessionId: session.id,
           checkoutUrl: session.url,
         },
+      source:source
       });
-
-      console.log(`💳 Stripe checkout session created: ${session.id}`);
-
+      // console.log("this is payment:- ", payment);
+      
       return {
         checkoutUrl: session.url || '',
         sessionId: session.id,

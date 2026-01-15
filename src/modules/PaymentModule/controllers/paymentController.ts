@@ -33,7 +33,10 @@ export default class PaymentController {
    */
   static async createPaymentOrder(req: Request, res: Response) {
     try {
-      let { amount, currency = "USD", userId, plan } = req.body;
+      let { amount, currency = "USD", userId, plan, source } = req.body;
+      console.log("this is the userid and the plan:- ", userId, plan);
+      console.log("this is the request body:- ", req.body);
+      const paymentSource = source === "app" ? "app" : "web";
       const userAmount = amount;
 
       // Validation
@@ -79,7 +82,8 @@ export default class PaymentController {
           currency,
           userId,
           plan,
-          userAmount
+          userAmount,
+        
         );
       } else if (preferredGateway === "stripe") {
         // For Stripe: Create checkout session (redirect method)
@@ -88,7 +92,8 @@ export default class PaymentController {
           amount,
           currency,
           plan,
-          userAmount
+          userAmount,
+          paymentSource
         );
         // Return paymentLink for compatibility with frontend
         paymentData.paymentLink = paymentData.checkoutUrl;
@@ -246,6 +251,7 @@ static async verifyPayment(req: Request, res: Response, next: any) {
   try {
     const { orderRef, paymentIntentId } = req.body;
 
+    // console.log("this is the paymentintentId:-", paymentIntentId);
     if (paymentIntentId) {
       // ✅ Stripe
       return PaymentController.verifyStripePayment(req, res, next);
@@ -475,6 +481,15 @@ private static async verifyStripePayment(
       error: "Failed to verify payment",
     });
   }
+}
+
+public static async handleSuccessfulPayment(payment: any) {
+    return this.activateSubscription(
+      payment,
+      true,
+      null as any,
+      () => {}
+    );
 }
 
 /**
