@@ -24,7 +24,7 @@ interface OrderResponse {
 }
 
 interface RecurringPaymentConfig {
-  billingCycleDay?: number; // Day of month to charge (1-28)
+  billingCycleDay?: number;
   maxRetries?: number;
   retryDelayMs?: number;
 }
@@ -32,19 +32,18 @@ interface RecurringPaymentConfig {
 export class NgeniusService {
   private static readonly TIMEOUT = 20000;
   private static readonly DEFAULT_RECURRING_CONFIG: RecurringPaymentConfig = {
-    billingCycleDay: 1, // Charge on 1st of every month
+    billingCycleDay: 1,
     maxRetries: 3,
     retryDelayMs: 5000,
   };
 
   /**
    * Initialize recurring payment cron job
-   * Runs daily to check which subscriptions need to be charged
+   * Runs daily at 2 AM to process monthly billing
    */
   static initRecurringPaymentCron() {
     console.log("🔄 Initializing recurring payment cron job...");
 
-    // Run every day at 2 AM
     cron.schedule("0 2 * * *", async () => {
       console.log("⏰ Running recurring payment check...");
       await this.processRecurringPayments();
@@ -92,7 +91,7 @@ export class NgeniusService {
   }
 
   /**
-   * Charge a user for their monthly subscription
+   * Charge a user for their monthly subscription (for recurring payments)
    */
   static async chargeRecurringPayment(
     userId: string,
@@ -107,7 +106,6 @@ export class NgeniusService {
         throw new Error(`User ${userId} not found or has no plan`);
       }
 
-      // Get plan amount from config
       const amount = this.getPlanAmount(plan);
 
       console.log(`💳 Charging user ${userId} for plan ${plan}: ${amount} AED`);
@@ -118,35 +116,20 @@ export class NgeniusService {
         "AED",
         userId,
         plan,
-        100
+        amount,
+        "app" // Mark as app source for webhook verification
       );
 
-      // Create payment record marked as recurring
-      const payment = await Payment.create({
-        userId,
-        orderRef,
-        reference,
-        amount,
-        currency: "AED",
-        plan,
-        status: "PENDING",
-        isRecurring: true,
-        recurringCycle: this.getMonthlyRecurringCycle(),
-        billingAttempt: retryAttempt + 1,
-        createdAt: new Date(),
-      });
-
-      console.log(`📝 Recurring payment created: ${payment._id}`);
+      console.log(`📝 Recurring payment created: ${orderRef}`);
 
       // Verify payment after short delay
       setTimeout(() => {
-        this.verifyRecurringPayment(orderRef, reference, userId, plan);
+        this.verifyRecurringPayment(reference, userId, plan);
       }, 3000);
 
     } catch (error) {
       console.error(`❌ Recurring payment charge failed (Attempt ${retryAttempt + 1}):`, error);
 
-      // Retry logic
       if (retryAttempt < (config.maxRetries || 3)) {
         console.log(
           `🔄 Retrying in ${config.retryDelayMs}ms... (Attempt ${retryAttempt + 2}/${(config.maxRetries || 3) + 1})`
@@ -156,7 +139,6 @@ export class NgeniusService {
           this.chargeRecurringPayment(userId, plan, retryAttempt + 1, config);
         }, config.retryDelayMs || 5000);
       } else {
-        // Suspend subscription after max retries
         await this.suspendSubscription(userId);
         throw error;
       }
@@ -167,16 +149,15 @@ export class NgeniusService {
    * Verify and process recurring payment result
    */
   private static async verifyRecurringPayment(
-    orderRef: string,
     reference: string,
     userId: string,
     plan: string
   ) {
     try {
-      const payment = await Payment.findOne({ orderRef });
+      const payment = await Payment.findOne({ reference });
 
       if (!payment) {
-        console.error(`❌ Payment not found: ${orderRef}`);
+        console.error(`❌ Payment not found: ${reference}`);
         return;
       }
 
@@ -190,21 +171,22 @@ export class NgeniusService {
         orderStatus._embedded.payment.length > 0
       ) {
         const paymentData = orderStatus._embedded.payment[0];
-        const ngeniusStatus = paymentData.state;
+        const ngeniusState = paymentData.state;
 
         if (
-          ngeniusStatus === "CAPTURED" ||
-          ngeniusStatus === "AUTHORISED" ||
-          ngeniusStatus === "SETTLED"
+          ngeniusState === "CAPTURED" ||
+          ngeniusState === "AUTHORISED" ||
+          ngeniusState === "SETTLED"
         ) {
           paymentStatus = "COMPLETED";
-        } else if (ngeniusStatus === "DECLINED" || ngeniusStatus === "FAILED") {
+        } else if (ngeniusState === "DECLINED" || ngeniusState === "FAILED") {
           paymentStatus = "FAILED";
         }
       }
 
       // Update payment record
       payment.status = paymentStatus as any;
+      payment.ngeniusStatus = orderStatus?._embedded?.payment?.[0]?.state;
       payment.gatewayResponse = orderStatus;
       payment.verifiedAt = new Date();
       await payment.save();
@@ -219,11 +201,9 @@ export class NgeniusService {
             Date.now() + 30 * 24 * 60 * 60 * 1000
           );
           await user.save();
-
           console.log(`🎉 Subscription renewed for user ${userId}`);
         }
       } else {
-        // Notify user of failed payment
         await this.notifyPaymentFailure(userId, plan);
       }
     } catch (error) {
@@ -263,26 +243,27 @@ export class NgeniusService {
    */
   private static getPlanAmount(plan: string): number {
     const PLAN_AMOUNTS: { [key: string]: number } = {
-      basic: 29.99,
-      professional: 79.99,
-      enterprise: 199.99,
-      // Add your plan amounts here
+      "gold-yoga": 99.99,
+      "gold-zumba": 99.99,
+      "gold-mixed": 129.99,
+      "diamond": 199.99,
+      "platinum": 299.99,
     };
 
-    return PLAN_AMOUNTS[plan.toLowerCase()] || 50;
+    return PLAN_AMOUNTS[plan.toLowerCase()] || 99.99;
   }
 
   /**
    * Notify user of failed payment
    */
-  private static async notifyPaymentFailure(userId: string, plan: string) {
+  static async notifyPaymentFailure(userId: string, plan: string) {
     try {
       const user = await User.findById(userId);
       if (user && user.email) {
         console.log(
           `📧 Sending payment failure notification to ${user.email}`
         );
-        // Implement email notification here
+        // TODO: Implement email notification
         // await sendEmail(user.email, 'Payment Failed', ...);
       }
     } catch (error) {
@@ -293,18 +274,41 @@ export class NgeniusService {
   /**
    * Notify user of subscription suspension
    */
-  private static async notifySubscriptionSuspended(userId: string) {
+  static async notifySubscriptionSuspended(userId: string) {
     try {
       const user = await User.findById(userId);
       if (user && user.email) {
         console.log(
           `📧 Sending suspension notification to ${user.email}`
         );
-        // Implement email notification here
+        // TODO: Implement email notification
         // await sendEmail(user.email, 'Subscription Suspended', ...);
       }
     } catch (error) {
       console.error(`❌ Error notifying suspension:`, error);
+    }
+  }
+
+  /**
+   * Notify user of successful payment
+   */
+  static async notifyPaymentSuccess(userId: string, payment: any) {
+    try {
+      const user = await User.findById(userId);
+
+      if (!user) {
+        console.error(`❌ User not found: ${userId}`);
+        return;
+      }
+
+      console.log(`📧 Sending payment success notification to ${user.email}`);
+      // TODO: Implement email notification
+      // await sendPaymentSuccessEmail({...});
+      
+      // TODO: Implement push notification for app
+      // await sendPushNotification(userId, {...});
+    } catch (error) {
+      console.error(`❌ Error notifying payment success:`, error);
     }
   }
 
@@ -332,6 +336,9 @@ export class NgeniusService {
     }
   }
 
+  /**
+   * Get access token from nGenius
+   */
   static async getAccessToken(): Promise<string> {
     try {
       const tokenURL = `${process.env.NGENIUS_API_URL}/identity/auth/access-token`;
@@ -345,15 +352,13 @@ export class NgeniusService {
         throw new Error('NGENIUS_API_URL is not defined');
       }
 
-      const encodedApiKey = apiKey;
-
       const response = await axios.post<TokenResponse>(
         tokenURL,
         { grant_type: 'client_credentials' },
         {
           headers: {
             'Content-Type': 'application/vnd.ni-identity.v1+json',
-            'Authorization': `Basic ${encodedApiKey}`,
+            'Authorization': `Basic ${apiKey}`,
           },
           timeout: this.TIMEOUT,
         }
@@ -379,14 +384,30 @@ export class NgeniusService {
     }
   }
 
-  static async createOrder(amount: any, currency: any, userId: string, plan: string,userAmount:number) {
+  /**
+   * Create order in nGenius
+   * @param amount - Amount to charge
+   * @param currency - Currency code (AED, USD, etc)
+   * @param userId - User ID
+   * @param plan - Plan type
+   * @param userAmount - Display amount (before conversion)
+   * @param source - Payment source ('app' or 'web')
+   */
+  static async createOrder(
+    amount: number,
+    currency: string,
+    userId: string,
+    plan: string,
+    userAmount: number,
+    source: "app" | "web" = "web"
+  ) {
     try {
       if (!process.env.NGENIUS_OUTLET_ID) {
         throw new Error('NGENIUS_OUTLET_ID is not defined');
       }
 
       const token = await this.getAccessToken();
-      const orderRef = "SB-" + Date.now();
+      const orderRef = `NG-${Date.now()}-${Math.random().toString(36).substring(7).toUpperCase()}`;
       const outletId = process.env.NGENIUS_OUTLET_ID.trim();
       const orderURL = `${process.env.NGENIUS_API_URL}/transactions/outlets/${outletId}/orders`;
 
@@ -397,7 +418,7 @@ export class NgeniusService {
         action: "SALE",
         amount: {
           currencyCode: currency,
-          value: amount * 100,
+          value: Math.round(amount * 100), // Convert to minor units
         },
         merchantAttributes: {
           redirectUrl: redirectUrl,
@@ -407,6 +428,7 @@ export class NgeniusService {
           orderRef,
           userId,
           plan,
+          source, // Include source to differentiate app vs web
         },
       };
 
@@ -428,19 +450,27 @@ export class NgeniusService {
         throw new Error('No payment link returned');
       }
 
+      // Create payment record
       const payment = await Payment.create({
-      userId,
-      orderRef,
-      reference: data.reference, // nGenius reference
-      amount:userAmount,
-      localAmount:amount,
-      currency,
-      plan,
-      status: "PENDING", // ✅ Payment is pending verification
-      paymentLink,
-      gatewayResponse: data,
-    });
+        userId,
+        orderRef,
+        reference: data.reference,
+        amount: userAmount,
+        localAmount: amount,
+        currency,
+        plan,
+        status: "PENDING",
+        gateway: "ngenius",
+        source: source,
+        paymentLink,
+        ngeniusStatus: "PENDING",
+        isRecurring: true,
+        recurringCycle: this.getMonthlyRecurringCycle(),
+        billingAttempt: 1,
+        gatewayResponse: data,
+      });
 
+      console.log(`✅ Order created: ${orderRef}, Reference: ${data.reference}`);
 
       return {
         orderRef,
@@ -454,10 +484,17 @@ export class NgeniusService {
     }
   }
 
+  /**
+   * Get order status from nGenius
+   */
   static async getOrderStatus(reference: string): Promise<any> {
     try {
       const token = await this.getAccessToken();
       const outletId = process.env.NGENIUS_OUTLET_ID;
+
+      if (!outletId) {
+        throw new Error('NGENIUS_OUTLET_ID is not defined');
+      }
 
       const statusURL = `${process.env.NGENIUS_API_URL}/transactions/outlets/${outletId}/orders/${reference}`;
 

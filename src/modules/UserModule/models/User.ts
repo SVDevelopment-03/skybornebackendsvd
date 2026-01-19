@@ -147,6 +147,19 @@ const userSchema = new Schema<IUser>(
       },
     },
 
+    overAllclassCredits: {
+      type: {
+        yoga: { type: Number, default: 0 },
+        zumba: { type: Number, default: 0 },
+        specialty: { type: Number, default: 0 },
+      },
+      default: {
+        yoga: 0,
+        zumba: 0,
+        specialty: 0,
+      },
+    },
+
     totalClassCredits: {
       type: Number,
       default: 0,
@@ -235,7 +248,7 @@ const userSchema = new Schema<IUser>(
   },
   {
     timestamps: true,
-  }
+  },
 );
 
 userSchema.pre("save", async function (next) {
@@ -259,7 +272,7 @@ userSchema.pre("save", async function (next) {
 
 // Method to compare password
 userSchema.methods.comparePassword = async function (
-  candidatePassword: string
+  candidatePassword: string,
 ): Promise<boolean> {
   if (!this.password) return false;
   console.log("Comparing password:", candidatePassword, this.password);

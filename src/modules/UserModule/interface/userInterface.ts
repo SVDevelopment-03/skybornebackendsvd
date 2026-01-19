@@ -63,6 +63,11 @@ export interface IUser extends Document {
     zumba: number;
     specialty: number;
   };
+    overAllclassCredits?: {
+    yoga: number;
+    zumba: number;
+    specialty: number;
+  };
 
   // Subscription
   subscription: {

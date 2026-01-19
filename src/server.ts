@@ -6,9 +6,10 @@ import dotenv from "dotenv";
 dotenv.config();
 
 import http from "http";
-import connectDB from "./config/db";       // Your Mongo connection file
+import connectDB from "./config/db"; // Your Mongo connection file
 import { connectRedis } from "./config/redis"; // Your Redis connection file
-import app from "./app";                       // Imported Express app
+import app from "./app"; // Imported Express app
+import { initializeSocket, setIOInstance } from "./config/socket";
 
 const PORT = process.env.PORT || 8000;
 
@@ -25,13 +26,19 @@ const startServer = async () => {
     /** 3. Create HTTP server */
     const server = http.createServer(app);
 
+    const io = initializeSocket(server);
+    setIOInstance(io);
+
     /** 4. Start listening */
-    server.listen({
-      port: PORT,
-      host: "0.0.0.0"
-    }, () => {
-      console.log(`🌐 Server running on port ${PORT}`);
-    });
+    server.listen(
+      {
+        port: PORT,
+        host: "0.0.0.0",
+      },
+      () => {
+        console.log(`🌐 Server running on port ${PORT}`);
+      },
+    );
 
     /** 5. Handle uncaught exceptions */
     process.on("uncaughtException", (err) => {
@@ -41,7 +48,6 @@ const startServer = async () => {
     process.on("unhandledRejection", (reason) => {
       console.error("💥 Unhandled Rejection:", reason);
     });
-
   } catch (err) {
     console.error("❌ Server startup failed:", err);
     process.exit(1);

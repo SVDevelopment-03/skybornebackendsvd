@@ -2,7 +2,7 @@
 
 import { Request, Response } from "express";
 import { NgeniusService } from "../../../services/ngenius.service";
-import { StripeService } from "../services/stripe.servise"; 
+import { StripeService } from "../services/stripe.service"; 
 import Payment from "../models/Payment";
 import User from "../../UserModule/models/User";
 import { PLAN_CONFIG } from "../../../config/planConfig";
@@ -15,6 +15,7 @@ import {
   getPreferredGateway,
   isGatewaySupported,
 } from "../../../config/paymentGatewayConfig";
+import { getIO } from "../../../config/socket";
 
 export default class PaymentController {
 /**
@@ -57,7 +58,7 @@ export default class PaymentController {
 
       // Determine preferred gateway based on country
       const countryCode = user.country || user.countryCode;
-      const preferredGateway = getPreferredGateway(countryCode);
+      const preferredGateway =paymentSource=="app" ? "stripe" : getPreferredGateway(countryCode);
 
       console.log(
         `🌍 Country: ${countryCode}, Preferred Gateway: ${preferredGateway}`
@@ -532,6 +533,8 @@ private static async activateSubscription(
           user.classCredits = newCredits;
         }
 
+        user.overAllclassCredits = addCredits(user.overAllclassCredits, newCredits);
+
         // Calculate new totalClassCredits (cumulative total)
         const totalNewCredits =
           (newCredits?.yoga || 0) +
@@ -561,6 +564,11 @@ private static async activateSubscription(
           `✅ Total Class Credits (Cumulative): ${user.totalClassCredits}`
         );
 
+                if (payment?.source === "app") {
+          await this.notifyPaymentSuccess(user._id.toString(), payment);
+        }
+
+
         // Generate and queue invoice
         const invoiceId = `INV-${Date.now()}-${uuidv4()
           .slice(0, 8)
@@ -585,26 +593,26 @@ private static async activateSubscription(
 
           const invoicePDFBase64 = invoicePDF.toString("base64");
 
-          addInvoiceEmailJob(
-            {
-              invoiceId,
-              orderRef: payment?.orderRef as string,
-              userId: user._id.toString(),
-              email: user.email,
-              userName: user.firstName + " " + user.lastName,
-              plan: plan,
-              amount: payment!.amount,
-              currency: payment!.currency || "USD",
-              date: new Date(),
-              subscriptionEndDate: new Date(
-                Date.now() + 30 * 24 * 60 * 60 * 1000
-              ),
-              paymentMethod: `${payment.gateway.toUpperCase()} Payment Gateway`,
-            },
-            invoicePDFBase64
-          ).catch((err) =>
-            console.error("❌ Invoice queue add failed:", err)
-          );
+          // addInvoiceEmailJob(
+          //   {
+          //     invoiceId,
+          //     orderRef: payment?.orderRef as string,
+          //     userId: user._id.toString(),
+          //     email: user.email,
+          //     userName: user.firstName + " " + user.lastName,
+          //     plan: plan,
+          //     amount: payment!.amount,
+          //     currency: payment!.currency || "USD",
+          //     date: new Date(),
+          //     subscriptionEndDate: new Date(
+          //       Date.now() + 30 * 24 * 60 * 60 * 1000
+          //     ),
+          //     paymentMethod: `${payment.gateway.toUpperCase()} Payment Gateway`,
+          //   },
+          //   invoicePDFBase64
+          // ).catch((err) =>
+          //   console.error("❌ Invoice queue add failed:", err)
+          // );
 
           if (payment) payment.invoiceId = invoiceId;
           await payment?.save();
@@ -612,14 +620,14 @@ private static async activateSubscription(
           console.error("❌ Error generating/sending invoice:", invoiceErr);
         }
 
-        addWelcomeEmailJob({
-          userId: user._id.toString(),
-          email: user.email,
-          firstName: user.firstName,
-          plan: user.plan,
-          subscriptionStartDate: user.subscription.startDate as Date,
-          subscriptionEndDate: user.subscription.endDate as Date,
-        }).catch((err) => console.error("❌ Queue add failed:", err));
+        // addWelcomeEmailJob({
+        //   userId: user._id.toString(),
+        //   email: user.email,
+        //   firstName: user.firstName,
+        //   plan: user.plan,
+        //   subscriptionStartDate: user.subscription.startDate as Date,
+        //   subscriptionEndDate: user.subscription.endDate as Date,
+        // }).catch((err) => console.error("❌ Queue add failed:", err));
       }
     }
 
@@ -1289,6 +1297,31 @@ static async verifyMobilePayment(req: Request, res: Response) {
       success: false,
       error: 'Payment verification failed',
     });
+  }
+}
+
+private static async notifyPaymentSuccess(userId: string, payment: any) {
+  try {
+    const io = getIO();
+    if (!io) {
+      console.warn("⚠️ Socket.io not initialized");
+      return;
+    }
+
+    io.to(`user-${userId}`).emit("payment-success", {
+      success: true,
+      userId,
+      message: "Payment successful! Your subscription is now active.",
+      plan: payment?.plan,
+      amount: payment?.amount,
+      currency: payment?.currency,
+      subscriptionStartDate: new Date(),
+      subscriptionEndDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+    });
+
+    console.log(`✅ Socket notification sent to user: ${userId}`);
+  } catch (error) {
+    console.error("❌ Error sending socket notification:", error);
   }
 }
 }

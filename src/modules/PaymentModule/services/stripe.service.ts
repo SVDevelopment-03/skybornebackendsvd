@@ -1,10 +1,10 @@
 // services/stripe.service.ts
 
-import Stripe from 'stripe';
-import Payment from '../models/Payment';
-import User from '../../UserModule/models/User';
-import cron from 'node-cron';
-import dotenv from 'dotenv';
+import Stripe from "stripe";
+import Payment from "../models/Payment";
+import User from "../../UserModule/models/User";
+import cron from "node-cron";
+import dotenv from "dotenv";
 
 dotenv.config();
 
@@ -27,46 +27,45 @@ export class StripeService {
    */
   static initialize() {
     if (!process.env.STRIPE_SECRET_KEY) {
-      throw new Error('STRIPE_SECRET_KEY is not defined');
+      throw new Error("STRIPE_SECRET_KEY is not defined");
     }
-this.stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
-
+    this.stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
   }
 
   // ========================================
-// ADD THIS TO StripeService
-// ========================================
+  // ADD THIS TO StripeService
+  // ========================================
 
-/**
- * Get all subscriptions for a customer
- */
-static async getCustomerSubscriptions(
-  customerId: string
-): Promise<Stripe.Subscription[]> {
-  try {
-    const subscriptions = await this.stripe.subscriptions.list({
-      customer: customerId,
-      status: "active",
-    });
+  /**
+   * Get all subscriptions for a customer
+   */
+  static async getCustomerSubscriptions(
+    customerId: string,
+  ): Promise<Stripe.Subscription[]> {
+    try {
+      const subscriptions = await this.stripe.subscriptions.list({
+        customer: customerId,
+        status: "active",
+      });
 
-    return subscriptions.data;
-  } catch (error) {
-    console.error("❌ Error fetching customer subscriptions:", error);
-    throw error;
+      return subscriptions.data;
+    } catch (error) {
+      console.error("❌ Error fetching customer subscriptions:", error);
+      throw error;
+    }
   }
-}
 
   /**
    * Create a checkout session for payment (REDIRECT METHOD)
    * User is redirected directly to Stripe Checkout
-  */
+   */
   static async createCheckoutSession(
     userId: string,
-    amount: number, // in dollars, not cents
+    amount: number,
     currency: string,
     plan: string,
     userAmount: number,
-    source: "app" | "web" = "web"
+    source: "app" | "web" = "web",
   ): Promise<{
     checkoutUrl: string;
     sessionId: string;
@@ -74,47 +73,55 @@ static async getCustomerSubscriptions(
   }> {
     try {
       const user = await User.findById(userId);
-      if (!user) throw new Error('User not found');
-
-      console.log("user", user);
+      if (!user) throw new Error("User not found");
 
       const orderRef = `STR-${Date.now()}`;
 
+       const successUrl =
+      source === "app"
+        ? "skybornedrop://payment-processing" // App deep link, no action
+        : `${process.env.FRONTEND_URL}/payment-success?sessionId={CHECKOUT_SESSION_ID}`;
+
+    const cancelUrl =
+      source === "app"
+        ? "skybornedrop://payment-processing" // App deep link
+        : `${process.env.FRONTEND_URL}/payment-failed`;
+
       // Create checkout session
-  const session = await this.stripe.checkout.sessions.create({
-  payment_method_types: ['card'],
+      const session = await this.stripe.checkout.sessions.create({
+        payment_method_types: ["card"],
 
-  mode: 'subscription',
+        mode: "subscription",
 
-  line_items: [
-    {
-      price_data: {
-        currency: currency.toLowerCase(),
-        product_data: {
-          name: `${plan.charAt(0).toUpperCase() + plan.slice(1)} Plan`,
-          description: `${plan}`,
+        line_items: [
+          {
+            price_data: {
+              currency: currency.toLowerCase(),
+              product_data: {
+                name: `${plan.charAt(0).toUpperCase() + plan.slice(1)} Plan`,
+                description: `${plan}`,
+              },
+              unit_amount: Math.round(amount * 100), // cents
+              recurring: {
+                interval: "month",
+              },
+            },
+            quantity: 1,
+          },
+        ],
+
+        customer_email: user.email,
+
+        metadata: {
+          userId,
+          plan,
+          orderRef,
+          userAmount: userAmount.toString(),
         },
-        unit_amount: Math.round(amount * 100), // cents
-        recurring: {
-          interval: 'month',
-        },
-      },
-      quantity: 1,
-    },
-  ],
 
-  customer_email: user.email,
-
-  metadata: {
-    userId,
-    plan,
-    orderRef,
-    userAmount: userAmount.toString(),
-  },
-
-  success_url: `${process.env.FRONTEND_URL}/payment-success?sessionId={CHECKOUT_SESSION_ID}`,
-  cancel_url: `${process.env.FRONTEND_URL}/payment-failed`,
-} as Stripe.Checkout.SessionCreateParams);
+        success_url:successUrl,
+        cancel_url: cancelUrl,
+      } as Stripe.Checkout.SessionCreateParams);
 
       // Create payment record
       const payment = await Payment.create({
@@ -125,24 +132,24 @@ static async getCustomerSubscriptions(
         localAmount: amount,
         currency,
         plan,
-        status: 'PENDING',
-        gateway: 'stripe',
-        paymentIntentId: session.id, // Store session ID as intent ID
+        status: "PENDING",
+        gateway: "stripe",
+        paymentIntentId: session.id,
         gatewayResponse: {
           sessionId: session.id,
           checkoutUrl: session.url,
         },
-      source:source
+        source: source,
       });
       // console.log("this is payment:- ", payment);
-      
+
       return {
-        checkoutUrl: session.url || '',
+        checkoutUrl: session.url || "",
         sessionId: session.id,
         reference: session.id,
       };
     } catch (error) {
-      console.error('❌ Error creating checkout session:', error);
+      console.error("❌ Error creating checkout session:", error);
       throw error;
     }
   }
@@ -150,12 +157,14 @@ static async getCustomerSubscriptions(
   /**
    * Get checkout session details
    */
-  static async getCheckoutSession(sessionId: string): Promise<Stripe.Checkout.Session> {
+  static async getCheckoutSession(
+    sessionId: string,
+  ): Promise<Stripe.Checkout.Session> {
     try {
       const session = await this.stripe.checkout.sessions.retrieve(sessionId);
       return session;
     } catch (error) {
-      console.error('❌ Error retrieving session:', error);
+      console.error("❌ Error retrieving session:", error);
       throw error;
     }
   }
@@ -167,15 +176,15 @@ static async getCustomerSubscriptions(
     try {
       const session = await this.stripe.checkout.sessions.retrieve(sessionId);
 
-      if (session.payment_status === 'paid') {
+      if (session.payment_status === "paid") {
         // Update payment record
         const payment = await Payment.findOneAndUpdate(
           { paymentIntentId: sessionId },
           {
-            status: 'COMPLETED',
+            status: "COMPLETED",
             verifiedAt: new Date(),
           },
-          { new: true }
+          { new: true },
         );
 
         if (payment) {
@@ -184,7 +193,7 @@ static async getCustomerSubscriptions(
         }
       }
     } catch (error) {
-      console.error('❌ Error fulfilling order:', error);
+      console.error("❌ Error fulfilling order:", error);
       throw error;
     }
   }
@@ -214,7 +223,7 @@ static async getCustomerSubscriptions(
       console.log(`✅ Stripe customer created: ${customer.id}`);
       return customer.id;
     } catch (error) {
-      console.error('❌ Error creating Stripe customer:', error);
+      console.error("❌ Error creating Stripe customer:", error);
       throw error;
     }
   }
@@ -227,7 +236,7 @@ static async getCustomerSubscriptions(
     amount: number, // in cents
     currency: string,
     plan: string,
-    userAmount: number
+    userAmount: number,
   ): Promise<{
     clientSecret: string;
     reference: string;
@@ -235,7 +244,7 @@ static async getCustomerSubscriptions(
   }> {
     try {
       const user = await User.findById(userId);
-      if (!user) throw new Error('User not found');
+      if (!user) throw new Error("User not found");
 
       const customerId = await this.getOrCreateCustomer(user);
       const orderRef = `STR-${Date.now()}`;
@@ -250,11 +259,11 @@ static async getCustomerSubscriptions(
           userId: userId,
           plan,
           orderRef,
-          isRecurring: 'true',
+          isRecurring: "true",
         },
         // Enable off-session for recurring charges
         off_session: false,
-        setup_future_usage: 'off_session',
+        setup_future_usage: "off_session",
       });
 
       // Create payment record
@@ -266,8 +275,8 @@ static async getCustomerSubscriptions(
         localAmount: amount,
         currency,
         plan,
-        status: 'PENDING',
-        gateway: 'stripe',
+        status: "PENDING",
+        gateway: "stripe",
         paymentIntentId: paymentIntent.id,
         gatewayResponse: {
           paymentIntentId: paymentIntent.id,
@@ -278,12 +287,12 @@ static async getCustomerSubscriptions(
       console.log(`💳 Stripe payment intent created: ${paymentIntent.id}`);
 
       return {
-        clientSecret: paymentIntent.client_secret || '',
+        clientSecret: paymentIntent.client_secret || "",
         reference: paymentIntent.id,
         amount: userAmount,
       };
     } catch (error) {
-      console.error('❌ Error creating payment intent:', error);
+      console.error("❌ Error creating payment intent:", error);
       throw error;
     }
   }
@@ -291,17 +300,14 @@ static async getCustomerSubscriptions(
   /**
    * Get payment intent status
    */
-  static async getPaymentIntentStatus(
-    paymentIntentId: string
-  ): Promise<{
+  static async getPaymentIntentStatus(paymentIntentId: string): Promise<{
     status: string;
     amount: number;
     currency: string;
   }> {
     try {
-      const paymentIntent = await this.stripe.paymentIntents.retrieve(
-        paymentIntentId
-      );
+      const paymentIntent =
+        await this.stripe.paymentIntents.retrieve(paymentIntentId);
 
       return {
         status: paymentIntent.status,
@@ -309,7 +315,7 @@ static async getCustomerSubscriptions(
         currency: paymentIntent.currency.toUpperCase(),
       };
     } catch (error) {
-      console.error('❌ Error fetching payment intent:', error);
+      console.error("❌ Error fetching payment intent:", error);
       throw error;
     }
   }
@@ -320,11 +326,11 @@ static async getCustomerSubscriptions(
   static async createSubscription(
     userId: string,
     priceId: string,
-    plan: string
+    plan: string,
   ): Promise<{ subscriptionId: string; clientSecret?: string }> {
     try {
       const user = await User.findById(userId);
-      if (!user) throw new Error('User not found');
+      if (!user) throw new Error("User not found");
 
       const customerId = await this.getOrCreateCustomer(user);
 
@@ -336,17 +342,22 @@ static async getCustomerSubscriptions(
           plan,
         },
         // Collect payment on subscription creation
-        payment_behavior: 'default_incomplete',
-        expand: ['latest_invoice.payment_intent'],
+        payment_behavior: "default_incomplete",
+        expand: ["latest_invoice.payment_intent"],
       });
 
       console.log(`📅 Stripe subscription created: ${subscription.id}`);
 
       // latest_invoice can be a string ID or an Invoice object; use a safe cast and a type guard to access payment_intent
-      const latestInvoice = subscription.latest_invoice as Stripe.Invoice | string | null;
+      const latestInvoice = subscription.latest_invoice as
+        | Stripe.Invoice
+        | string
+        | null;
       const paymentIntent =
-        typeof latestInvoice === 'object' && latestInvoice !== null
-          ? ((latestInvoice as any).payment_intent as Stripe.PaymentIntent | undefined)
+        typeof latestInvoice === "object" && latestInvoice !== null
+          ? ((latestInvoice as any).payment_intent as
+              | Stripe.PaymentIntent
+              | undefined)
           : undefined;
 
       return {
@@ -354,7 +365,7 @@ static async getCustomerSubscriptions(
         clientSecret: paymentIntent?.client_secret as string,
       };
     } catch (error) {
-      console.error('❌ Error creating subscription:', error);
+      console.error("❌ Error creating subscription:", error);
       throw error;
     }
   }
@@ -368,7 +379,7 @@ static async getCustomerSubscriptions(
     amount: number, // in cents
     currency: string,
     retryAttempt = 0,
-    config = this.DEFAULT_RECURRING_CONFIG
+    config = this.DEFAULT_RECURRING_CONFIG,
   ): Promise<void> {
     try {
       const user = await User.findById(userId);
@@ -380,17 +391,17 @@ static async getCustomerSubscriptions(
       const orderRef = `STR-REC-${Date.now()}`;
 
       console.log(
-        `💳 Charging user ${userId} for plan ${plan}: ${amount / 100} ${currency}`
+        `💳 Charging user ${userId} for plan ${plan}: ${amount / 100} ${currency}`,
       );
 
       // Get default payment method
       const paymentMethods = await this.stripe.paymentMethods.list({
         customer: customerId,
-        type: 'card',
+        type: "card",
       });
 
       if (paymentMethods.data.length === 0) {
-        throw new Error('No payment method on file');
+        throw new Error("No payment method on file");
       }
 
       const defaultPaymentMethod = paymentMethods.data[0];
@@ -408,7 +419,7 @@ static async getCustomerSubscriptions(
           userId: userId,
           plan,
           orderRef,
-          isRecurring: 'true',
+          isRecurring: "true",
         },
       });
 
@@ -421,8 +432,8 @@ static async getCustomerSubscriptions(
         localAmount: amount / 100,
         currency,
         plan,
-        status: 'PENDING',
-        gateway: 'stripe',
+        status: "PENDING",
+        gateway: "stripe",
         paymentIntentId: paymentIntent.id,
         isRecurring: true,
         recurringCycle: this.getMonthlyRecurringCycle(),
@@ -439,12 +450,12 @@ static async getCustomerSubscriptions(
     } catch (error) {
       console.error(
         `❌ Recurring payment charge failed (Attempt ${retryAttempt + 1}):`,
-        error
+        error,
       );
 
       if (retryAttempt < (config.maxRetries || 3)) {
         console.log(
-          `🔄 Retrying in ${config.retryDelayMs}ms... (Attempt ${retryAttempt + 2}/${(config.maxRetries || 3) + 1})`
+          `🔄 Retrying in ${config.retryDelayMs}ms... (Attempt ${retryAttempt + 2}/${(config.maxRetries || 3) + 1})`,
         );
 
         setTimeout(() => {
@@ -454,7 +465,7 @@ static async getCustomerSubscriptions(
             amount,
             currency,
             retryAttempt + 1,
-            config
+            config,
           );
         }, config.retryDelayMs || 5000);
       } else {
@@ -470,7 +481,7 @@ static async getCustomerSubscriptions(
   private static async verifyRecurringPayment(
     paymentIntentId: string,
     userId: string,
-    plan: string
+    plan: string,
   ) {
     try {
       const payment = await Payment.findOne({
@@ -482,18 +493,17 @@ static async getCustomerSubscriptions(
         return;
       }
 
-      const paymentIntent = await this.stripe.paymentIntents.retrieve(
-        paymentIntentId
-      );
+      const paymentIntent =
+        await this.stripe.paymentIntents.retrieve(paymentIntentId);
 
-      let paymentStatus = 'PENDING';
+      let paymentStatus = "PENDING";
 
-      if (paymentIntent.status === 'succeeded') {
-        paymentStatus = 'COMPLETED';
-      } else if (paymentIntent.status === 'requires_action') {
-        paymentStatus = 'PENDING';
-      } else if (paymentIntent.status === 'requires_payment_method') {
-        paymentStatus = 'FAILED';
+      if (paymentIntent.status === "succeeded") {
+        paymentStatus = "COMPLETED";
+      } else if (paymentIntent.status === "requires_action") {
+        paymentStatus = "PENDING";
+      } else if (paymentIntent.status === "requires_payment_method") {
+        paymentStatus = "FAILED";
       }
 
       payment.status = paymentStatus as any;
@@ -503,11 +513,11 @@ static async getCustomerSubscriptions(
 
       console.log(`✅ Recurring payment verified - Status: ${paymentStatus}`);
 
-      if (paymentStatus === 'COMPLETED') {
+      if (paymentStatus === "COMPLETED") {
         const user = await User.findById(userId);
         if (user && user.subscription) {
           user.subscription.endDate = new Date(
-            Date.now() + 30 * 24 * 60 * 60 * 1000
+            Date.now() + 30 * 24 * 60 * 60 * 1000,
           );
           await user.save();
 
@@ -525,33 +535,32 @@ static async getCustomerSubscriptions(
    * Initialize recurring payment cron job
    */
   static initRecurringPaymentCron() {
-    console.log('🔄 Initializing Stripe recurring payment cron job...');
+    console.log("🔄 Initializing Stripe recurring payment cron job...");
 
-    cron.schedule('0 2 * * *', async () => {
-      console.log('⏰ Running Stripe recurring payment check...');
+    cron.schedule("0 2 * * *", async () => {
+      console.log("⏰ Running Stripe recurring payment check...");
       await this.processRecurringPayments();
     });
 
-    console.log('✅ Stripe recurring payment cron job initialized');
+    console.log("✅ Stripe recurring payment cron job initialized");
   }
 
-//   static initRecurringPaymentCron() {
-//   console.log('🔄 Initializing Stripe recurring payment cron job (EVERY MINUTE)...');
+  //   static initRecurringPaymentCron() {
+  //   console.log('🔄 Initializing Stripe recurring payment cron job (EVERY MINUTE)...');
 
-//   cron.schedule(
-//     '* * * * *',
-//     async () => {
-//       console.log('⏰ Running Stripe recurring payment check (every minute)...');
-//       await this.processRecurringPayments();
-//     },
-//     {
-//       timezone: 'Asia/Kolkata',
-//     }
-//   );
+  //   cron.schedule(
+  //     '* * * * *',
+  //     async () => {
+  //       console.log('⏰ Running Stripe recurring payment check (every minute)...');
+  //       await this.processRecurringPayments();
+  //     },
+  //     {
+  //       timezone: 'Asia/Kolkata',
+  //     }
+  //   );
 
-//   console.log('✅ Stripe recurring payment cron job initialized');
-// }
-
+  //   console.log('✅ Stripe recurring payment cron job initialized');
+  // }
 
   /**
    * Process all Stripe recurring payments
@@ -571,9 +580,9 @@ static async getCustomerSubscriptions(
 
       // Find all active Stripe subscriptions
       const activeUsers = await User.find({
-        'subscription.status': 'active',
+        "subscription.status": "active",
         // 'subscription.endDate': { $gt: new Date() },
-        gateway: 'stripe',
+        gateway: "stripe",
       });
 
       console.log(`📊 Found ${activeUsers.length} active Stripe subscriptions`);
@@ -585,16 +594,16 @@ static async getCustomerSubscriptions(
             user._id.toString(),
             user.plan as string,
             planAmount,
-            'USD',
+            "USD",
           );
         } catch (err) {
           console.error(`❌ Error charging user ${user._id}:`, err);
         }
       }
 
-      console.log('✅ Stripe recurring payment processing completed');
+      console.log("✅ Stripe recurring payment processing completed");
     } catch (error) {
-      console.error('❌ Error in processRecurringPayments:', error);
+      console.error("❌ Error in processRecurringPayments:", error);
     }
   }
 
@@ -605,7 +614,7 @@ static async getCustomerSubscriptions(
     try {
       const user = await User.findById(userId);
       if (user && user.subscription) {
-        user.subscription.status = 'suspended';
+        user.subscription.status = "suspended";
         user.subscription.suspendedAt = new Date();
         await user.save();
 
@@ -622,7 +631,7 @@ static async getCustomerSubscriptions(
    */
   private static getMonthlyRecurringCycle(): string {
     const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   }
 
   /**
@@ -630,9 +639,9 @@ static async getCustomerSubscriptions(
    */
   private static getPlanAmount(plan: string): number {
     const PLAN_AMOUNTS: { [key: string]: number } = {
-      'gold-yoga': 100,
-      'gold-zumba': 100,
-      'gold-mixed': 100,
+      "gold-yoga": 100,
+      "gold-zumba": 100,
+      "gold-mixed": 100,
       diamond: 200,
       platinum: 300,
     };
@@ -647,9 +656,7 @@ static async getCustomerSubscriptions(
     try {
       const user = await User.findById(userId);
       if (user && user.email) {
-        console.log(
-          `📧 Sending payment failure notification to ${user.email}`
-        );
+        console.log(`📧 Sending payment failure notification to ${user.email}`);
         // Implement email notification here
       }
     } catch (error) {
@@ -664,9 +671,7 @@ static async getCustomerSubscriptions(
     try {
       const user = await User.findById(userId);
       if (user && user.email) {
-        console.log(
-          `📧 Sending suspension notification to ${user.email}`
-        );
+        console.log(`📧 Sending suspension notification to ${user.email}`);
         // Implement email notification here
       }
     } catch (error) {

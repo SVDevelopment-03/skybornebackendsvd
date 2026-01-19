@@ -21,10 +21,14 @@ import { BullAdapter } from '@bull-board/api/bullAdapter';
 import Stripe from 'stripe';
 import zoomWebhook from "./routes/zoomWebhook";
 import PaymentController from "./modules/PaymentModule/controllers/paymentController";
-import { StripeService } from "./modules/PaymentModule/services/stripe.servise";
+import { StripeService } from "./modules/PaymentModule/services/stripe.service";
 import stripeWebhook from "./modules/PaymentModule/controllers/stripeWebhook";
+import ngeniusWebhook from "./modules/PaymentModule/controllers/ngeniusWebhook";
+
 
 const app: Application = express();
+
+
 
 // BullBoard UI
 const serverAdapter = new ExpressAdapter();
@@ -43,6 +47,10 @@ dotenv.config();
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!;
+
+// nGenius webhook callback
+
+app.use('/webhooks', ngeniusWebhook);
 
 // Stripe webhook endpoint
 // app.ts (Stripe webhook endpoint)
@@ -85,18 +93,7 @@ try {
   process.exit(1);
 }
 
-// nGenius webhook callback
-app.post('/webhooks/ngenius', (req, res) => {
-  try {
-    const { orderRef, status } = req.body;
-    console.log(`📨 nGenius Webhook - OrderRef: ${orderRef}, Status: ${status}`);
-    // Handle webhook
-    res.json({ received: true });
-  } catch (error) {
-    console.error('❌ nGenius webhook error:', error);
-    res.status(500).json({ error: 'Webhook processing failed' });
-  }
-});
+
 
 
 

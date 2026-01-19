@@ -302,106 +302,100 @@ static async CreateMeeting(req: Request, res: Response) {
     }
   }
 
-  static async GetUpcomingMeetings(req: Request, res: Response) {
-    try {
-      const { search = "" } = req?.query;
-      const userId = req.user?.id; // Assuming user is attached to request
+static async GetUpcomingMeetings(req: Request, res: Response) {
+  try {
+    const { search = "", skip = 0, limit = 10 } = req?.query;
+    const skipNum = parseInt(skip as string) || 0;
+    const limitNum = parseInt(limit as string) || 10;
 
-      if (!userId) {
-        return res.status(401).json({
-          success: false,
-          message: "User not authenticated",
-        });
-      }
+    console.log("search:", search, "skip:", skipNum, "limit:", limitNum);
+    
+    const userId = req.user?.id;
 
-      // Fetch user with their plan
-      const user = await User.findById(userId).select(
-        "plan country countryCode"
-      );
-
-      if (!user) {
-        return res.status(404).json({
-          success: false,
-          message: "User not found",
-        });
-      }
-
-      //   const userCountry = await _countryRepository.searchModel({
-      //   code: user.countryCode,
-      // } as Partial<ICountry>);
-
-      // if (!userCountry) {
-      //   return res.status(404).json({
-      //     success: false,
-      //     message: "Country information not found",
-      //   });
-      // }
-
-      // if (userCountry.status === "inactive") {
-      //   return res.json({
-      //     success: true,
-      //     count: 0,
-      //     meetings: [],
-      //     userPlan: user.plan,
-      //     message: "Classes are not available in your country at this time",
-      //   });
-      // }
-
-      const now = new Date();
-      const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-
-      // Determine which service titles to filter based on plan
-      let serviceTitles: string[] = [];
-
-      if (user.plan === "gold-yoga") {
-        serviceTitles = ["Yoga"];
-      } else if (user.plan === "gold-zumba") {
-        serviceTitles = ["Zumba Dance"];
-      } else if (user.plan === "gold-mixed") {
-        serviceTitles = ["Yoga", "Zumba Dance"];
-      } else if (user.plan === "diamond" || user.plan === "platinum") {
-        // Diamond and Platinum can see all classes
-        serviceTitles = ["Yoga", "Zumba Dance", "Diet & Nutrition"];
-      }
-
-      // Fetch service IDs based on titles
-      const services = await Service.find({
-        title: { $in: serviceTitles },
-      }).select("_id");
-
-      const serviceIds = services.map((service) => service._id);
-
-      const meetings = await Meeting.find({
-        localTime: { $gte: oneHourAgo },
-        title: { $regex: search, $options: "i" },
-        service: { $in: serviceIds },
-      })
-        .sort({ localTime: 1 })
-        .populate("service", "title name _id")
-        .populate("trainer", "name email _id")
-        .populate("createdBy", "firstName lastName email _id")
-        .lean();
-
-      res.setHeader("Cache-Control", "no-store");
-
-      return res.json({
-        success: true,
-        count: meetings?.length,
-        meetings,
-        userPlan: user.plan,
-      });
-    } catch (error: any) {
-      console.error("Error fetching upcoming meetings:", error.message);
-      return res.status(500).json({
+    if (!userId) {
+      return res.status(401).json({
         success: false,
-        message: error.message || "Error fetching upcoming meetings",
+        message: "User not authenticated",
       });
     }
+
+    const user = await User.findById(userId).select(
+      "plan country countryCode"
+    );
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    const now = new Date();
+    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+
+    let serviceTitles: string[] = [];
+
+    if (user.plan === "gold-yoga") {
+      serviceTitles = ["Yoga"];
+    } else if (user.plan === "gold-zumba") {
+      serviceTitles = ["Zumba Dance"];
+    } else if (user.plan === "gold-mixed") {
+      serviceTitles = ["Yoga", "Zumba Dance"];
+    } else if (user.plan === "diamond" || user.plan === "platinum") {
+      serviceTitles = ["Yoga", "Zumba Dance", "Diet & Nutrition"];
+    }
+
+    const services = await Service.find({
+      title: { $in: serviceTitles },
+    }).select("_id");
+
+    const serviceIds = services.map((service) => service._id);
+
+    // Get total count
+    const totalCount = await Meeting.countDocuments({
+      localTime: { $gte: oneHourAgo },
+      title: { $regex: search, $options: "i" },
+      service: { $in: serviceIds },
+    });
+
+    // Fetch paginated meetings
+    const meetings = await Meeting.find({
+      localTime: { $gte: oneHourAgo },
+      title: { $regex: search, $options: "i" },
+      service: { $in: serviceIds },
+    })
+      .sort({ localTime: 1 })
+      .skip(skipNum)
+      .limit(limitNum)
+      .populate("service", "title name _id")
+      .populate("trainer", "name email _id")
+      .populate("createdBy", "firstName lastName email _id")
+      .lean();
+
+    res.setHeader("Cache-Control", "no-store");
+
+    return res.json({
+      success: true,
+      count: meetings?.length,
+      totalCount,
+      hasMore: skipNum + limitNum < totalCount,
+      meetings,
+      userPlan: user.plan,
+    });
+  } catch (error: any) {
+    console.error("Error fetching upcoming meetings:", error.message);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Error fetching upcoming meetings",
+    });
   }
+}
 
   static async GetTodaysMeetings(req: Request, res: Response) {
     try {
       const { search = "" } = req?.query;
+            console.log("search" , search);
+
       const userId = req.user?.id; // Assuming user is attached to request
 
       if (!userId) {
@@ -1558,4 +1552,204 @@ static async getWeeklyActivity  (req: Request, res: Response)  {
       });
     }
   }
+
+
+  /**
+ * Get weekly meetings for all 7 days
+ * Filters by user plan and returns meetings grouped by day
+ */
+static async GetWeeklyMeetings  (req: Request, res: Response)  {
+  try {
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'User not authenticated',
+      });
+    }
+
+    // Fetch user with their plan
+    const user = await User.findById(userId).select('plan country countryCode');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    // Determine service titles based on plan
+    let serviceTitles: string[] = [];
+
+    if (user.plan === 'gold-yoga') {
+      serviceTitles = ['Yoga'];
+    } else if (user.plan === 'gold-zumba') {
+      serviceTitles = ['Zumba Dance'];
+    } else if (user.plan === 'gold-mixed') {
+      serviceTitles = ['Yoga', 'Zumba Dance'];
+    } else if (user.plan === 'diamond' || user.plan === 'platinum') {
+      serviceTitles = ['Yoga', 'Zumba Dance', 'Diet & Nutrition'];
+    }
+
+    // Fetch service IDs based on titles
+    const services = await Service.find({
+      title: { $in: serviceTitles },
+    }).select('_id');
+
+    const serviceIds = services.map(service => service._id);
+
+    // Calculate current week (Sunday to Saturday)
+    const now = new Date();
+    const dayOfWeek = now.getDay();
+    const diff = now.getDate() - dayOfWeek;
+    const weekStart = new Date(now.setDate(diff));
+    weekStart.setHours(0, 0, 0, 0);
+
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 7);
+    weekEnd.setHours(23, 59, 59, 999);
+
+    // Fetch all meetings for the week
+    const meetings = await Meeting.find({
+      localTime: {
+        $gte: weekStart,
+        $lte: weekEnd,
+      },
+      service: { $in: serviceIds },
+      status: { $in: ['pending', 'completed'] },
+    })
+      .sort({ localTime: 1 })
+      .populate('service', 'title name _id')
+      .populate('trainer', 'name email _id')
+      .populate('createdBy', 'firstName lastName email _id')
+      .lean();
+
+    // Group meetings by day
+    const groupedByDay: { [key: number]: any[] } = {};
+
+    for (let i = 0; i < 7; i++) {
+      groupedByDay[i] = [];
+    }
+
+    meetings.forEach(meeting => {
+      const meetingDate = new Date(meeting.localTime);
+      const dayIndex = meetingDate.getDay();
+      groupedByDay[dayIndex].push(meeting);
+    });
+
+    // Flatten back to array for response
+    const allMeetings = meetings;
+
+    res.setHeader('Cache-Control', 'no-store');
+
+    return res.json({
+      success: true,
+      count: allMeetings.length,
+      meetings: allMeetings,
+      userPlan: user.plan,
+      weekStart: weekStart.toISOString(),
+      weekEnd: weekEnd.toISOString(),
+    });
+  } catch (error: any) {
+    console.error('Error fetching weekly meetings:', error.message);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Error fetching weekly meetings',
+    });
+  }
+};
+
+/**
+ * Get meetings for a specific day of the week (0-6, where 0 is Sunday)
+ */
+static async GetMeetingsByDay  (req: Request, res: Response) {
+  try {
+    const userId = req.user?.id;
+    const { dayIndex } = req.params;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'User not authenticated',
+      });
+    }
+
+    if (isNaN(Number(dayIndex)) || Number(dayIndex) < 0 || Number(dayIndex) > 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid day index. Must be between 0 and 6.',
+      });
+    }
+
+    const user = await User.findById(userId).select('plan country countryCode');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    // Determine service titles based on plan
+    let serviceTitles: string[] = [];
+
+    if (user.plan === 'gold-yoga') {
+      serviceTitles = ['Yoga'];
+    } else if (user.plan === 'gold-zumba') {
+      serviceTitles = ['Zumba Dance'];
+    } else if (user.plan === 'gold-mixed') {
+      serviceTitles = ['Yoga', 'Zumba Dance'];
+    } else if (user.plan === 'diamond' || user.plan === 'platinum') {
+      serviceTitles = ['Yoga', 'Zumba Dance', 'Diet & Nutrition'];
+    }
+
+    const services = await Service.find({
+      title: { $in: serviceTitles },
+    }).select('_id');
+
+    const serviceIds = services.map(service => service._id);
+
+    // Calculate the specific day of current week
+    const now = new Date();
+    const dayOfWeek = now.getDay();
+    const diff = now.getDate() - dayOfWeek + Number(dayIndex);
+    
+    const dayStart = new Date(now.setDate(diff));
+    dayStart.setHours(0, 0, 0, 0);
+
+    const dayEnd = new Date(dayStart);
+    dayEnd.setHours(23, 59, 59, 999);
+
+    const meetings = await Meeting.find({
+      localTime: {
+        $gte: dayStart,
+        $lte: dayEnd,
+      },
+      service: { $in: serviceIds },
+      status: { $in: ['pending', 'completed'] },
+    })
+      .sort({ localTime: 1 })
+      .populate('service', 'title name _id')
+      .populate('trainer', 'name email _id')
+      .populate('createdBy', 'firstName lastName email _id')
+      .lean();
+
+    res.setHeader('Cache-Control', 'no-store');
+
+    return res.json({
+      success: true,
+      count: meetings.length,
+      meetings,
+      userPlan: user.plan,
+    });
+  } catch (error: any) {
+    console.error('Error fetching meetings by day:', error.message);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Error fetching meetings by day',
+    });
+  }
+};
+
 }
