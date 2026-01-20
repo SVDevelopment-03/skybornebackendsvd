@@ -474,6 +474,131 @@ static async GetUpcomingMeetings(req: Request, res: Response) {
     }
   }
 
+  /**
+ * Get past/completed sessions for the current user
+ * Shows sessions that have already occurred (localTime is in the past)
+ * Supports pagination and search
+ */
+static async GetPastSessions(req: Request, res: Response) {
+  try {
+    const { search = "", skip = 0, limit = 10 } = req?.query;
+    const skipNum = parseInt(skip as string) || 0;
+    const limitNum = parseInt(limit as string) || 10;
+
+    console.log("search:", search, "skip:", skipNum, "limit:", limitNum);
+
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "User not authenticated",
+      });
+    }
+
+    // Get user with plan info
+    const user = await User.findById(userId).select(
+      "plan country countryCode"
+    );
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    // Determine services based on user plan
+    let serviceTitles: string[] = [];
+
+    if (user.plan === "gold-yoga") {
+      serviceTitles = ["Yoga"];
+    } else if (user.plan === "gold-zumba") {
+      serviceTitles = ["Zumba Dance"];
+    } else if (user.plan === "gold-mixed") {
+      serviceTitles = ["Yoga", "Zumba Dance"];
+    } else if (user.plan === "diamond" || user.plan === "platinum") {
+      serviceTitles = ["Yoga", "Zumba Dance", "Diet & Nutrition"];
+    }
+
+    const services = await Service.find({
+      title: { $in: serviceTitles },
+    }).select("_id");
+
+    const serviceIds = services.map((service) => service._id);
+
+    // Get current time - only show sessions that have already completed
+    const now = new Date();
+
+    // Build search query
+    const searchQuery: any = {
+      // Sessions that have occurred (localTime is in the past)
+      localTime: { $lt: now },
+      service: { $in: serviceIds },
+      // Only show completed sessions or sessions with attendance
+      status: { $in: ["completed", "pending"] },
+    };
+
+    // Add search filter if provided
+    if (search && (search as string)?.trim()) {
+      searchQuery.$or = [
+        { title: { $regex: search, $options: "i" } },
+        { "service.title": { $regex: search, $options: "i" } },
+        { "trainer.name": { $regex: search, $options: "i" } },
+      ];
+    }
+
+    // Get total count for pagination
+    const totalCount = await Meeting.countDocuments(searchQuery);
+
+    // Fetch paginated meetings sorted by most recent first
+    const meetings = await Meeting.find(searchQuery)
+      .sort({ localTime: -1 }) // Most recent first
+      .skip(skipNum)
+      .limit(limitNum)
+      .populate("service", "title name _id")
+      .populate("trainer", "name email _id")
+      .populate("createdBy", "firstName lastName email _id")
+      .lean();
+
+    // For each meeting, fetch attendance data if available
+    const enrichedMeetings = await Promise.all(
+      meetings.map(async (meeting) => {
+        const attendance = await MeetingAttendance.findOne({
+          meeting: meeting._id,
+          user: userId,
+        }).lean();
+
+        return {
+          ...meeting,
+          attendance: attendance || {
+            totalDuration: 0,
+            status: "missed",
+          },
+        };
+      })
+    );
+
+    res.setHeader("Cache-Control", "no-store");
+
+    return res.json({
+      success: true,
+      count: enrichedMeetings?.length,
+      totalCount,
+      hasMore: skipNum + limitNum < totalCount,
+      meetings: enrichedMeetings,
+      userPlan: user.plan,
+    });
+  } catch (error: any) {
+    console.error("Error fetching past sessions:", error.message);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Error fetching past sessions",
+    });
+  }
+}
+
+
   static async GetTrainerUpcomingMeetings(req: Request, res: Response) {
   try {
     const userId = req.user?.id; // User ID from auth

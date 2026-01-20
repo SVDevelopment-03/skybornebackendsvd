@@ -63,6 +63,12 @@ export const MeetingRoute = [
     method: "get",
   },
   {
+    path: "/meetings/past",
+    request: null,
+    action: MeetingController.GetPastSessions,
+    method: "get",
+  },
+  {
     path: "/meetings/getAllTrainerMeetings",
     request: null,
     action: MeetingController.GetAllTrainerMeetings,
