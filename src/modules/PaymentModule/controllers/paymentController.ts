@@ -61,20 +61,19 @@ export default class PaymentController {
 
       // Determine preferred gateway based on country
       const countryCode = user.country || user.countryCode;
-      // const preferredGateway =
-      //   paymentSource == "app" ? "stripe" : getPreferredGateway(countryCode);
-           const preferredGateway: PreferedType = "stripe";
+      const preferredGateway =
+        paymentSource == "app" ? "stripe" : getPreferredGateway(countryCode);
+          // const preferredGateway: PreferedType = "stripe";
 
       console.log(
         `🌍 Country: ${countryCode}, Preferred Gateway: ${preferredGateway}`,
       );
 
-      // Handle currency conversion for nGenius
-      // if (preferredGateway === "ngenius" && currency === "USD") {
-      //   const rate = await getUsdToAedRate();
-      //   amount = Number((amount * rate).toFixed(2));
-      //   currency = "AED";
-      // }
+      if (preferredGateway === "ngenius" && currency === "USD") {
+        const rate = await getUsdToAedRate();
+        amount = Number((amount * rate).toFixed(2));
+        currency = "AED";
+      }
 
       console.log(
         `💳 Creating payment order - Gateway: ${preferredGateway}, Amount: ${amount} ${currency}, Plan: ${plan}`,

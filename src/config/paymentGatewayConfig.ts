@@ -38,10 +38,11 @@ export const PAYMENT_GATEWAY_CONFIG: GatewayConfig[] = [
  * Get the preferred payment gateway for a country
  */
 export function getPreferredGateway(countryCode: string): PaymentGateway {
-  const config = PAYMENT_GATEWAY_CONFIG.find((c) =>
-    c.supportedCountries.includes(countryCode.toUpperCase())
-  );
-  return config?.gateway || 'stripe'; // Default to Stripe as fallback
+  return 'stripe';
+  // const config = PAYMENT_GATEWAY_CONFIG.find((c) =>
+  //   c.supportedCountries.includes(countryCode.toUpperCase())
+  // );
+  // return config?.gateway || 'stripe'; 
 }
 
 /**
