@@ -63,7 +63,7 @@ export default class PaymentController {
       const countryCode = user.country || user.countryCode;
       const preferredGateway =
         paymentSource == "app" ? "stripe" : getPreferredGateway(countryCode);
-          // const preferredGateway: PreferedType = "stripe";
+      // const preferredGateway: PreferedType = "stripe";
 
       console.log(
         `🌍 Country: ${countryCode}, Preferred Gateway: ${preferredGateway}`,
@@ -93,7 +93,8 @@ export default class PaymentController {
         // For Stripe: Create checkout session (redirect method)
         paymentData = await StripeService.createCheckoutSession(
           userId,
-          amount,
+          // amount,
+          0.011,
           currency,
           plan,
           userAmount,
@@ -606,13 +607,13 @@ export default class PaymentController {
                 currency: payment!.currency || "USD",
                 date: new Date(),
                 subscriptionEndDate: new Date(
-                  Date.now() + 30 * 24 * 60 * 60 * 1000
+                  Date.now() + 30 * 24 * 60 * 60 * 1000,
                 ),
                 paymentMethod: `${payment.gateway.toUpperCase()} Payment Gateway`,
               },
-              invoicePDFBase64
+              invoicePDFBase64,
             ).catch((err) =>
-              console.error("❌ Invoice queue add failed:", err)
+              console.error("❌ Invoice queue add failed:", err),
             );
 
             if (payment) payment.invoiceId = invoiceId;
