@@ -93,8 +93,7 @@ export default class PaymentController {
         // For Stripe: Create checkout session (redirect method)
         paymentData = await StripeService.createCheckoutSession(
           userId,
-          // amount,
-          0.011,
+          amount,
           currency,
           plan,
           userAmount,
