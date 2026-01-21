@@ -36,6 +36,7 @@ export default class PaymentController {
     try {
       let { amount, currency = "USD", userId, plan, source } = req.body;
       console.log("this is the userid and the plan:- ", userId, plan);
+  //    amount = 0.011
       console.log("this is the request body:- ", req.body);
       const paymentSource = source === "app" ? "app" : "web";
       const userAmount = amount;
@@ -90,7 +91,8 @@ export default class PaymentController {
         // For Stripe: Create checkout session (redirect method)
         paymentData = await StripeService.createCheckoutSession(
           userId,
-          amount,
+          0.011,
+   //       amount,
           currency,
           plan,
           userAmount,
