@@ -20,7 +20,7 @@ router.post(
   express.raw({ type: "application/json" }),
   async (req, res) => {
     console.log("webhook triggered");
-    
+
     const sig = req.headers["stripe-signature"] as string;
     let event: Stripe.Event;
 
@@ -48,8 +48,6 @@ router.post(
           console.log("this is the payment:- ", payment);
           if (!payment) break;
 
-          if (payment?.source == "web" || !payment?.source) break;
-
           // 🔒 STRONG IDEMPOTENCY
           // if (payment.subscriptionActivated) break;
 
@@ -62,8 +60,10 @@ router.post(
           payment.verifiedAt = new Date();
 
           console.log("payment", payment);
-          
+
           await payment.save();
+
+          if (payment?.source == "web" || !payment?.source) break;
 
           // 🔥 SINGLE SOURCE OF BUSINESS LOGIC
           await PaymentController.handleSuccessfulPayment(payment);
