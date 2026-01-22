@@ -104,7 +104,7 @@ export class AdminController {
    * Get overview statistics
    * Returns: Active users, revenue, trainers, growth rate, pending approvals, sessions
    */
-  getOverviewStats = async (req: Request, res: Response): Promise<void> => {
+getOverviewStats = async (req: Request, res: Response): Promise<void> => {
     try {
       // ===== ACTIVE USERS =====
       const activeUsers = await User.countDocuments({
@@ -120,6 +120,23 @@ export class AdminController {
       const userGrowthPercent = previousMonthUsers > 0 
         ? parseFloat((((activeUsers - previousMonthUsers) / previousMonthUsers) * 100).toFixed(1))
         : 0;
+
+      // ===== TOTAL REVENUE =====
+      const totalRevenueAgg = await Payment.aggregate([
+        {
+          $match: {
+            status: "COMPLETED",
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: "$amount" },
+          },
+        },
+      ]);
+
+      const totalRevenue = totalRevenueAgg[0]?.total || 0;
 
       // ===== MONTHLY REVENUE =====
       const currentMonth = new Date();
@@ -206,6 +223,10 @@ export class AdminController {
         activeUsers: {
           value: activeUsers,
           change: userGrowthPercent,
+        },
+        totalRevenue: {
+          value: totalRevenue,
+          change: 0,
         },
         monthlyRevenue: {
           value: revenue,
