@@ -22,6 +22,10 @@ interface IOverviewStats {
     value: number;
     change: number;
   };
+    totalRevenue: {
+    value: number;
+    change: number;
+  };
   monthlyRevenue: {
     value: number;
     change: number;
