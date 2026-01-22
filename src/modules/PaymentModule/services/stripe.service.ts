@@ -79,12 +79,12 @@ export class StripeService {
 
        const successUrl =
       source === "app"
-        ? "skybornedrop://payment-processing" // App deep link, no action
+        ? "skybornedrop://payment-processing" 
         : `${process.env.FRONTEND_URL}/payment-success?sessionId={CHECKOUT_SESSION_ID}`;
 
     const cancelUrl =
       source === "app"
-        ? "skybornedrop://payment-processing" // App deep link
+        ? "skybornedrop://payment-processing"
         : `${process.env.FRONTEND_URL}/payment-failed`;
 
       // Create checkout session

@@ -11,6 +11,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
 });
 
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!;
+console.log("Webhook secret:", webhookSecret);
 
 /**
  * Stripe Webhook (RAW BODY REQUIRED)
@@ -67,6 +68,48 @@ router.post(
 
           // 🔥 SINGLE SOURCE OF BUSINESS LOGIC
           await PaymentController.handleSuccessfulPayment(payment);
+
+          break;
+        }
+
+        case "payment_intent.succeeded": {
+          const paymentIntent = event.data.object as Stripe.PaymentIntent;
+
+          console.log("✅ Payment Intent Succeeded:", paymentIntent.id);
+          console.log("Amount:", paymentIntent.amount_received);
+          console.log("Metadata:", paymentIntent.metadata);
+
+          const { orderRef } = paymentIntent.metadata || {};
+          console.log("Order ref from payment intent:", orderRef);
+
+          if (!orderRef) {
+            console.log("⚠️ No orderRef in metadata, skipping");
+            break;
+          }
+
+          const payment = await Payment.findOne({ orderRef });
+          console.log("Payment record found:", payment);
+
+          if (!payment) {
+            console.log("⚠️ No payment record found for orderRef:", orderRef);
+            break;
+          }
+
+          // Update payment status
+          payment.status = "COMPLETED";
+          payment.reference = paymentIntent.id;
+          payment.gateway = "stripe";
+          payment.gatewayResponse = paymentIntent;
+          payment.verifiedAt = new Date();
+          payment.amount = paymentIntent.amount_received / 100; // Convert cents to dollars
+
+          console.log("💾 Saving payment:", payment);
+          await payment.save();
+
+          // Handle successful payment (non-web source)
+          if (payment?.source && payment.source !== "web") {
+            await PaymentController.handleSuccessfulPayment(payment);
+          }
 
           break;
         }

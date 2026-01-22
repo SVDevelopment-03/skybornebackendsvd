@@ -47,14 +47,18 @@ dotenv.config();
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!;
+console.log("App Webhook secret:", webhookSecret);
+
+app.use('/webhooks', stripeWebhook);
+
+
 
 // nGenius webhook callback
 
-app.use('/webhooks', ngeniusWebhook);
+// app.use('/webhooks', ngeniusWebhook);
 
 // Stripe webhook endpoint
 // app.ts (Stripe webhook endpoint)
-app.use('/webhooks', stripeWebhook);
 
 app.use(
   cors({
