@@ -121,6 +121,7 @@ export class StripeService {
 
         success_url:successUrl,
         cancel_url: cancelUrl,
+        automatic_pricing: { enabled: true },
       } as Stripe.Checkout.SessionCreateParams);
 
       // Create payment record

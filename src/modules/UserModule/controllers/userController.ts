@@ -8,38 +8,175 @@ import Meeting from "../../MeetingModule/MeetingModels/Meeting";
 const userService = new UserService();
 
 export class UserController {
+// Original pagination endpoint
 static async getAll(req: Request, res: Response) {
-    try {
-      const page = parseInt(req.query.page as string) || 1;
-      const limit = parseInt(req.query.limit as string) || 10;
-      const search = (req.query.search as string) || "";
-      const filter = (req.query.filter as string) || "";
+  try {
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const search = (req.query.search as string) || "";
+    const country = (req.query.country as string) || "";
+    const filter = (req.query.filter as string) || "";
 
-      const skip = (page - 1) * limit;
+    const skip = (page - 1) * limit;
 
-      const result = await userService.getAll({
-        search,
-        skip,
-        limit,
-        filter,
-      });
+    // Build query object
+    const query: any = {};
 
-      return res.status(200).json({
-        success: true,
-        message: "Users fetched successfully",
-        data: result.users,
+    // Filter by country code
+    if (country && country !== "all") {
+      query.countryCode = country.toUpperCase();
+    }
+
+    // Build search query
+    let finalQuery = query;
+
+    if (search) {
+      const searchLower = search.toLowerCase();
+      finalQuery = {
+        ...query,
+        $or: [
+          { firstName: { $regex: searchLower, $options: "i" } },
+          { lastName: { $regex: searchLower, $options: "i" } },
+          { email: { $regex: searchLower, $options: "i" } },
+          { phoneNumber: { $regex: searchLower, $options: "i" } },
+        ],
+      };
+    }
+
+    // Fetch users with applied filters
+    const users = await User.find(finalQuery)
+      .select(
+        "_id firstName lastName email phoneNumber country countryCode plan isActive createdAt"
+      )
+      .skip(skip)
+      .limit(limit)
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // Get total count for pagination
+    const total = await User.countDocuments(finalQuery);
+
+    return res.status(200).json({
+      success: true,
+      message: "Users fetched successfully",
+      data: {
+        users,
         pagination: {
           currentPage: page,
-          totalPages: Math.ceil((result.total as number) / limit),
-          total: result.total,
+          totalPages: Math.ceil(total / limit),
+          total,
           limit,
         },
-      });
-    } catch (error) {
-      return res.status(500).json({ success: false, error });
-    }
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error fetching users:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch users",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
   }
+}
 
+// =======================================
+// NEW: GET ALL USERS FOR EXPORT (NO PAGINATION)
+// =======================================
+// =======================================
+// EXPORT USERS AS CSV
+// =======================================
+static async exportUsersCSV(req: Request, res: Response) {
+  try {
+    const search = (req.query.search as string) || "";
+    const country = (req.query.country as string) || "";
+
+    // Build query object
+    const query: any = {};
+
+    // Filter by country code
+    if (country && country !== "all") {
+      query.countryCode = country.toUpperCase();
+    }
+
+    // Build search query
+    let finalQuery = query;
+
+    if (search) {
+      const searchLower = search.toLowerCase();
+      finalQuery = {
+        ...query,
+        $or: [
+          { firstName: { $regex: searchLower, $options: "i" } },
+          { lastName: { $regex: searchLower, $options: "i" } },
+          { email: { $regex: searchLower, $options: "i" } },
+          { phoneNumber: { $regex: searchLower, $options: "i" } },
+        ],
+      };
+    }
+
+    // Fetch ALL users with applied filters
+    const users = await User.find(finalQuery)
+      .select(
+        "_id firstName lastName email phoneNumber country countryCode plan isActive createdAt"
+      )
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // Generate CSV
+    const headers = [
+      "Name",
+      "Email",
+      "Phone",
+      "Country",
+      "Plan",
+      "Status",
+      "Created Date",
+    ];
+
+    const rows = users.map((user: any) => {
+      const name = `${user.firstName || ""} ${user.lastName || ""}`.trim() || "N/A";
+      const email = user?.email || "N/A";
+      const phone = user?.phoneNumber || "N/A";
+      const country = user?.country|| user?.countryCode || "N/A";
+      const plan = user.plan || "N/A";
+      const status = user.isActive ? "Active" : "Inactive";
+      const createdDate = new Date(user.createdAt).toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
+
+      return [name, email, phone, country, plan, status, createdDate];
+    });
+
+    // Escape CSV values
+    const escapeCSV = (value: string): string => {
+      const escaped = String(value).replace(/"/g, '""');
+      return escaped.includes(",") || escaped.includes('"') || escaped.includes("\n")
+        ? `"${escaped}"`
+        : escaped;
+    };
+
+    const csvContent = [
+      headers.join(","),
+      ...rows.map((row) => row.map(escapeCSV).join(",")),
+    ].join("\n");
+
+    // Set headers for file download
+    const filename = `users_${new Date().toISOString().split("T")[0]}.csv`;
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+
+    return res.status(200).send(csvContent);
+  } catch (error) {
+    console.error("❌ Error exporting users CSV:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to export users CSV",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+}
 
   static async GetDashboardStats(req: Request, res: Response) {
     try {

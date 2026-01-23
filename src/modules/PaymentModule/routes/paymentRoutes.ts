@@ -60,6 +60,12 @@ export const PaymentApiRoutes = [
     method: "get",
   },
   {
+  path: "/payment/admin/export",
+  request: null,
+  action: PaymentController.exportPaymentsCSV,
+  method: "get",
+},
+  {
     path: "/subscription/:userId/cancel",
     action: PaymentController.cancelSubscription,
     request: null,

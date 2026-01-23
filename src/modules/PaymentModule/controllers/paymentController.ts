@@ -892,122 +892,308 @@ export default class PaymentController {
     }
   }
 
-  /**
-   * Get all payments (Admin only)
-   */
-  static async getAllPayments(req: Request, res: Response) {
-    try {
-      const { search, status, gateway, page = 1, limit = 10 } = req.query;
+/**
+ * Get all payments (Admin only)
+ */
+static async getAllPayments(req: Request, res: Response) {
+  try {
+    const { search, status, gateway, country, page = 1, limit = 10 } = req.query;
 
-      const pageNum = parseInt(page as string) || 1;
-      const limitNum = parseInt(limit as string) || 10;
-      const skip = (pageNum - 1) * limitNum;
+    const pageNum = parseInt(page as string) || 1;
+    const limitNum = parseInt(limit as string) || 10;
+    const skip = (pageNum - 1) * limitNum;
 
-      const query: any = {};
+    const query: any = {};
 
-      // Filter by status
-      const validStatuses = ["COMPLETED", "PENDING", "FAILED", "CANCELLED"];
-      if (
-        status &&
-        status !== "all" &&
-        validStatuses.includes(String(status).toUpperCase())
-      ) {
-        query.status = String(status).toUpperCase();
+    // Filter by status
+    const validStatuses = ["COMPLETED", "PENDING", "FAILED", "CANCELLED"];
+    if (
+      status &&
+      status !== "all" &&
+      validStatuses.includes(String(status).toUpperCase())
+    ) {
+      query.status = String(status).toUpperCase();
+    }
+
+    // Filter by gateway
+    const validGateways = ["ngenius", "stripe"];
+    if (
+      gateway &&
+      gateway !== "all" &&
+      validGateways.includes(String(gateway).toLowerCase())
+    ) {
+      query.gateway = String(gateway).toLowerCase();
+    }
+
+    // Build aggregation pipeline
+    const pipeline: any[] = [
+      // Match payment filters (status, gateway)
+      { $match: query },
+      // Lookup user data
+      {
+        $lookup: {
+          from: "users",
+          localField: "userId",
+          foreignField: "_id",
+          as: "user",
+        },
+      },
+      // Unwind user array
+      { $unwind: "$user" },
+    ];
+
+    // Filter by country if provided
+    if (country && country !== "all") {
+      const countryCode = String(country).toUpperCase();
+      pipeline.push({
+        $match: {
+          "user.countryCode": countryCode,
+        },
+      });
+    }
+
+    // Add sorting, facet for count and pagination
+    pipeline.push(
+      { $sort: { createdAt: -1 } },
+      {
+        $facet: {
+          metadata: [{ $count: "total" }],
+          data: [{ $skip: skip }, { $limit: limitNum }],
+        },
       }
+    );
 
-      // Filter by gateway
-      const validGateways = ["ngenius", "stripe"];
-      if (
-        gateway &&
-        gateway !== "all" &&
-        validGateways.includes(String(gateway).toLowerCase())
-      ) {
-        query.gateway = String(gateway).toLowerCase();
-      }
+    const result = await Payment.aggregate(pipeline as any);
+    
+    const totalCount = result[0]?.metadata[0]?.total || 0;
+    let payments = result[0]?.data || [];
 
-      // Base query for payments with pagination
-      let payments = await Payment.find(query)
-        .populate("userId", "firstName lastName email")
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limitNum)
-        .lean();
-
-      // Get total count for pagination
-      const totalCount = await Payment.countDocuments(query);
-
-      // Apply search filter (client-side after population)
-      let filteredPayments = payments;
-      if (search) {
-        const searchLower = String(search).toLowerCase();
-        filteredPayments = payments.filter((payment) => {
-          const user = payment.userId as any;
-          const username = user
-            ? `${user.firstName} ${user.lastName || ""}`.trim()
-            : "Unknown";
-
-          return (
-            user?.email?.toLowerCase().includes(searchLower) ||
-            username.toLowerCase().includes(searchLower) ||
-            payment._id?.toString().includes(searchLower) ||
-            payment.orderRef?.toLowerCase().includes(searchLower) ||
-            payment.reference?.toLowerCase().includes(searchLower)
-          );
-        });
-      }
-
-      // Format response
-      const formattedPayments = filteredPayments.map((payment) => {
-        const user = payment.userId as any;
+    // Apply search filter (client-side after population)
+    let filteredPayments = payments;
+    if (search) {
+      const searchLower = String(search).toLowerCase();
+      filteredPayments = payments.filter((payment:any) => {
+        const user = payment.user;
         const username = user
           ? `${user.firstName} ${user.lastName || ""}`.trim()
           : "Unknown";
 
-        return {
-          _id: payment._id,
-          userId: payment.userId,
-          username,
-          email: user?.email || "N/A",
-          orderRef: payment.orderRef,
-          reference: payment.reference,
-          amount: payment.amount,
-          localAmount: payment.localAmount,
-          currency: payment.currency,
-          plan: payment.plan,
-          gateway: payment.gateway,
-          status: payment.status,
-          invoiceId: payment.invoiceId,
-          createdAt: payment.createdAt,
-          updatedAt: payment.updatedAt,
-          paymentMethod: payment.reference
-            ? `Visa ****${String(payment.reference).slice(-4)}`
-            : "N/A",
-        };
-      });
-
-      return res.status(200).json({
-        success: true,
-        payments: formattedPayments,
-        total: totalCount,
-        filteredCount: filteredPayments.length,
-        page: pageNum,
-        limit: limitNum,
-        totalPages: Math.ceil(totalCount / limitNum),
-        currentFilters: {
-          status: status || "all",
-          gateway: gateway || "all",
-          search: search || "",
-        },
-      });
-    } catch (error) {
-      console.error("❌ Error fetching all payments:", error);
-      return res.status(500).json({
-        success: false,
-        message: "Failed to fetch payments",
-        error: error instanceof Error ? error.message : "Unknown error",
+        return (
+          user?.email?.toLowerCase().includes(searchLower) ||
+          username.toLowerCase().includes(searchLower) ||
+          payment._id?.toString().includes(searchLower) ||
+          payment.orderRef?.toLowerCase().includes(searchLower) ||
+          payment.reference?.toLowerCase().includes(searchLower)
+        );
       });
     }
+
+    // Format response
+    const formattedPayments = filteredPayments.map((payment:any) => {
+      const user = payment.user;
+      const username = user
+        ? `${user.firstName} ${user.lastName || ""}`.trim()
+        : "Unknown";
+
+      return {
+        _id: payment._id,
+        userId: user._id,
+        username,
+        email: user?.email || "N/A",
+        country: user?.country || "N/A",
+        orderRef: payment.orderRef,
+        reference: payment.reference,
+        amount: payment.amount,
+        localAmount: payment.localAmount,
+        currency: payment.currency,
+        plan: payment.plan,
+        gateway: payment.gateway,
+        status: payment.status,
+        invoiceId: payment.invoiceId,
+        createdAt: payment.createdAt,
+        updatedAt: payment.updatedAt,
+        paymentMethod: payment.reference
+          ? `Visa ****${String(payment.reference).slice(-4)}`
+          : "N/A",
+      };
+    });
+
+    return res.status(200).json({
+      success: true,
+      payments: formattedPayments,
+      total: totalCount,
+      filteredCount: filteredPayments.length,
+      page: pageNum,
+      limit: limitNum,
+      totalPages: Math.ceil(totalCount / limitNum),
+      currentFilters: {
+        status: status || "all",
+        gateway: gateway || "all",
+        country: country || "all",
+        search: search || "",
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error fetching all payments:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch payments",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
   }
+}
+
+/**
+ * Export payments as CSV (Admin only)
+ */
+static async exportPaymentsCSV(req: Request, res: Response) {
+  try {
+    const { search, status, country } = req.query;
+
+    const query: any = {};
+
+    // Filter by status
+    const validStatuses = ["COMPLETED", "PENDING", "FAILED", "CANCELLED"];
+    if (
+      status &&
+      status !== "all" &&
+      validStatuses.includes(String(status).toUpperCase())
+    ) {
+      query.status = String(status).toUpperCase();
+    }
+
+    // Build aggregation pipeline
+    const pipeline: any[] = [
+      // Match payment filters (status)
+      { $match: query },
+      // Lookup user data
+      {
+        $lookup: {
+          from: "users",
+          localField: "userId",
+          foreignField: "_id",
+          as: "user",
+        },
+      },
+      // Unwind user array
+      { $unwind: "$user" },
+    ];
+
+    // Filter by country if provided
+    if (country && country !== "all") {
+      const countryCode = String(country).toUpperCase();
+      pipeline.push({
+        $match: {
+          "user.countryCode": countryCode,
+        },
+      });
+    }
+
+    // Add sorting
+    pipeline.push({ $sort: { createdAt: -1 } });
+
+    const payments = await Payment.aggregate(pipeline as any);
+
+    // Apply search filter (client-side after population)
+    let filteredPayments = payments;
+    if (search) {
+      const searchLower = String(search).toLowerCase();
+      filteredPayments = payments.filter((payment: any) => {
+        const user = payment.user;
+        const username = user
+          ? `${user.firstName} ${user.lastName || ""}`.trim()
+          : "Unknown";
+
+        return (
+          user?.email?.toLowerCase().includes(searchLower) ||
+          username.toLowerCase().includes(searchLower) ||
+          payment._id?.toString().includes(searchLower) ||
+          payment.orderRef?.toLowerCase().includes(searchLower) ||
+          payment.reference?.toLowerCase().includes(searchLower)
+        );
+      });
+    }
+
+    // Generate CSV
+    const headers = [
+      "Order Reference",
+      "Username",
+      "Email",
+      "Date",
+      "Plan",
+      "Amount",
+      "Currency",
+      "Status",
+      "Country",
+    ];
+
+    const rows = filteredPayments.map((payment: any) => {
+      const user = payment.user;
+      const username = user
+        ? `${user.firstName} ${user.lastName || ""}`.trim()
+        : "Unknown";
+
+      const formatDate = (dateString: string) => {
+        return new Date(dateString).toLocaleDateString("en-US", {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+        });
+      };
+
+      const formatPlanName = (planName: string) => {
+        if (!planName) return "N/A";
+        return planName
+          .split("-")
+          .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+          .join(" ");
+      };
+
+      const formatStatusLabel = (status: string) => {
+        return status.charAt(0).toUpperCase() + status.slice(1).toLowerCase();
+      };
+
+      return [
+        payment.orderRef || "N/A",
+        username,
+        user?.email || "N/A",
+        formatDate(payment.createdAt),
+        formatPlanName(payment.plan),
+        payment.amount?.toString() || "0",
+        payment.currency || "USD",
+        formatStatusLabel(payment.status),
+        user?.country || "N/A",
+      ];
+    });
+
+    // Escape CSV values
+    const escapeCSV = (value: string): string => {
+      const escaped = String(value).replace(/"/g, '""');
+      return escaped.includes(",") || escaped.includes('"') || escaped.includes("\n")
+        ? `"${escaped}"`
+        : escaped;
+    };
+
+    const csvContent = [
+      headers.join(","),
+      ...rows.map((row) => row.map(escapeCSV).join(",")),
+    ].join("\n");
+
+    // Set headers for file download
+    const filename = `payments_${new Date().toISOString().split("T")[0]}.csv`;
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+
+    return res.status(200).send(csvContent);
+  } catch (error) {
+    console.error("❌ Error exporting payments CSV:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to export payments CSV",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+}
 
   /**
    * Get admin dashboard statistics
