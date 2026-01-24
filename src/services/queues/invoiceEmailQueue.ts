@@ -16,7 +16,6 @@ export interface InvoiceEmailJob {
   invoicePDF: string; // Base64 encoded PDF string
 }
 
-console.log("🔧 DEBUG (invoiceEmailQueue.ts): REDIS_URL =", process.env.REDIS_URL);
 
 export const invoiceEmailQueue = new Queue<InvoiceEmailJob>(
   "invoice-emails",

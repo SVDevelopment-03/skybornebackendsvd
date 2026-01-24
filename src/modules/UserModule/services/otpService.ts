@@ -6,7 +6,7 @@ import sesClient from '../../../config/ses';
 import sgMail from "@sendgrid/mail";
 
 
-// sgMail.setApiKey(process.env.SENDGRID_API_KEY!);
+sgMail.setApiKey(process.env.SENDGRID_API_KEY!);
 
 
 export class OTPService {
@@ -28,72 +28,72 @@ export class OTPService {
 
 
 
-// static async sendEmailOTP(email: string, otp: string): Promise<void> {
-//   try {
-//     const msg = {
-//       to: email,
-//       from: {
-//         email: "info@skybornedrop.com",
-//         name: "Skyborne",
-//       },
-//       subject: "Your Skyborne Verification Code",
-//       html: `
-//         <html>
-//   <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-//     <div style="max-width: 500px; margin: auto; padding: 20px; border: 1px solid #eee; border-radius: 8px;">
-//       <h2 style="color: #2c3e50;">🔐 Email Verification Required</h2>
+static async sendEmailOTP(email: string, otp: string): Promise<void> {
+  try {
+    const msg = {
+      to: email,
+      from: {
+        email: "info@skybornedrop.com",
+        name: "Skyborne",
+      },
+      subject: "Your Skyborne Verification Code",
+      html: `
+        <html>
+  <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+    <div style="max-width: 500px; margin: auto; padding: 20px; border: 1px solid #eee; border-radius: 8px;">
+      <h2 style="color: #2c3e50;">🔐 Email Verification Required</h2>
 
-//       <p>Greetings from our team,</p>
+      <p>Greetings from our team,</p>
 
-//       <p>
-//         Thank you for registering with us. To complete your verification process,
-//         please use the One-Time Password (OTP) provided below:
-//       </p>
+      <p>
+        Thank you for registering with us. To complete your verification process,
+        please use the One-Time Password (OTP) provided below:
+      </p>
 
-//       <p style="font-size: 20px; font-weight: bold; color: #000;">
-//         Your OTP: <span style="color: #007BFF;">${otp}</span>
-//       </p>
+      <p style="font-size: 20px; font-weight: bold; color: #000;">
+        Your OTP: <span style="color: #007BFF;">${otp}</span>
+      </p>
 
-//       <p>
-//         This OTP will remain valid for <b>10 minutes</b>.  
-//         For your security, please do not share this code with anyone. Our team will never ask for your OTP.
-//       </p>
+      <p>
+        This OTP will remain valid for <b>10 minutes</b>.  
+        For your security, please do not share this code with anyone. Our team will never ask for your OTP.
+      </p>
 
-//       <p>If you did not request this verification, kindly ignore this email.</p>
+      <p>If you did not request this verification, kindly ignore this email.</p>
 
-//       <hr style="margin: 20px 0;">
+      <hr style="margin: 20px 0;">
 
-//       <p style="font-size: 12px; color: #888;">
-//         This is an automated message. Please do not reply.
-//       </p>
-//     </div>
-//   </body>
-// </html>
+      <p style="font-size: 12px; color: #888;">
+        This is an automated message. Please do not reply.
+      </p>
+    </div>
+  </body>
+</html>
 
-//       `,
-//     };
+      `,
+    };
 
-//     const response = await sgMail.send(msg);
+    const response = await sgMail.send(msg);
 
-//     logger.info(
-//       `OTP Email sent to: ${this.maskEmail(email)} | MessageID: ${response[0].headers["x-message-id"]}`
-//     );
+    logger.info(
+      `OTP Email sent to: ${this.maskEmail(email)} | MessageID: ${response[0].headers["x-message-id"]}`
+    );
 
-//   } catch (err: any) {
-//     logger.error(
-//       `Email OTP sending failed for ${this.maskEmail(email)} | Error: ${err.message}`
-//     );
+  } catch (err: any) {
+    logger.error(
+      `Email OTP sending failed for ${this.maskEmail(email)} | Error: ${err.message}`
+    );
 
-//     // Fallback — show OTP only in development
-//     if (process.env.NODE_ENV === "development") {
-//       console.log(`
-//       📩 Email OTP (development mode)
-//       Email: ${email}
-//       OTP: ${otp}
-//       `);
-//     }
-//   }
-// }
+    // Fallback — show OTP only in development
+    if (process.env.NODE_ENV === "development") {
+      console.log(`
+      📩 Email OTP (development mode)
+      Email: ${email}
+      OTP: ${otp}
+      `);
+    }
+  }
+}
 
 
 
@@ -141,12 +141,11 @@ export class OTPService {
     return ttl > 0 ? ttl : 0;
   }
 
-  /** Mask email for logs */
-  // private static maskEmail(email: string): string {
-  //   const [name, domain] = email.split('@');
-  //   const maskName = name[0] + '*'.repeat(name.length - 1);
-  //   return `${maskName}@${domain}`;
-  // }
+  private static maskEmail(email: string): string {
+    const [name, domain] = email.split('@');
+    const maskName = name[0] + '*'.repeat(name.length - 1);
+    return `${maskName}@${domain}`;
+  }
 
    private static transporter: nodemailer.Transporter;
 
@@ -161,85 +160,7 @@ export class OTPService {
     });
   }
 
-  // need to remove
-  static async sendEmailOTP(email: string, otp: string): Promise<void> {
-    try {
-      // Validate environment variables
-      if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
-        throw new Error("Gmail credentials not configured");
-      }
 
-      const mailOptions = {
-        from: {
-          name: "Skyborne",
-          address: process.env.GMAIL_USER, // Use Gmail account email
-        },
-        to: email,
-        subject: "Your Skyborne Verification Code",
-        html: `
-          <html>
-            <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-              <div style="max-width: 500px; margin: auto; padding: 20px; border: 1px solid #eee; border-radius: 8px;">
-                <h2 style="color: #2c3e50;">🔐 Email Verification Required</h2>
-
-                <p>Greetings from our team,</p>
-
-                <p>
-                  Thank you for registering with us. To complete your verification process,
-                  please use the One-Time Password (OTP) provided below:
-                </p>
-
-                <p style="font-size: 20px; font-weight: bold; color: #000;">
-                  Your OTP: <span style="color: #007BFF;">${otp}</span>
-                </p>
-
-                <p>
-                  This OTP will remain valid for <b>10 minutes</b>.  
-                  For your security, please do not share this code with anyone. Our team will never ask for your OTP.
-                </p>
-
-                <p>If you did not request this verification, kindly ignore this email.</p>
-
-                <hr style="margin: 20px 0;">
-
-                <p style="font-size: 12px; color: #888;">
-                  This is an automated message. Please do not reply.
-                </p>
-              </div>
-            </body>
-          </html>
-        `,
-      };
-
-      const response = await this.transporter.sendMail(mailOptions);
-
-      logger.info(
-        `OTP Email sent to: ${this.maskEmail(email)} | MessageID: ${response.messageId}`
-      );
-    } catch (err: any) {
-      logger.error(
-        `Email OTP sending failed for ${this.maskEmail(email)} | Error: ${err.message}`
-      );
-
-      // Fallback — show OTP only in development
-      if (process.env.NODE_ENV === "development") {
-        console.log(`
-        📩 Email OTP (development mode)
-        Email: ${email}
-        OTP: ${otp}
-        `);
-      }
-
-      throw err; // Re-throw so caller can handle
-    }
-  }
-
-  //need to remove
-  private static maskEmail(email: string): string {
-    const [localPart, domain] = email.split("@");
-    const masked = localPart.slice(0, 2) + "*".repeat(localPart.length - 2);
-    return `${masked}@${domain}`;
-  }
 
   // Test the connection
   static async verifyConnection(): Promise<boolean> {
