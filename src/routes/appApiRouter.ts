@@ -22,6 +22,7 @@ const publicApi = [
   "/faq",
   "/consultation",
   "/news-letter",
+  "/countries"
 ];
 
 appApiRoutes?.map(({ path, request, method, action,roles }: any) => {

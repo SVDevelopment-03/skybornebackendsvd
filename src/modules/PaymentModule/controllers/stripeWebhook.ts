@@ -64,7 +64,7 @@ router.post(
 
           await payment.save();
 
-          if (payment?.source == "web" || !payment?.source) break;
+          // if (payment?.source == "web" || !payment?.source) break;
 
           // 🔥 SINGLE SOURCE OF BUSINESS LOGIC
           await PaymentController.handleSuccessfulPayment(payment);

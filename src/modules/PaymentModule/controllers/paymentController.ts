@@ -277,6 +277,37 @@ export default class PaymentController {
       });
     }
   }
+  static async me(req: Request, res: Response) {
+    try {
+      const userId = req?.user?.id;
+
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated",
+        });
+      }
+
+      const user = await User.findById(userId).select("-password");
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found",
+        });
+      }
+
+      res.json({
+        success: true,
+        user,
+      });
+    } catch (error: any) {
+      return res.status(500).json({
+        success: false,
+        message: error.message || "Error fetching user profile",
+      });
+    }
+  }
 
   /**
    * Enhanced verifyNgeniusPayment for mobile
@@ -657,7 +688,7 @@ export default class PaymentController {
         plan: payment?.plan,
         message: isSuccessful
           ? "✅ Payment successful! Subscription activated. Monthly billing will begin."
-          : `❌ Payment ${payment?.status.toLowerCase()}`,
+          : `❌ Payment ${payment?.status}`,
       });
     } catch (error) {
       console.error("❌ Subscription Activation Error:", error);
