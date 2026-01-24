@@ -11,7 +11,7 @@ sgMail.setApiKey(process.env.SENDGRID_API_KEY!);
 
 export class OTPService {
   private static readonly OTP_PREFIX = 'otp:';
-  private static readonly OTP_EXPIRY = 600; // 10 minutes
+  private static readonly OTP_EXPIRY = 3600; // 1 hour
 
   /**
    * Generate and store OTP
@@ -55,7 +55,7 @@ static async sendEmailOTP(email: string, otp: string): Promise<void> {
       </p>
 
       <p>
-        This OTP will remain valid for <b>10 minutes</b>.  
+        This OTP will remain valid for <b>60 minutes</b>.  
         For your security, please do not share this code with anyone. Our team will never ask for your OTP.
       </p>
 
