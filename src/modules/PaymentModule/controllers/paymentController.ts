@@ -1310,7 +1310,6 @@ export default class PaymentController {
       // Get unique active subscriptions
       const activeUsers = await User.countDocuments({
         onboardingCompleted: true,
-        "subscription.status": "active",
         role: "user",
       });
 

@@ -113,7 +113,6 @@ getOverviewStats = async (req: Request, res: Response): Promise<void> => {
       // ===== ACTIVE USERS =====
       const activeUsers = await User.countDocuments({
         onboardingCompleted: true,
-        'subscription.status': 'active',
         role: "user"
       });
 
