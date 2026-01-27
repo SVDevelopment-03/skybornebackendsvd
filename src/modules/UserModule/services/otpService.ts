@@ -62,6 +62,9 @@ static async sendEmailOTP(email: string, otp: string): Promise<void> {
       <p>If you did not request this verification, kindly ignore this email.</p>
 
       <hr style="margin: 20px 0;">
+            <p style="font-size: 12px; color: #888;">
+      
+      </p>
 
       <p style="font-size: 12px; color: #888;">
         This is an automated message. Please do not reply.

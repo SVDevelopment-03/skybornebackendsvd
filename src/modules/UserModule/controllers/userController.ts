@@ -8,175 +8,186 @@ import Meeting from "../../MeetingModule/MeetingModels/Meeting";
 const userService = new UserService();
 
 export class UserController {
-// Original pagination endpoint
-static async getAll(req: Request, res: Response) {
-  try {
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 10;
-    const search = (req.query.search as string) || "";
-    const country = (req.query.country as string) || "";
-    const filter = (req.query.filter as string) || "";
+  // Original pagination endpoint
+  static async getAll(req: Request, res: Response) {
+    try {
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 10;
+      const search = (req.query.search as string) || "";
+      const country = (req.query.country as string) || "";
+      const filter = (req.query.filter as string) || "";
 
-    const skip = (page - 1) * limit;
+      const skip = (page - 1) * limit;
 
-    // Build query object
-    const query: any = {};
+      // Build query object
+      const query: any = { role: "user" };
+      query.onboardingCompleted = true;
 
-    // Filter by country code
-    if (country && country !== "all") {
-      query.countryCode = country.toUpperCase();
-    }
+      // Filter by country code
+      if (country && country !== "all") {
+        query.countryCode = country.toUpperCase();
+      }
 
-    // Build search query
-    let finalQuery = query;
+      // Build search query
+      let finalQuery = query;
 
-    if (search) {
-      const searchLower = search.toLowerCase();
-      finalQuery = {
-        ...query,
-        $or: [
-          { firstName: { $regex: searchLower, $options: "i" } },
-          { lastName: { $regex: searchLower, $options: "i" } },
-          { email: { $regex: searchLower, $options: "i" } },
-          { phoneNumber: { $regex: searchLower, $options: "i" } },
-        ],
-      };
-    }
+      if (search) {
+        const searchLower = search.toLowerCase();
+        finalQuery = {
+          ...query,
+          $or: [
+            { firstName: { $regex: searchLower, $options: "i" } },
+            { lastName: { $regex: searchLower, $options: "i" } },
+            { email: { $regex: searchLower, $options: "i" } },
+            { phoneNumber: { $regex: searchLower, $options: "i" } },
+          ],
+        };
+      }
 
-    // Fetch users with applied filters
-    const users = await User.find(finalQuery)
-      .select(
-        "_id firstName lastName email phoneNumber country countryCode plan isActive createdAt"
-      )
-      .skip(skip)
-      .limit(limit)
-      .sort({ createdAt: -1 })
-      .lean();
+      // Fetch users with applied filters
+      const users = await User.find(finalQuery)
+        .select(
+          "_id firstName lastName email phoneNumber country countryCode plan isActive createdAt",
+        )
+        .skip(skip)
+        .limit(limit)
+        .sort({ createdAt: -1 })
+        .lean();
 
-    // Get total count for pagination
-    const total = await User.countDocuments(finalQuery);
+      // Get total count for pagination
+      const total = await User.countDocuments(finalQuery);
 
-    return res.status(200).json({
-      success: true,
-      message: "Users fetched successfully",
-      data: {
-        users,
-        pagination: {
-          currentPage: page,
-          totalPages: Math.ceil(total / limit),
-          total,
-          limit,
+      return res.status(200).json({
+        success: true,
+        message: "Users fetched successfully",
+        data: {
+          users,
+          pagination: {
+            currentPage: page,
+            totalPages: Math.ceil(total / limit),
+            total,
+            limit,
+          },
         },
-      },
-    });
-  } catch (error) {
-    console.error("❌ Error fetching users:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to fetch users",
-      error: error instanceof Error ? error.message : "Unknown error",
-    });
+      });
+    } catch (error) {
+      console.error("❌ Error fetching users:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to fetch users",
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
   }
-}
 
-// =======================================
-// NEW: GET ALL USERS FOR EXPORT (NO PAGINATION)
-// =======================================
-// =======================================
-// EXPORT USERS AS CSV
-// =======================================
-static async exportUsersCSV(req: Request, res: Response) {
-  try {
-    const search = (req.query.search as string) || "";
-    const country = (req.query.country as string) || "";
+  // =======================================
+  // NEW: GET ALL USERS FOR EXPORT (NO PAGINATION)
+  // =======================================
+  // =======================================
+  // EXPORT USERS AS CSV
+  // =======================================
+  static async exportUsersCSV(req: Request, res: Response) {
+    try {
+      const search = (req.query.search as string) || "";
+      const country = (req.query.country as string) || "";
 
-    // Build query object
-    const query: any = {};
+      // Build query object
+      const query: any = { role: "user" };
+      query.onboardingCompleted = true;
 
-    // Filter by country code
-    if (country && country !== "all") {
-      query.countryCode = country.toUpperCase();
-    }
+      // Filter by country code
+      if (country && country !== "all") {
+        query.countryCode = country.toUpperCase();
+      }
 
-    // Build search query
-    let finalQuery = query;
+      // Build search query
+      let finalQuery = query;
 
-    if (search) {
-      const searchLower = search.toLowerCase();
-      finalQuery = {
-        ...query,
-        $or: [
-          { firstName: { $regex: searchLower, $options: "i" } },
-          { lastName: { $regex: searchLower, $options: "i" } },
-          { email: { $regex: searchLower, $options: "i" } },
-          { phoneNumber: { $regex: searchLower, $options: "i" } },
-        ],
-      };
-    }
+      if (search) {
+        const searchLower = search.toLowerCase();
+        finalQuery = {
+          ...query,
+          $or: [
+            { firstName: { $regex: searchLower, $options: "i" } },
+            { lastName: { $regex: searchLower, $options: "i" } },
+            { email: { $regex: searchLower, $options: "i" } },
+            { phoneNumber: { $regex: searchLower, $options: "i" } },
+          ],
+        };
+      }
 
-    // Fetch ALL users with applied filters
-    const users = await User.find(finalQuery)
-      .select(
-        "_id firstName lastName email phoneNumber country countryCode plan isActive createdAt"
-      )
-      .sort({ createdAt: -1 })
-      .lean();
+      // Fetch ALL users with applied filters
+      const users = await User.find(finalQuery)
+        .select(
+          "_id firstName lastName email phoneNumber country countryCode plan isActive createdAt",
+        )
+        .sort({ createdAt: -1 })
+        .lean();
 
-    // Generate CSV
-    const headers = [
-      "Name",
-      "Email",
-      "Phone",
-      "Country",
-      "Plan",
-      "Status",
-      "Created Date",
-    ];
+      // Generate CSV
+      const headers = [
+        "Name",
+        "Email",
+        "Phone",
+        "Country",
+        "Plan",
+        "Status",
+        "Created Date",
+      ];
 
-    const rows = users.map((user: any) => {
-      const name = `${user.firstName || ""} ${user.lastName || ""}`.trim() || "N/A";
-      const email = user?.email || "N/A";
-      const phone = user?.phoneNumber || "N/A";
-      const country = user?.country|| user?.countryCode || "N/A";
-      const plan = user.plan || "N/A";
-      const status = user.isActive ? "Active" : "Inactive";
-      const createdDate = new Date(user.createdAt).toLocaleDateString("en-US", {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
+      const rows = users.map((user: any) => {
+        const name =
+          `${user.firstName || ""} ${user.lastName || ""}`.trim() || "N/A";
+        const email = user?.email || "N/A";
+        const phone = user?.phoneNumber || "N/A";
+        const country = user?.country || user?.countryCode || "N/A";
+        const plan = user.plan || "N/A";
+        const status = user.isActive ? "Active" : "Inactive";
+        const createdDate = new Date(user.createdAt).toLocaleDateString(
+          "en-US",
+          {
+            year: "numeric",
+            month: "short",
+            day: "numeric",
+          },
+        );
+
+        return [name, email, phone, country, plan, status, createdDate];
       });
 
-      return [name, email, phone, country, plan, status, createdDate];
-    });
+      // Escape CSV values
+      const escapeCSV = (value: string): string => {
+        const escaped = String(value).replace(/"/g, '""');
+        return escaped.includes(",") ||
+          escaped.includes('"') ||
+          escaped.includes("\n")
+          ? `"${escaped}"`
+          : escaped;
+      };
 
-    // Escape CSV values
-    const escapeCSV = (value: string): string => {
-      const escaped = String(value).replace(/"/g, '""');
-      return escaped.includes(",") || escaped.includes('"') || escaped.includes("\n")
-        ? `"${escaped}"`
-        : escaped;
-    };
+      const csvContent = [
+        headers.join(","),
+        ...rows.map((row) => row.map(escapeCSV).join(",")),
+      ].join("\n");
 
-    const csvContent = [
-      headers.join(","),
-      ...rows.map((row) => row.map(escapeCSV).join(",")),
-    ].join("\n");
+      // Set headers for file download
+      const filename = `users_${new Date().toISOString().split("T")[0]}.csv`;
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${filename}"`,
+      );
 
-    // Set headers for file download
-    const filename = `users_${new Date().toISOString().split("T")[0]}.csv`;
-    res.setHeader("Content-Type", "text/csv");
-    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-
-    return res.status(200).send(csvContent);
-  } catch (error) {
-    console.error("❌ Error exporting users CSV:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to export users CSV",
-      error: error instanceof Error ? error.message : "Unknown error",
-    });
+      return res.status(200).send(csvContent);
+    } catch (error) {
+      console.error("❌ Error exporting users CSV:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to export users CSV",
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
   }
-}
 
   static async GetDashboardStats(req: Request, res: Response) {
     try {
@@ -298,11 +309,7 @@ static async exportUsersCSV(req: Request, res: Response) {
     }
   }
 
-  static async updateProfile(
-    req: Request,
-    res: Response,
-    next: NextFunction
-  ) {
+  static async updateProfile(req: Request, res: Response, next: NextFunction) {
     try {
       const userId = (req as any).user?.id;
       const payload = req.body;
@@ -320,7 +327,7 @@ static async exportUsersCSV(req: Request, res: Response) {
         "lastName",
         "phoneNumber",
         "country",
-        "status"
+        "status",
       ];
 
       // Filter payload to only include allowed fields
@@ -380,56 +387,55 @@ static async exportUsersCSV(req: Request, res: Response) {
   }
 
   static async updateUserStatus(req: Request, res: Response) {
-  try {
-    const { userId } = req.params;
-    const { status } = req.body;
+    try {
+      const { userId } = req.params;
+      const { status } = req.body;
 
-    // Validate status
-    const allowedStatuses = ["active", "inactive", "blocked"];
-    if (!allowedStatuses.includes(status)) {
-      return res.status(400).json({
+      // Validate status
+      const allowedStatuses = ["active", "inactive", "blocked"];
+      if (!allowedStatuses.includes(status)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid status value",
+        });
+      }
+
+      // Map status → isActive (since schema uses isActive)
+      const updatePayload: any = {
+        isActive: status === "active",
+      };
+
+      // Optional: store blocked users logic
+      if (status === "blocked") {
+        updatePayload.isActive = false;
+      }
+
+      const updatedUser = await User.findByIdAndUpdate(
+        userId,
+        { $set: updatePayload },
+        { new: true },
+      ).select("-password");
+
+      if (!updatedUser) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found",
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: "User status updated successfully",
+        data: updatedUser,
+      });
+    } catch (error: any) {
+      console.error("Error updating user status:", error);
+      return res.status(500).json({
         success: false,
-        message: "Invalid status value",
+        message: error.message || "Failed to update user status",
       });
     }
-
-    // Map status → isActive (since schema uses isActive)
-    const updatePayload: any = {
-      isActive: status === "active",
-    };
-
-    // Optional: store blocked users logic
-    if (status === "blocked") {
-      updatePayload.isActive = false;
-    }
-
-    const updatedUser = await User.findByIdAndUpdate(
-      userId,
-      { $set: updatePayload },
-      { new: true }
-    ).select("-password");
-
-    if (!updatedUser) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: "User status updated successfully",
-      data: updatedUser,
-    });
-  } catch (error: any) {
-    console.error("Error updating user status:", error);
-    return res.status(500).json({
-      success: false,
-      message: error.message || "Failed to update user status",
-    });
   }
-}
-
 }
 
 // Helper function to get display name for plans

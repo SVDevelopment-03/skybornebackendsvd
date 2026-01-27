@@ -112,12 +112,13 @@ getOverviewStats = async (req: Request, res: Response): Promise<void> => {
     try {
       // ===== ACTIVE USERS =====
       const activeUsers = await User.countDocuments({
-        isActive: true,
+        onboardingCompleted: true,
+        role: "user"
       });
 
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
       const previousMonthUsers = await User.countDocuments({
-        isActive: true,
+        onboardingCompleted: true,
         createdAt: { $lt: thirtyDaysAgo },
       });
 
@@ -452,7 +453,7 @@ getOverviewStats = async (req: Request, res: Response): Promise<void> => {
       // Add payments
       payments.forEach((payment: any) => {
         const userName = payment.userId?.firstName || "User";
-        const amount = (payment.amount / 100).toFixed(2);
+        const amount = (payment.amount).toFixed(2);
         activities.push({
           text: `Payment received from ${userName} - $${amount}`,
           time: getTimeAgo(payment.createdAt),

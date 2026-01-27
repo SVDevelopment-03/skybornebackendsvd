@@ -934,7 +934,7 @@ static async getAllPayments(req: Request, res: Response) {
     const limitNum = parseInt(limit as string) || 10;
     const skip = (pageNum - 1) * limitNum;
 
-    const query: any = {};
+    const query: any = { status: "COMPLETED" };
 
     // Filter by status
     const validStatuses = ["COMPLETED", "PENDING", "FAILED", "CANCELLED"];
@@ -1081,7 +1081,7 @@ static async exportPaymentsCSV(req: Request, res: Response) {
   try {
     const { search, status, country } = req.query;
 
-    const query: any = {};
+    const query: any = { status: "COMPLETED" };
 
     // Filter by status
     const validStatuses = ["COMPLETED", "PENDING", "FAILED", "CANCELLED"];
