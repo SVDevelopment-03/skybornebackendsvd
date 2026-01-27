@@ -490,9 +490,8 @@ export default class PaymentController {
       }
 
       console.log("sesssssssssssssiom", session.subscription);
-            const subscriptionId = session.subscription as string | null;
+      const subscriptionId = session.subscription as string | null;
 
-      
       // ✅ FIX: Mark that subscription is about to be activated
       // This flag prevents activateSubscription from being called twice
       payment = await Payment.findOneAndUpdate(
@@ -589,14 +588,13 @@ export default class PaymentController {
             status: "active",
           };
 
-            // ✅ CRITICAL: Store Stripe subscription ID for future cancellation
-        if (payment?.gateway === "stripe" && payment?.subscriptionId) {
-          user.stripeSubscriptionId = payment.subscriptionId;
-          console.log(
-            `✅ Stored Stripe subscription ID fffffff: ${payment.subscriptionId}`,
-          );
-        }
-
+          // ✅ CRITICAL: Store Stripe subscription ID for future cancellation
+          if (payment?.gateway === "stripe" && payment?.subscriptionId) {
+            user.stripeSubscriptionId = payment.subscriptionId;
+            console.log(
+              `✅ Stored Stripe subscription ID fffffff: ${payment.subscriptionId}`,
+            );
+          }
 
           // Update plan
           user.plan = plan;
@@ -923,308 +921,320 @@ export default class PaymentController {
     }
   }
 
-/**
- * Get all payments (Admin only)
- */
-static async getAllPayments(req: Request, res: Response) {
-  try {
-    const { search, status, gateway, country, page = 1, limit = 10 } = req.query;
+  /**
+   * Get all payments (Admin only)
+   */
+  static async getAllPayments(req: Request, res: Response) {
+    try {
+      const {
+        search,
+        status,
+        gateway,
+        country,
+        page = 1,
+        limit = 10,
+      } = req.query;
 
-    const pageNum = parseInt(page as string) || 1;
-    const limitNum = parseInt(limit as string) || 10;
-    const skip = (pageNum - 1) * limitNum;
+      const pageNum = parseInt(page as string) || 1;
+      const limitNum = parseInt(limit as string) || 10;
+      const skip = (pageNum - 1) * limitNum;
 
-    const query: any = { status: "COMPLETED" };
+      const query: any = { status: "COMPLETED" };
 
-    // Filter by status
-    const validStatuses = ["COMPLETED", "PENDING", "FAILED", "CANCELLED"];
-    if (
-      status &&
-      status !== "all" &&
-      validStatuses.includes(String(status).toUpperCase())
-    ) {
-      query.status = String(status).toUpperCase();
-    }
-
-    // Filter by gateway
-    const validGateways = ["ngenius", "stripe"];
-    if (
-      gateway &&
-      gateway !== "all" &&
-      validGateways.includes(String(gateway).toLowerCase())
-    ) {
-      query.gateway = String(gateway).toLowerCase();
-    }
-
-    // Build aggregation pipeline
-    const pipeline: any[] = [
-      // Match payment filters (status, gateway)
-      { $match: query },
-      // Lookup user data
-      {
-        $lookup: {
-          from: "users",
-          localField: "userId",
-          foreignField: "_id",
-          as: "user",
-        },
-      },
-      // Unwind user array
-      { $unwind: "$user" },
-    ];
-
-    // Filter by country if provided
-    if (country && country !== "all") {
-      const countryCode = String(country).toUpperCase();
-      pipeline.push({
-        $match: {
-          "user.countryCode": countryCode,
-        },
-      });
-    }
-
-    // Add sorting, facet for count and pagination
-    pipeline.push(
-      { $sort: { createdAt: -1 } },
-      {
-        $facet: {
-          metadata: [{ $count: "total" }],
-          data: [{ $skip: skip }, { $limit: limitNum }],
-        },
+      // Filter by status
+      const validStatuses = ["COMPLETED", "PENDING", "FAILED", "CANCELLED"];
+      if (
+        status &&
+        status !== "all" &&
+        validStatuses.includes(String(status).toUpperCase())
+      ) {
+        query.status = String(status).toUpperCase();
       }
-    );
 
-    const result = await Payment.aggregate(pipeline as any);
-    
-    const totalCount = result[0]?.metadata[0]?.total || 0;
-    let payments = result[0]?.data || [];
+      // Filter by gateway
+      const validGateways = ["ngenius", "stripe"];
+      if (
+        gateway &&
+        gateway !== "all" &&
+        validGateways.includes(String(gateway).toLowerCase())
+      ) {
+        query.gateway = String(gateway).toLowerCase();
+      }
 
-    // Apply search filter (client-side after population)
-    let filteredPayments = payments;
-    if (search) {
-      const searchLower = String(search).toLowerCase();
-      filteredPayments = payments.filter((payment:any) => {
-        const user = payment.user;
-        const username = user
-          ? `${user.firstName} ${user.lastName || ""}`.trim()
-          : "Unknown";
-
-        return (
-          user?.email?.toLowerCase().includes(searchLower) ||
-          username.toLowerCase().includes(searchLower) ||
-          payment._id?.toString().includes(searchLower) ||
-          payment.orderRef?.toLowerCase().includes(searchLower) ||
-          payment.reference?.toLowerCase().includes(searchLower)
-        );
-      });
-    }
-
-    // Format response
-    const formattedPayments = filteredPayments.map((payment:any) => {
-      const user = payment.user;
-      const username = user
-        ? `${user.firstName} ${user.lastName || ""}`.trim()
-        : "Unknown";
-
-      return {
-        _id: payment._id,
-        userId: user._id,
-        username,
-        email: user?.email || "N/A",
-        country: user?.country || "N/A",
-        orderRef: payment.orderRef,
-        reference: payment.reference,
-        amount: payment.amount,
-        localAmount: payment.localAmount,
-        currency: payment.currency,
-        plan: payment.plan,
-        gateway: payment.gateway,
-        status: payment.status,
-        invoiceId: payment.invoiceId,
-        createdAt: payment.createdAt,
-        updatedAt: payment.updatedAt,
-        paymentMethod: payment.reference
-          ? `Visa ****${String(payment.reference).slice(-4)}`
-          : "N/A",
-      };
-    });
-
-    return res.status(200).json({
-      success: true,
-      payments: formattedPayments,
-      total: totalCount,
-      filteredCount: filteredPayments.length,
-      page: pageNum,
-      limit: limitNum,
-      totalPages: Math.ceil(totalCount / limitNum),
-      currentFilters: {
-        status: status || "all",
-        gateway: gateway || "all",
-        country: country || "all",
-        search: search || "",
-      },
-    });
-  } catch (error) {
-    console.error("❌ Error fetching all payments:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to fetch payments",
-      error: error instanceof Error ? error.message : "Unknown error",
-    });
-  }
-}
-
-/**
- * Export payments as CSV (Admin only)
- */
-static async exportPaymentsCSV(req: Request, res: Response) {
-  try {
-    const { search, status, country } = req.query;
-
-    const query: any = { status: "COMPLETED" };
-
-    // Filter by status
-    const validStatuses = ["COMPLETED", "PENDING", "FAILED", "CANCELLED"];
-    if (
-      status &&
-      status !== "all" &&
-      validStatuses.includes(String(status).toUpperCase())
-    ) {
-      query.status = String(status).toUpperCase();
-    }
-
-    // Build aggregation pipeline
-    const pipeline: any[] = [
-      // Match payment filters (status)
-      { $match: query },
-      // Lookup user data
-      {
-        $lookup: {
-          from: "users",
-          localField: "userId",
-          foreignField: "_id",
-          as: "user",
+      // Build aggregation pipeline
+      const pipeline: any[] = [
+        // Match payment filters (status, gateway)
+        { $match: query },
+        // Lookup user data
+        {
+          $lookup: {
+            from: "users",
+            localField: "userId",
+            foreignField: "_id",
+            as: "user",
+          },
         },
-      },
-      // Unwind user array
-      { $unwind: "$user" },
-    ];
-
-    // Filter by country if provided
-    if (country && country !== "all") {
-      const countryCode = String(country).toUpperCase();
-      pipeline.push({
-        $match: {
-          "user.countryCode": countryCode,
-        },
-      });
-    }
-
-    // Add sorting
-    pipeline.push({ $sort: { createdAt: -1 } });
-
-    const payments = await Payment.aggregate(pipeline as any);
-
-    // Apply search filter (client-side after population)
-    let filteredPayments = payments;
-    if (search) {
-      const searchLower = String(search).toLowerCase();
-      filteredPayments = payments.filter((payment: any) => {
-        const user = payment.user;
-        const username = user
-          ? `${user.firstName} ${user.lastName || ""}`.trim()
-          : "Unknown";
-
-        return (
-          user?.email?.toLowerCase().includes(searchLower) ||
-          username.toLowerCase().includes(searchLower) ||
-          payment._id?.toString().includes(searchLower) ||
-          payment.orderRef?.toLowerCase().includes(searchLower) ||
-          payment.reference?.toLowerCase().includes(searchLower)
-        );
-      });
-    }
-
-    // Generate CSV
-    const headers = [
-      "Order Reference",
-      "Username",
-      "Email",
-      "Date",
-      "Plan",
-      "Amount",
-      "Currency",
-      "Status",
-      "Country",
-    ];
-
-    const rows = filteredPayments.map((payment: any) => {
-      const user = payment.user;
-      const username = user
-        ? `${user.firstName} ${user.lastName || ""}`.trim()
-        : "Unknown";
-
-      const formatDate = (dateString: string) => {
-        return new Date(dateString).toLocaleDateString("en-US", {
-          year: "numeric",
-          month: "short",
-          day: "numeric",
-        });
-      };
-
-      const formatPlanName = (planName: string) => {
-        if (!planName) return "N/A";
-        return planName
-          .split("-")
-          .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-          .join(" ");
-      };
-
-      const formatStatusLabel = (status: string) => {
-        return status.charAt(0).toUpperCase() + status.slice(1).toLowerCase();
-      };
-
-      return [
-        payment.orderRef || "N/A",
-        username,
-        user?.email || "N/A",
-        formatDate(payment.createdAt),
-        formatPlanName(payment.plan),
-        payment.amount?.toString() || "0",
-        payment.currency || "USD",
-        formatStatusLabel(payment.status),
-        user?.country || "N/A",
+        // Unwind user array
+        { $unwind: "$user" },
       ];
-    });
 
-    // Escape CSV values
-    const escapeCSV = (value: string): string => {
-      const escaped = String(value).replace(/"/g, '""');
-      return escaped.includes(",") || escaped.includes('"') || escaped.includes("\n")
-        ? `"${escaped}"`
-        : escaped;
-    };
+      // Filter by country if provided
+      if (country && country !== "all") {
+        const countryCode = String(country).toUpperCase();
+        pipeline.push({
+          $match: {
+            "user.countryCode": countryCode,
+          },
+        });
+      }
 
-    const csvContent = [
-      headers.join(","),
-      ...rows.map((row) => row.map(escapeCSV).join(",")),
-    ].join("\n");
+      // Add sorting, facet for count and pagination
+      pipeline.push(
+        { $sort: { createdAt: -1 } },
+        {
+          $facet: {
+            metadata: [{ $count: "total" }],
+            data: [{ $skip: skip }, { $limit: limitNum }],
+          },
+        },
+      );
 
-    // Set headers for file download
-    const filename = `payments_${new Date().toISOString().split("T")[0]}.csv`;
-    res.setHeader("Content-Type", "text/csv");
-    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      const result = await Payment.aggregate(pipeline as any);
 
-    return res.status(200).send(csvContent);
-  } catch (error) {
-    console.error("❌ Error exporting payments CSV:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to export payments CSV",
-      error: error instanceof Error ? error.message : "Unknown error",
-    });
+      const totalCount = result[0]?.metadata[0]?.total || 0;
+      let payments = result[0]?.data || [];
+
+      // Apply search filter (client-side after population)
+      let filteredPayments = payments;
+      if (search) {
+        const searchLower = String(search).toLowerCase();
+        filteredPayments = payments.filter((payment: any) => {
+          const user = payment.user;
+          const username = user
+            ? `${user.firstName} ${user.lastName || ""}`.trim()
+            : "Unknown";
+
+          return (
+            user?.email?.toLowerCase().includes(searchLower) ||
+            username.toLowerCase().includes(searchLower) ||
+            payment._id?.toString().includes(searchLower) ||
+            payment.orderRef?.toLowerCase().includes(searchLower) ||
+            payment.reference?.toLowerCase().includes(searchLower)
+          );
+        });
+      }
+
+      // Format response
+      const formattedPayments = filteredPayments.map((payment: any) => {
+        const user = payment.user;
+        const username = user
+          ? `${user.firstName} ${user.lastName || ""}`.trim()
+          : "Unknown";
+
+        return {
+          _id: payment._id,
+          userId: user._id,
+          username,
+          email: user?.email || "N/A",
+          country: user?.country || "N/A",
+          orderRef: payment.orderRef,
+          reference: payment.reference,
+          amount: payment.amount,
+          localAmount: payment.localAmount,
+          currency: payment.currency,
+          plan: payment.plan,
+          gateway: payment.gateway,
+          status: payment.status,
+          invoiceId: payment.invoiceId,
+          createdAt: payment.createdAt,
+          updatedAt: payment.updatedAt,
+          paymentMethod: payment.reference
+            ? `Visa ****${String(payment.reference).slice(-4)}`
+            : "N/A",
+        };
+      });
+
+      return res.status(200).json({
+        success: true,
+        payments: formattedPayments,
+        total: totalCount,
+        filteredCount: filteredPayments.length,
+        page: pageNum,
+        limit: limitNum,
+        totalPages: Math.ceil(totalCount / limitNum),
+        currentFilters: {
+          status: status || "all",
+          gateway: gateway || "all",
+          country: country || "all",
+          search: search || "",
+        },
+      });
+    } catch (error) {
+      console.error("❌ Error fetching all payments:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to fetch payments",
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
   }
-}
+
+  /**
+   * Export payments as CSV (Admin only)
+   */
+  static async exportPaymentsCSV(req: Request, res: Response) {
+    try {
+      const { search, status, country } = req.query;
+
+      const query: any = { status: "COMPLETED" };
+
+      // Filter by status
+      const validStatuses = ["COMPLETED", "PENDING", "FAILED", "CANCELLED"];
+      if (
+        status &&
+        status !== "all" &&
+        validStatuses.includes(String(status).toUpperCase())
+      ) {
+        query.status = String(status).toUpperCase();
+      }
+
+      // Build aggregation pipeline
+      const pipeline: any[] = [
+        // Match payment filters (status)
+        { $match: query },
+        // Lookup user data
+        {
+          $lookup: {
+            from: "users",
+            localField: "userId",
+            foreignField: "_id",
+            as: "user",
+          },
+        },
+        // Unwind user array
+        { $unwind: "$user" },
+      ];
+
+      // Filter by country if provided
+      if (country && country !== "all") {
+        const countryCode = String(country).toUpperCase();
+        pipeline.push({
+          $match: {
+            "user.countryCode": countryCode,
+          },
+        });
+      }
+
+      // Add sorting
+      pipeline.push({ $sort: { createdAt: -1 } });
+
+      const payments = await Payment.aggregate(pipeline as any);
+
+      // Apply search filter (client-side after population)
+      let filteredPayments = payments;
+      if (search) {
+        const searchLower = String(search).toLowerCase();
+        filteredPayments = payments.filter((payment: any) => {
+          const user = payment.user;
+          const username = user
+            ? `${user.firstName} ${user.lastName || ""}`.trim()
+            : "Unknown";
+
+          return (
+            user?.email?.toLowerCase().includes(searchLower) ||
+            username.toLowerCase().includes(searchLower) ||
+            payment._id?.toString().includes(searchLower) ||
+            payment.orderRef?.toLowerCase().includes(searchLower) ||
+            payment.reference?.toLowerCase().includes(searchLower)
+          );
+        });
+      }
+
+      // Generate CSV
+      const headers = [
+        "Order Reference",
+        "Username",
+        "Email",
+        "Date",
+        "Plan",
+        "Amount",
+        "Currency",
+        "Status",
+        "Country",
+      ];
+
+      const rows = filteredPayments.map((payment: any) => {
+        const user = payment.user;
+        const username = user
+          ? `${user.firstName} ${user.lastName || ""}`.trim()
+          : "Unknown";
+
+        const formatDate = (dateString: string) => {
+          return new Date(dateString).toLocaleDateString("en-US", {
+            year: "numeric",
+            month: "short",
+            day: "numeric",
+          });
+        };
+
+        const formatPlanName = (planName: string) => {
+          if (!planName) return "N/A";
+          return planName
+            .split("-")
+            .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(" ");
+        };
+
+        const formatStatusLabel = (status: string) => {
+          return status.charAt(0).toUpperCase() + status.slice(1).toLowerCase();
+        };
+
+        return [
+          payment.orderRef || "N/A",
+          username,
+          user?.email || "N/A",
+          formatDate(payment.createdAt),
+          formatPlanName(payment.plan),
+          payment.amount?.toString() || "0",
+          payment.currency || "USD",
+          formatStatusLabel(payment.status),
+          user?.country || "N/A",
+        ];
+      });
+
+      // Escape CSV values
+      const escapeCSV = (value: string): string => {
+        const escaped = String(value).replace(/"/g, '""');
+        return escaped.includes(",") ||
+          escaped.includes('"') ||
+          escaped.includes("\n")
+          ? `"${escaped}"`
+          : escaped;
+      };
+
+      const csvContent = [
+        headers.join(","),
+        ...rows.map((row) => row.map(escapeCSV).join(",")),
+      ].join("\n");
+
+      // Set headers for file download
+      const filename = `payments_${new Date().toISOString().split("T")[0]}.csv`;
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${filename}"`,
+      );
+
+      return res.status(200).send(csvContent);
+    } catch (error) {
+      console.error("❌ Error exporting payments CSV:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to export payments CSV",
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  }
 
   /**
    * Get admin dashboard statistics
@@ -1299,7 +1309,9 @@ static async exportPaymentsCSV(req: Request, res: Response) {
 
       // Get unique active subscriptions
       const activeUsers = await User.countDocuments({
+        onboardingCompleted: true,
         "subscription.status": "active",
+        role: "user",
       });
 
       // Revenue by gateway
@@ -1354,68 +1366,165 @@ static async exportPaymentsCSV(req: Request, res: Response) {
     }
   }
 
-// ✅ CORRECTED IMPLEMENTATION
+  // ✅ CORRECTED IMPLEMENTATION
 
-/**
- * Cancel subscription for a user
- * Works with both Stripe and nGenius gateways
- */
-static async cancelSubscription(req: Request, res: Response) {
-  try {
-    const { userId } = req.params;
+  /**
+   * Cancel subscription for a user
+   * Works with both Stripe and nGenius gateways
+   */
+  static async cancelSubscription(req: Request, res: Response) {
+    try {
+      const { userId } = req.params;
 
-    if (!userId) {
-      return res.status(400).json({
+      if (!userId) {
+        return res.status(400).json({
+          success: false,
+          message: "User ID is required",
+        });
+      }
+
+      const user = await User.findById(userId);
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found",
+        });
+      }
+
+      // Check if user has an active subscription
+      if (!user.subscription || user.subscription.status !== "active") {
+        return res.status(400).json({
+          success: false,
+          message: "No active subscription found to cancel",
+        });
+      }
+
+      console.log(`📋 Cancelling subscription for user ${userId}`);
+
+      const gateway = user.gateway || user.lastPaymentGateway;
+
+      // Cancel based on gateway
+      if (gateway === "stripe") {
+        // ✅ Use stripeSubscriptionId from user
+        if (!user.stripeSubscriptionId) {
+          // Fallback: Get from payment record
+          const payment = await Payment.findOne({
+            userId: user._id,
+            gateway: "stripe",
+            status: "COMPLETED",
+          }).sort({ createdAt: -1 });
+
+          if (!payment?.subscriptionId) {
+            return res.status(400).json({
+              success: false,
+              message: "No active Stripe subscription found",
+            });
+          }
+
+          await StripeService.cancelSubscription(payment.subscriptionId);
+        } else {
+          await StripeService.cancelSubscription(user.stripeSubscriptionId);
+        }
+      } else if (gateway === "ngenius") {
+        // For nGenius, mark payments as cancelled
+        await Payment.updateMany(
+          {
+            userId: user._id,
+            gateway: "ngenius",
+            status: { $in: ["PENDING", "COMPLETED"] },
+          },
+          {
+            status: "CANCELLED",
+            cancelledAt: new Date(),
+          },
+        );
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: "Unable to determine payment gateway for cancellation",
+        });
+      }
+
+      // ✅ Update user subscription status (single operation)
+      const updatedUser = await User.findByIdAndUpdate(
+        userId,
+        {
+          "subscription.status": "cancelled",
+          "subscription.cancelledAt": new Date(),
+          // Optional: Clear the subscription ID on cancel
+          stripeSubscriptionId: null,
+        },
+        { new: true },
+      );
+
+      console.log(`✅ Subscription cancelled for user ${userId}`);
+
+      return res.status(200).json({
+        success: true,
+        message: "Subscription cancelled successfully",
+        subscription: {
+          status: updatedUser?.subscription?.status,
+          cancelledAt: updatedUser?.subscription?.cancelledAt,
+          plan: updatedUser?.plan,
+        },
+      });
+    } catch (error) {
+      console.error("❌ Cancel subscription error:", error);
+      return res.status(500).json({
         success: false,
-        message: "User ID is required",
+        message: "Failed to cancel subscription",
+        error: error instanceof Error ? error.message : "Unknown error",
       });
     }
+  }
 
-    const user = await User.findById(userId);
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
-
-    // Check if user has an active subscription
-    if (!user.subscription || user.subscription.status !== "active") {
-      return res.status(400).json({
-        success: false,
-        message: "No active subscription found to cancel",
-      });
-    }
-
-    console.log(`📋 Cancelling subscription for user ${userId}`);
-
-    const gateway = user.gateway || user.lastPaymentGateway;
-
-    // Cancel based on gateway
-    if (gateway === "stripe") {
-      // ✅ Use stripeSubscriptionId from user
+  /**
+   * Cancel Stripe subscription
+   */
+  private static async cancelStripeSubscription(user: any) {
+    try {
       if (!user.stripeSubscriptionId) {
-        // Fallback: Get from payment record
-        const payment = await Payment.findOne({
+        throw new Error(`No Stripe subscription ID found for user ${user._id}`);
+      }
+
+      // Cancel the subscription at Stripe
+      const cancelledSubscription = await StripeService.cancelSubscription(
+        user.stripeSubscriptionId,
+      );
+
+      console.log(
+        `✅ Stripe subscription cancelled: ${user.stripeSubscriptionId}`,
+      );
+
+      // Mark related payments as cancelled
+      await Payment.updateMany(
+        {
           userId: user._id,
           gateway: "stripe",
-          status: "COMPLETED",
-        }).sort({ createdAt: -1 });
+          status: { $in: ["PENDING", "COMPLETED"] },
+        },
+        {
+          status: "CANCELLED",
+          cancelledAt: new Date(),
+        },
+      );
 
-        if (!payment?.subscriptionId) {
-          return res.status(400).json({
-            success: false,
-            message: "No active Stripe subscription found",
-          });
-        }
+      console.log(
+        `✅ Stripe payments marked as cancelled for user ${user._id}`,
+      );
+    } catch (error) {
+      console.error("❌ Error cancelling Stripe subscription:", error);
+      throw error;
+    }
+  }
 
-        await StripeService.cancelSubscription(payment.subscriptionId);
-      } else {
-        await StripeService.cancelSubscription(user.stripeSubscriptionId);
-      }
-    } else if (gateway === "ngenius") {
-      // For nGenius, mark payments as cancelled
-      await Payment.updateMany(
+  /**
+   * Cancel nGenius subscription
+   */
+  private static async cancelNgeniusSubscription(user: any) {
+    try {
+      // For nGenius, stop processing recurring charges
+      const result = await Payment.updateMany(
         {
           userId: user._id,
           gateway: "ngenius",
@@ -1424,116 +1533,19 @@ static async cancelSubscription(req: Request, res: Response) {
         {
           status: "CANCELLED",
           cancelledAt: new Date(),
-        }
+          isRecurring: false, // Stop recurring charges
+        },
       );
-    } else {
-      return res.status(400).json({
-        success: false,
-        message: "Unable to determine payment gateway for cancellation",
-      });
+
+      console.log(
+        `✅ nGenius payments marked as cancelled for user ${user._id}:`,
+        result.modifiedCount,
+      );
+    } catch (error) {
+      console.error("❌ Error cancelling nGenius subscription:", error);
+      throw error;
     }
-
-    // ✅ Update user subscription status (single operation)
-    const updatedUser = await User.findByIdAndUpdate(
-      userId,
-      {
-        "subscription.status": "cancelled",
-        "subscription.cancelledAt": new Date(),
-        // Optional: Clear the subscription ID on cancel
-        stripeSubscriptionId: null,
-      },
-      { new: true }
-    );
-
-    console.log(`✅ Subscription cancelled for user ${userId}`);
-
-    return res.status(200).json({
-      success: true,
-      message: "Subscription cancelled successfully",
-      subscription: {
-        status: updatedUser?.subscription?.status,
-        cancelledAt: updatedUser?.subscription?.cancelledAt,
-        plan: updatedUser?.plan,
-      },
-    });
-  } catch (error) {
-    console.error("❌ Cancel subscription error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to cancel subscription",
-      error: error instanceof Error ? error.message : "Unknown error",
-    });
   }
-}
-
-/**
- * Cancel Stripe subscription
- */
-private static async cancelStripeSubscription(user: any) {
-  try {
-    if (!user.stripeSubscriptionId) {
-      throw new Error(`No Stripe subscription ID found for user ${user._id}`);
-    }
-
-    // Cancel the subscription at Stripe
-    const cancelledSubscription = await StripeService.cancelSubscription(
-      user.stripeSubscriptionId
-    );
-
-    console.log(
-      `✅ Stripe subscription cancelled: ${user.stripeSubscriptionId}`
-    );
-
-    // Mark related payments as cancelled
-    await Payment.updateMany(
-      {
-        userId: user._id,
-        gateway: "stripe",
-        status: { $in: ["PENDING", "COMPLETED"] },
-      },
-      {
-        status: "CANCELLED",
-        cancelledAt: new Date(),
-      }
-    );
-
-    console.log(
-      `✅ Stripe payments marked as cancelled for user ${user._id}`
-    );
-  } catch (error) {
-    console.error("❌ Error cancelling Stripe subscription:", error);
-    throw error;
-  }
-}
-
-/**
- * Cancel nGenius subscription
- */
-private static async cancelNgeniusSubscription(user: any) {
-  try {
-    // For nGenius, stop processing recurring charges
-    const result = await Payment.updateMany(
-      {
-        userId: user._id,
-        gateway: "ngenius",
-        status: { $in: ["PENDING", "COMPLETED"] },
-      },
-      {
-        status: "CANCELLED",
-        cancelledAt: new Date(),
-        isRecurring: false, // Stop recurring charges
-      }
-    );
-
-    console.log(
-      `✅ nGenius payments marked as cancelled for user ${user._id}:`,
-      result.modifiedCount
-    );
-  } catch (error) {
-    console.error("❌ Error cancelling nGenius subscription:", error);
-    throw error;
-  }
-}
   /**
    * Verify mobile payment - Called by React Native app after user closes payment browser
    * Supports both Stripe and nGenius
