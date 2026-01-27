@@ -8,15 +8,22 @@ export const contentData = [
   {
     question: "How do I sign up?",
     answer:
-      "Create an account using your email and phone, verify it with the OTP, choose you wellness plan  and your account will be activated.",
+      "Create an account using your email and phone number, verify it with the OTP, choose your wellness plan, and your account will be activated.",
+    videoUrl: "https://skyborne-images.s3.ap-south-1.amazonaws.com/signup.mp4",
   },
   {
     question: "How do I subscribe?",
     answer:
-      "After logging in, open packages section, choose a package, and complete your payment.",
+      "After logging in, open the Packages section, choose a package, and complete the payment.",
+  },
+  {
+    question: "How can I change or reset my password?",
+    answer:
+      "On the login screen, click the “Forgot Password” option and follow the steps to reset your password.",
+    videoUrl:
+      "https://skyborne-images.s3.ap-south-1.amazonaws.com/forgot-password.mp4",
   },
 ];
-
 
 const start = async () => {
   try {

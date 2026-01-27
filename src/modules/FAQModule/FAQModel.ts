@@ -16,6 +16,11 @@ const faqSchema = new Schema<IFaq>(
       required: true,
       trim: true,
     },
+    videoUrl: {
+      type: String,
+      required: false,
+      trim: true,
+    },
   },
   { timestamps: true }
 );

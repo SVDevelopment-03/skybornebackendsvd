@@ -2,4 +2,5 @@
 export interface IFaq extends Document {
   question: string;
   answer: string;
+  videoUrl?: string;
 }
