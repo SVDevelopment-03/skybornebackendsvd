@@ -75,35 +75,35 @@ router.post(
         /**
          * ⚠️ RECURRING PAYMENT FAILED
          */
-        case "invoice.payment_failed": {
-          const invoice = event.data.object as Stripe.Invoice;
+        // case "invoice.payment_failed": {
+        //   const invoice = event.data.object as Stripe.Invoice;
 
-          // ✅ Stripe typings workaround
-          const subscriptionId =
-            typeof (invoice as any).subscription === "string"
-              ? (invoice as any).subscription
-              : (invoice as any).subscription?.id;
+        //   // ✅ Stripe typings workaround
+        //   const subscriptionId =
+        //     typeof (invoice as any).subscription === "string"
+        //       ? (invoice as any).subscription
+        //       : (invoice as any).subscription?.id;
 
-          if (!subscriptionId) break;
+        //   if (!subscriptionId) break;
 
-          const payment = await Payment.findOne({ subscriptionId });
-          if (!payment) break;
+        //   const payment = await Payment.findOne({ subscriptionId });
+        //   if (!payment) break;
 
-          payment.status = "FAILED";
-          payment.billingAttempt = (payment.billingAttempt || 0) + 1;
-          payment.gatewayResponse = invoice;
+        //   payment.status = "FAILED";
+        //   payment.billingAttempt = (payment.billingAttempt || 0) + 1;
+        //   payment.gatewayResponse = invoice;
 
-          await payment.save();
+        //   await payment.save();
 
-          if (payment.userId) {
-            await User.findByIdAndUpdate(payment.userId, {
-              "subscription.status": "suspended",
-              "subscription.suspendedAt": new Date(),
-            });
-          }
+        //   if (payment.userId) {
+        //     await User.findByIdAndUpdate(payment.userId, {
+        //       "subscription.status": "suspended",
+        //       "subscription.suspendedAt": new Date(),
+        //     });
+        //   }
 
-          break;
-        }
+        //   break;
+        // }
 
         default:
           console.log("ℹ️ Unhandled Stripe event:", event.type);

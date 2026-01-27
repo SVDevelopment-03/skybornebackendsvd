@@ -964,7 +964,7 @@ export default class PaymentController {
       // Build aggregation pipeline
       const pipeline: any[] = [
         // Match payment filters (status, gateway)
-        { $match: query },
+        { $match: { status: "COMPLETED" } },
         // Lookup user data
         {
           $lookup: {
@@ -1086,22 +1086,10 @@ export default class PaymentController {
     try {
       const { search, status, country } = req.query;
 
-      const query: any = { status: "COMPLETED" };
-
-      // Filter by status
-      const validStatuses = ["COMPLETED", "PENDING", "FAILED", "CANCELLED"];
-      if (
-        status &&
-        status !== "all" &&
-        validStatuses.includes(String(status).toUpperCase())
-      ) {
-        query.status = String(status).toUpperCase();
-      }
-
       // Build aggregation pipeline
       const pipeline: any[] = [
         // Match payment filters (status)
-        { $match: query },
+        { $match: { status: "COMPLETED" } },
         // Lookup user data
         {
           $lookup: {
