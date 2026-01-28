@@ -1036,6 +1036,7 @@ export default class PaymentController {
           userId: user._id,
           username,
           email: user?.email || "N/A",
+          stripeSubscriptionId: user?.stripeSubscriptionId || "N/A",
           country: user?.country || "N/A",
           orderRef: payment.orderRef,
           reference: payment.reference,

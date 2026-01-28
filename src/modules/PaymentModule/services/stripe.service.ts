@@ -76,6 +76,7 @@ export class StripeService {
       if (!user) throw new Error("User not found");
 
       const orderRef = `STR-${Date.now()}`;
+    const customInvoiceNumber = `INV-${Date.now()}`;
 
        const successUrl =
       source === "app"
@@ -110,13 +111,14 @@ export class StripeService {
           },
         ],
 
-        customer_email: user.email,
+        customer_email: user.email,       
 
         metadata: {
           userId,
           plan,
           orderRef,
           userAmount: userAmount.toString(),
+          customInvoiceNumber,
         },
 
         success_url:successUrl,
