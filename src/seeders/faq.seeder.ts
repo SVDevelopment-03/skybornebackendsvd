@@ -21,7 +21,7 @@ export const contentData = [
     answer:
       "On the login screen, click the “Forgot Password” option and follow the steps to reset your password.",
     videoUrl:
-      "https://skyborne-images.s3.ap-south-1.amazonaws.com/forgot-password.mp4",
+      "https://skyborne-images.s3.ap-south-1.amazonaws.com/forgot-password2.mp4",
   },
 ];
 

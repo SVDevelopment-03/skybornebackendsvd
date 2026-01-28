@@ -1,4 +1,5 @@
 import { AdminRoutes } from "../modules/AdminModule/admin.route";
+import { CancelSubscriptionRoute } from "../modules/CancelSubscriptionModule/CancelSubscriptionRoute";
 import { ConsultationRoute } from "../modules/ConsultationModule/ConsultationRoute";
 import { CountryRoute } from "../modules/CountryModule/country.route";
 import { FAQRoute } from "../modules/FAQModule/FAQRoute";
@@ -27,6 +28,7 @@ const appApiRoutes: any = [
   ...AdminRoutes,
   ...RegionRoute,
   ...FeedbackRoute,
+  ...CancelSubscriptionRoute
 ];
 
 export default appApiRoutes;
