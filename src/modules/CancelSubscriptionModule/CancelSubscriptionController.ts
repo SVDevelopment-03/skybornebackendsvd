@@ -42,7 +42,7 @@ class CancelSubscriptionController {
       // Fetch cancel subscriptions with applied filters
       const cancelSubscriptions = await CancelSubscriptionModel.find(finalQuery)
         .select(
-          "_id subscriptionId firstName lastName email userId isCancelled description createdAt"
+          "_id subscriptionId firstName lastName email userId isCancelled description createdAt plan"
         )
         .skip(skip)
         .limit(limit)
@@ -90,7 +90,7 @@ class CancelSubscriptionController {
 
       // Find user by userId
       const user = await User.findById(userId).select(
-        "_id firstName lastName email stripeSubscriptionId"
+        "_id firstName lastName email stripeSubscriptionId plan"
       );
 
       if (!user) {
@@ -123,6 +123,7 @@ class CancelSubscriptionController {
         lastName: user.lastName,
         email: user.email,
         userId,
+        plan: (user as any)?.plan || "",
         description: description || "",
         isCancelled: false,
       });

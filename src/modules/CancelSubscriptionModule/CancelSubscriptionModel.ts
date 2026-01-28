@@ -10,6 +10,7 @@ export interface ICancelSubscription extends Document {
   createdAt?: Date;
   updatedAt?: Date;
   description: string;
+  plan?: string;
 }
 
 import mongoose, { Schema } from "mongoose";
@@ -25,6 +26,11 @@ const cancelSubscriptionSchema = new Schema<ICancelSubscription>(
     firstName: {
       type: String,
       required: true,
+      trim: true,
+    },
+    plan: {
+      type: String,
+      required: false,
       trim: true,
     },
     lastName: {
