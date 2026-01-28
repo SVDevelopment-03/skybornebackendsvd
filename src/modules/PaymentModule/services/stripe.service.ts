@@ -76,8 +76,6 @@ export class StripeService {
       if (!user) throw new Error("User not found");
 
       const orderRef = `STR-${Date.now()}`;
-    const customInvoiceNumber = `INV-${Date.now()}`;
-
        const successUrl =
       source === "app"
         ? "skybornedrop://payment-processing" 
@@ -117,10 +115,9 @@ export class StripeService {
           userId,
           plan,
           orderRef,
-          userAmount: userAmount.toString(),
-          customInvoiceNumber,
+          userAmount: userAmount.toString()
         },
-
+        
         success_url:successUrl,
         cancel_url: cancelUrl,
       } as Stripe.Checkout.SessionCreateParams);
