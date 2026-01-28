@@ -7,11 +7,13 @@ export interface ICancelSubscription extends Document {
   email: string;
   userId: string;
   isCancelled: boolean;
+  cancelledAt?: Date;   // ✅ ADD THIS
   createdAt?: Date;
   updatedAt?: Date;
   description: string;
   plan?: string;
 }
+
 
 import mongoose, { Schema } from "mongoose";
 
@@ -54,6 +56,10 @@ const cancelSubscriptionSchema = new Schema<ICancelSubscription>(
       required: true,
       default: false,
     },
+    cancelledAt: {          // ✅ ADD THIS
+      type: Date,
+      required: false,
+    },
     description: {
       type: String,
       required: false,
@@ -62,6 +68,7 @@ const cancelSubscriptionSchema = new Schema<ICancelSubscription>(
   },
   { timestamps: true }
 );
+
 
 // 3️⃣ Export Model
 export default mongoose.model<ICancelSubscription>(

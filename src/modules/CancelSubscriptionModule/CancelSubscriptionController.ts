@@ -42,7 +42,7 @@ class CancelSubscriptionController {
       // Fetch cancel subscriptions with applied filters
       const cancelSubscriptions = await CancelSubscriptionModel.find(finalQuery)
         .select(
-          "_id subscriptionId firstName lastName email userId isCancelled description createdAt plan"
+          "_id subscriptionId firstName lastName email userId isCancelled description createdAt plan cancelledAt"
         )
         .skip(skip)
         .limit(limit)
@@ -114,8 +114,7 @@ class CancelSubscriptionController {
       }
 
       // Generate subscriptionId (can be customized as per your needs)
-      const subscriptionId = `SUB-${userId}-${Date.now()}`;
-
+        const subscriptionId = user.stripeSubscriptionId || null;
       // Create new cancel subscription record
       const newCancelSubscription = await CancelSubscriptionModel.create({
         subscriptionId,

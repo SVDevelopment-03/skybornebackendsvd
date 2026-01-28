@@ -16,6 +16,7 @@ import {
   isGatewaySupported,
 } from "../../../config/paymentGatewayConfig";
 import { getIO } from "../../../config/socket";
+import CancelSubscriptionModel from "../../CancelSubscriptionModule/CancelSubscriptionModel";
 
 type PreferedType = "stripe" | "ngenius";
 
@@ -1443,6 +1444,16 @@ export default class PaymentController {
           stripeSubscriptionId: null,
         },
         { new: true },
+      );
+
+      const updateCancelRequest = await CancelSubscriptionModel.findOneAndUpdate(
+        { userId },
+        {
+          subscriptionId: updatedUser?.stripeSubscriptionId || null,
+          isCancelled: true,
+          cancelledAt: new Date(),
+        },
+        { new: true }
       );
 
       console.log(`✅ Subscription cancelled for user ${userId}`);
