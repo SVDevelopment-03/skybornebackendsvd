@@ -4,6 +4,7 @@ import User from "../models/User";
 import MeetingAttendance from "../../MeetingModule/MeetingModels/MeetingAttendance";
 import Service from "../../ServiceModule/models/Service";
 import Meeting from "../../MeetingModule/MeetingModels/Meeting";
+import extractPhoneDetails from "../../../utils/extractPhoneDetail";
 
 const userService = new UserService();
 
@@ -325,7 +326,7 @@ export class UserController {
       const allowedFields = [
         "firstName",
         "lastName",
-        "phoneNumber",
+        "phone",
         "country",
         "status",
       ];
@@ -334,18 +335,25 @@ export class UserController {
       const updateData: any = {};
       allowedFields.forEach((field) => {
         if (payload[field] !== undefined) {
-          // Map 'phone' from frontend to 'phoneNumber' in backend
-          const dbField = field === "phone" ? "phoneNumber" : field;
-          updateData[dbField] = payload[field];
+          if (field === "phone") {
+            // Extract phone details
+            const { dialingCode, localNumber, countryCode, country } =
+              extractPhoneDetails(payload.phone);
+
+            updateData.phoneNumber = payload.phone;     
+            updateData.dialingCode = dialingCode;       
+            updateData.localNumber = localNumber;     
+            updateData.countryCode = countryCode;     
+            updateData.country = country;             
+          } else {
+            updateData[field] = payload[field];
+          }
         }
       });
 
       // Prevent email from being updated
       if (payload.email) {
-        return res.status(400).json({
-          success: false,
-          message: "Email cannot be changed",
-        });
+        updateData.email = payload.email;
       }
 
       // Prevent password from being updated via this endpoint
