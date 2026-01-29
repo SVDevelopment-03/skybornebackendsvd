@@ -47,7 +47,6 @@ dotenv.config();
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!;
-console.log("App Webhook secret:", webhookSecret);
 
 app.use('/webhooks', stripeWebhook);
 
@@ -91,7 +90,6 @@ emailQueue.on('error', (err) => {
 
 try {
   PaymentController.initPaymentSystems();
-  console.log('✅ All payment systems ready');
 } catch (error) {
   console.error('❌ Error initializing payment systems:', error);
   process.exit(1);

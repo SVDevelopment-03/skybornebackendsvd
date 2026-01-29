@@ -26,7 +26,6 @@ export const verifyPermission = (
 
     // Get allowed roles for this route
     const allowedRoles = routePermissions[currentPath];
-    console.log("AAA", allowedRoles,req.user);
     
 
     // Check if user's role is in allowed roles

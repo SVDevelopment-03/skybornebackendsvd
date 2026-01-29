@@ -187,7 +187,6 @@ export class StripeService {
         );
 
         if (payment) {
-          console.log(`✅ Order fulfilled for session ${sessionId}`);
           return payment;
         }
       }
@@ -219,7 +218,6 @@ export class StripeService {
       user.stripeCustomerId = customer.id;
       await user.save();
 
-      console.log(`✅ Stripe customer created: ${customer.id}`);
       return customer.id;
     } catch (error) {
       console.error("❌ Error creating Stripe customer:", error);
@@ -283,8 +281,6 @@ export class StripeService {
         },
       });
 
-      console.log(`💳 Stripe payment intent created: ${paymentIntent.id}`);
-
       return {
         clientSecret: paymentIntent.client_secret || "",
         reference: paymentIntent.id,
@@ -345,8 +341,6 @@ export class StripeService {
         expand: ["latest_invoice.payment_intent"],
       });
 
-      console.log(`📅 Stripe subscription created: ${subscription.id}`);
-
       // latest_invoice can be a string ID or an Invoice object; use a safe cast and a type guard to access payment_intent
       const latestInvoice = subscription.latest_invoice as
         | Stripe.Invoice
@@ -388,10 +382,6 @@ export class StripeService {
 
       const customerId = await this.getOrCreateCustomer(user);
       const orderRef = `STR-REC-${Date.now()}`;
-
-      console.log(
-        `💳 Charging user ${userId} for plan ${plan}: ${amount / 100} ${currency}`,
-      );
 
       // Get default payment method
       const paymentMethods = await this.stripe.paymentMethods.list({
@@ -440,8 +430,6 @@ export class StripeService {
         gatewayResponse: { paymentIntentId: paymentIntent.id },
       });
 
-      console.log(`📝 Recurring payment created: ${payment._id}`);
-
       // Verify payment after delay
       setTimeout(() => {
         this.verifyRecurringPayment(paymentIntent.id, userId, plan);
@@ -453,9 +441,9 @@ export class StripeService {
       );
 
       if (retryAttempt < (config.maxRetries || 3)) {
-        console.log(
-          `🔄 Retrying in ${config.retryDelayMs}ms... (Attempt ${retryAttempt + 2}/${(config.maxRetries || 3) + 1})`,
-        );
+        // console.log(
+        //   `🔄 Retrying in ${config.retryDelayMs}ms... (Attempt ${retryAttempt + 2}/${(config.maxRetries || 3) + 1})`,
+        // );
 
         setTimeout(() => {
           this.chargeRecurringPayment(
@@ -510,8 +498,6 @@ export class StripeService {
       payment.verifiedAt = new Date();
       await payment.save();
 
-      console.log(`✅ Recurring payment verified - Status: ${paymentStatus}`);
-
       if (paymentStatus === "COMPLETED") {
         const user = await User.findById(userId);
         if (user && user.subscription) {
@@ -520,7 +506,6 @@ export class StripeService {
           );
           await user.save();
 
-          console.log(`🎉 Subscription renewed for user ${userId}`);
         }
       } else {
         await this.notifyPaymentFailure(userId, plan);
@@ -534,14 +519,14 @@ export class StripeService {
    * Initialize recurring payment cron job
    */
   static initRecurringPaymentCron() {
-    console.log("🔄 Initializing Stripe recurring payment cron job...");
+    // console.log("🔄 Initializing Stripe recurring payment cron job...");
 
     cron.schedule("0 2 * * *", async () => {
-      console.log("⏰ Running Stripe recurring payment check...");
+      // console.log("⏰ Running Stripe recurring payment check...");
       await this.processRecurringPayments();
     });
 
-    console.log("✅ Stripe recurring payment cron job initialized");
+    // console.log("✅ Stripe recurring payment cron job initialized");
   }
 
   //   static initRecurringPaymentCron() {
@@ -570,7 +555,7 @@ export class StripeService {
       const billingDay = config.billingCycleDay || 1;
       const today = new Date().getDate();
 
-      console.log(`📅 Billing day: ${billingDay}, Today: ${today}`);
+      // console.log(`📅 Billing day: ${billingDay}, Today: ${today}`);
 
       // if (today !== billingDay) {
       //   console.log(`⏭️ Not billing day yet. Next billing on: ${billingDay}`);
@@ -584,7 +569,7 @@ export class StripeService {
         gateway: "stripe",
       });
 
-      console.log(`📊 Found ${activeUsers.length} active Stripe subscriptions`);
+      // console.log(`📊 Found ${activeUsers.length} active Stripe subscriptions`);
 
       for (const user of activeUsers) {
         try {
@@ -600,7 +585,6 @@ export class StripeService {
         }
       }
 
-      console.log("✅ Stripe recurring payment processing completed");
     } catch (error) {
       console.error("❌ Error in processRecurringPayments:", error);
     }
@@ -617,7 +601,6 @@ export class StripeService {
         user.subscription.suspendedAt = new Date();
         await user.save();
 
-        console.log(`⛔ Subscription suspended for user ${userId}`);
         await this.notifySubscriptionSuspended(userId);
       }
     } catch (error) {
@@ -655,7 +638,7 @@ export class StripeService {
     try {
       const user = await User.findById(userId);
       if (user && user.email) {
-        console.log(`📧 Sending payment failure notification to ${user.email}`);
+        // console.log(`📧 Sending payment failure notification to ${user.email}`);
         // Implement email notification here
       }
     } catch (error) {
@@ -670,7 +653,7 @@ export class StripeService {
     try {
       const user = await User.findById(userId);
       if (user && user.email) {
-        console.log(`📧 Sending suspension notification to ${user.email}`);
+        // console.log(`📧 Sending suspension notification to ${user.email}`);
         // Implement email notification here
       }
     } catch (error) {
@@ -684,7 +667,6 @@ export class StripeService {
   static async cancelSubscription(subscriptionId: string): Promise<void> {
     try {
       await this.stripe.subscriptions.cancel(subscriptionId);
-      console.log(`✅ Stripe subscription cancelled: ${subscriptionId}`);
     } catch (error) {
       console.error(`❌ Error cancelling Stripe subscription:`, error);
       throw error;

@@ -17,12 +17,7 @@ const _countryRepository = new CountryRepository();
 export default class MeetingController {
 static async CreateMeeting(req: Request, res: Response) {
     try {
-      console.log("🚀 [CreateMeeting] Starting meeting creation process");
-      console.log("📝 [CreateMeeting] Request body:", req.body);
-
       const token = await getZoomAccessToken();
-      console.log("✅ [CreateMeeting] Zoom access token retrieved", token);
-
       const {
         service,
         title,
@@ -38,22 +33,6 @@ static async CreateMeeting(req: Request, res: Response) {
         adminId,
         weeklyEndDate,
       } = req.body;
-
-      console.log("📋 [CreateMeeting] Extracted parameters:", {
-        service,
-        title,
-        liveRegion,
-        liveTime,
-        trainer,
-        duration,
-        autoRecording,
-        rotationEnabled,
-        startDate,
-        localTime,
-        regions,
-        adminId,
-        weeklyEndDate,
-      });
 
       // Validate required fields
       if (
@@ -77,11 +56,8 @@ static async CreateMeeting(req: Request, res: Response) {
         });
       }
 
-      console.log("✅ [CreateMeeting] All required fields validated");
-
       // Generate meeting topic
       const topic = `${title} - Live Class`;
-      console.log("📌 [CreateMeeting] Meeting topic generated:", topic);
 
       const startDateTime = new Date(localTime);
 
@@ -94,11 +70,11 @@ static async CreateMeeting(req: Request, res: Response) {
       const minutes = String(startDateTime.getUTCMinutes()).padStart(2, "0");
       const startTimeForZoom = `${hours}:${minutes}`;
 
-      console.log("⏰ [CreateMeeting] Recurrence settings:", {
-        zoomWeekDay,
-        startTimeForZoom,
-        weeklyEndDate: weeklyEndDate || "No end date (unlimited)",
-      });
+      // console.log("⏰ [CreateMeeting] Recurrence settings:", {
+      //   zoomWeekDay,
+      //   startTimeForZoom,
+      //   weeklyEndDate: weeklyEndDate || "No end date (unlimited)",
+      // });
 
       // Build recurrence object
       const recurrenceSettings: any = {
@@ -145,35 +121,14 @@ static async CreateMeeting(req: Request, res: Response) {
           },
         }
       );
-      console.log("✅ [CreateMeeting] Zoom API response received");
-      console.log(
-        "📊 [CreateMeeting] Zoom response status:",
-        zoomResponse.status
-      );
 
       const meetingId = zoomResponse.data.id;
       const password = zoomResponse.data.password;
-      const occurrences = zoomResponse.data.occurrences;
-
-      console.log("🎯 [CreateMeeting] Meeting created on Zoom:", {
-        meetingId,
-        password,
-        isRecurring: true,
-        occurrences: occurrences?.length || 0,
-      });
+      const occurrences = zoomResponse.data.occurrences; 
 
       // Web client URLs
       const webJoinUrl = `https://app.zoom.us/wc/${meetingId}/join?pwd=${password}&browser=1`;
       const webStartUrl = `https://app.zoom.us/wc/${meetingId}/start?pwd=${password}&browser=1`;
-
-      console.log("🔗 [CreateMeeting] Generated URLs:", {
-        webJoinUrl,
-        webStartUrl,
-      });
-
-      // Save parent meeting record
-      console.log("💾 [CreateMeeting] Saving parent meeting to database...");
-      console.log("📍 [CreateMeeting] Regions data:", regions);
 
       const meetingRecord = await Meeting.create({
         zoomMeetingId: meetingId,
@@ -197,16 +152,16 @@ static async CreateMeeting(req: Request, res: Response) {
         weeklyEndDate: weeklyEndDate ? new Date(weeklyEndDate) : null,
       });
 
-      console.log("✅ [CreateMeeting] Parent meeting saved to DB:", {
-        id: meetingRecord._id,
-        zoomMeetingId: meetingRecord.zoomMeetingId,
-        isLive: meetingRecord.isLive,
-        regionsCount: meetingRecord.regions.length,
-        title: meetingRecord.title,
-      });
+      // console.log("✅ [CreateMeeting] Parent meeting saved to DB:", {
+      //   id: meetingRecord._id,
+      //   zoomMeetingId: meetingRecord.zoomMeetingId,
+      //   isLive: meetingRecord.isLive,
+      //   regionsCount: meetingRecord.regions.length,
+      //   title: meetingRecord.title,
+      // });
 
       // Store all recurring instances in database
-      console.log("📦 [CreateMeeting] Storing recurring instances...");
+      // console.log("📦 [CreateMeeting] Storing recurring instances...");
       const storedInstances: any[] = [];
 
       if (occurrences && occurrences.length > 0) {
@@ -242,7 +197,7 @@ static async CreateMeeting(req: Request, res: Response) {
               startTime: occurrence.start_time,
             });
 
-            console.log(`  ✅ Instance saved: ${occurrence.occurrence_id} - ${occurrence.start_time}`);
+            // console.log(`  ✅ Instance saved: ${occurrence.occurrence_id} - ${occurrence.start_time}`);
           } catch (error: any) {
             console.error(
               `  ❌ Error saving instance ${occurrence.occurrence_id}:`,
@@ -252,27 +207,21 @@ static async CreateMeeting(req: Request, res: Response) {
         }
       }
 
-      console.log(
-        `📊 [CreateMeeting] Successfully stored ${storedInstances.length} recurring instances`
-      );
-
-      console.log("📊 [CreateMeeting] Regions breakdown:");
-      meetingRecord.regions.forEach((region) => {
-        console.log(`  - ${region.region}: ${region.mode}`);
-      });
+      // meetingRecord.regions.forEach((region) => {
+      //   console.log(`  - ${region.region}: ${region.mode}`);
+      // });
 
       const responseMessage = `Weekly recurring meeting "${title}" created successfully. Live session for ${liveRegion}. Recording available for other regions.`;
 
-      console.log("📤 [CreateMeeting] Sending success response");
-      console.log("📊 [CreateMeeting] Response summary:", {
-        meetingId: meetingRecord._id,
-        title: meetingRecord.title,
-        regionsCount: meetingRecord.regions.length,
-        isRecurring: true,
-        nextOccurrences: occurrences?.length || 0,
-        storedInstances: storedInstances.length,
-        message: responseMessage,
-      });
+      // console.log("📊 [CreateMeeting] Response summary:", {
+      //   meetingId: meetingRecord._id,
+      //   title: meetingRecord.title,
+      //   regionsCount: meetingRecord.regions.length,
+      //   isRecurring: true,
+      //   nextOccurrences: occurrences?.length || 0,
+      //   storedInstances: storedInstances.length,
+      //   message: responseMessage,
+      // });
 
       return res.json({
         success: true,
@@ -308,7 +257,7 @@ static async GetUpcomingMeetings(req: Request, res: Response) {
     const skipNum = parseInt(skip as string) || 0;
     const limitNum = parseInt(limit as string) || 10;
 
-    console.log("search:", search, "skip:", skipNum, "limit:", limitNum);
+    // console.log("search:", search, "skip:", skipNum, "limit:", limitNum);
     
     const userId = req.user?.id;
 
@@ -394,7 +343,6 @@ static async GetUpcomingMeetings(req: Request, res: Response) {
   static async GetTodaysMeetings(req: Request, res: Response) {
     try {
       const { search = "" } = req?.query;
-            console.log("search" , search);
 
       const userId = req.user?.id; // Assuming user is attached to request
 
@@ -485,7 +433,7 @@ static async GetPastSessions(req: Request, res: Response) {
     const skipNum = parseInt(skip as string) || 0;
     const limitNum = parseInt(limit as string) || 10;
 
-    console.log("search:", search, "skip:", skipNum, "limit:", limitNum);
+    // console.log("search:", search, "skip:", skipNum, "limit:", limitNum);
 
     const userId = req.user?.id;
 
@@ -852,7 +800,7 @@ static async getWeeklyActivity  (req: Request, res: Response)  {
         accessUrl = meeting?.recordingUrl;
       }
 
-      console.log("meeting id", meeting.zoomMeetingId);
+      // console.log("meeting id", meeting.zoomMeetingId);
 
       const participantRecord = await MeetingParticipant.create({
         meetingId,
@@ -1019,7 +967,6 @@ static async getWeeklyActivity  (req: Request, res: Response)  {
   static async GetMonthlyAttendance(req: Request, res: Response) {
     try {
       const userId = req.user?.id;
-      console.log("user", userId);
 
       const { period = "6months" } = req.query;
 
@@ -1070,8 +1017,6 @@ static async getWeeklyActivity  (req: Request, res: Response)  {
           },
         },
       ]);
-
-      console.log("monthlyData", monthlyData);
 
       // Format the response with month names
       const monthNames = [
@@ -1240,7 +1185,6 @@ static async getWeeklyActivity  (req: Request, res: Response)  {
 
   static async UpdateMeeting(req: Request, res: Response) {
     try {
-      console.log("🚀 [UpdateMeeting] Starting meeting update process");
       const { id } = req.params;
 
       // Validate MongoDB ID
@@ -1265,18 +1209,18 @@ static async getWeeklyActivity  (req: Request, res: Response)  {
         regions,
       } = req.body;
 
-      console.log("📋 [UpdateMeeting] Extracted parameters:", {
-        service,
-        title,
-        liveRegion,
-        liveTime,
-        trainer,
-        duration,
-        autoRecording,
-        rotationEnabled,
-        startDate,
-        localTime,
-      });
+      // console.log("📋 [UpdateMeeting] Extracted parameters:", {
+      //   service,
+      //   title,
+      //   liveRegion,
+      //   liveTime,
+      //   trainer,
+      //   duration,
+      //   autoRecording,
+      //   rotationEnabled,
+      //   startDate,
+      //   localTime,
+      // });
 
       // Validate required fields
       if (
@@ -1309,7 +1253,7 @@ static async getWeeklyActivity  (req: Request, res: Response)  {
         });
       }
 
-      console.log("✅ [UpdateMeeting] Meeting found, updating fields...");
+      // console.log("✅ [UpdateMeeting] Meeting found, updating fields...");
 
       // Update meeting fields
       meeting.service = service;
@@ -1354,7 +1298,6 @@ static async getWeeklyActivity  (req: Request, res: Response)  {
           }
         );
 
-        console.log("✅ [UpdateMeeting] Zoom meeting updated successfully");
       } catch (zoomError: any) {
         console.error(
           "⚠️ [UpdateMeeting] Error updating Zoom meeting:",
@@ -1366,11 +1309,10 @@ static async getWeeklyActivity  (req: Request, res: Response)  {
       // Save the meeting
       await meeting.save();
 
-      console.log("✅ [UpdateMeeting] Meeting saved to database");
-      console.log(
-        "📊 [UpdateMeeting] Updated regions count:",
-        meeting.regions.length
-      );
+      // console.log(
+      //   "📊 [UpdateMeeting] Updated regions count:",
+      //   meeting.regions.length
+      // );
 
       const responseMessage = `Meeting "${title}" updated successfully. Live session for ${liveRegion}.`;
 
@@ -1396,7 +1338,6 @@ static async getWeeklyActivity  (req: Request, res: Response)  {
 
   static async DeleteMeeting(req: Request, res: Response) {
     try {
-      console.log("🚀 [DeleteMeeting] Starting meeting deletion process");
       const { id } = req.params;
 
       // Validate MongoDB ID
@@ -1427,7 +1368,6 @@ static async getWeeklyActivity  (req: Request, res: Response)  {
             },
           }
         );
-        console.log("✅ [DeleteMeeting] Zoom meeting deleted successfully");
       } catch (zoomError: any) {
         console.error(
           "⚠️ [DeleteMeeting] Error deleting Zoom meeting:",
@@ -1435,8 +1375,6 @@ static async getWeeklyActivity  (req: Request, res: Response)  {
         );
         // Don't fail if Zoom deletion fails
       }
-
-      console.log("✅ [DeleteMeeting] Meeting deleted from database");
 
       return res.json({
         success: true,
@@ -1456,7 +1394,6 @@ static async getWeeklyActivity  (req: Request, res: Response)  {
 
   static async GetAllTrainerMeetings(req: Request, res: Response) {
     try {
-      console.log("🚀 [GetAllMeetings] Starting to fetch all meetings");
 
       const {
         search = "",
@@ -1481,8 +1418,6 @@ static async getWeeklyActivity  (req: Request, res: Response)  {
         });
       }
 
-      console.log("👤 [GetAllMeetings] Fetching user:", userId);
-
       // Fetch user to get their trainer reference
       const user = await User.findById(userId).select("_id name email trainer");
 
@@ -1494,12 +1429,10 @@ static async getWeeklyActivity  (req: Request, res: Response)  {
         });
       }
 
-      console.log("✅ [GetAllMeetings] User fetched:", {
-        id: user._id,
-        name: user.firstName,
-      });
-
-      console.log("user", user);
+      // console.log("✅ [GetAllMeetings] User fetched:", {
+      //   id: user._id,
+      //   name: user.firstName,
+      // });
 
       // Get trainer ID from user's trainer reference
       const trainerId = user.trainer;
@@ -1511,8 +1444,6 @@ static async getWeeklyActivity  (req: Request, res: Response)  {
           message: "No trainer assigned to this user",
         });
       }
-
-      console.log("👨‍🏫 [GetAllMeetings] Trainer ID found:", trainerId);
 
       // Fetch trainer details
       const trainer = await TrainerModel.findById(trainerId).select(
@@ -1527,43 +1458,35 @@ static async getWeeklyActivity  (req: Request, res: Response)  {
         });
       }
 
-      console.log("✅ [GetAllMeetings] Trainer fetched:", {
-        id: trainer._id,
-        name: trainer.firstName,
-      });
+      // console.log("✅ [GetAllMeetings] Trainer fetched:", {
+      //   id: trainer._id,
+      //   name: trainer.firstName,
+      // });
 
       // Build filter object
       const filter: any = {};
 
       // Filter by trainer (get only assigned trainer's meetings)
       filter.trainer = trainerId;
-      console.log("👨‍🏫 [GetAllMeetings] Trainer filter applied:", trainerId);
 
       // Search by title
       if (search) {
         filter.title = { $regex: search, $options: "i" };
-        console.log("🔍 [GetAllMeetings] Search filter applied:", search);
       }
 
       // Filter by service if provided
       if (service) {
         filter.service = service;
-        console.log("🎯 [GetAllMeetings] Service filter applied:", service);
       }
 
       // Filter by isLive status
       if (isLive !== undefined) {
         filter.isLive = isLive === "true";
-        console.log("📡 [GetAllMeetings] Live status filter applied:", isLive);
       }
 
       // Filter by isRecurring status
       if (isRecurring !== undefined) {
         filter.isRecurring = isRecurring === "true";
-        console.log(
-          "🔄 [GetAllMeetings] Recurring status filter applied:",
-          isRecurring
-        );
       }
 
       // Filter by date range
@@ -1571,11 +1494,9 @@ static async getWeeklyActivity  (req: Request, res: Response)  {
         filter.localTime = {};
         if (startDate) {
           filter.localTime.$gte = new Date(startDate as string);
-          console.log("📅 [GetAllMeetings] Start date filter applied:", startDate);
         }
         if (endDate) {
           filter.localTime.$lte = new Date(endDate as string);
-          console.log("📅 [GetAllMeetings] End date filter applied:", endDate);
         }
       }
 
@@ -1584,11 +1505,11 @@ static async getWeeklyActivity  (req: Request, res: Response)  {
       const limitNum = Math.min(parseInt(limit as string) || 10, 100); // Max 100 per page
       const skip = (pageNum - 1) * limitNum;
 
-      console.log("📄 [GetAllMeetings] Pagination:", {
-        page: pageNum,
-        limit: limitNum,
-        skip,
-      });
+      // console.log("📄 [GetAllMeetings] Pagination:", {
+      //   page: pageNum,
+      //   limit: limitNum,
+      //   skip,
+      // });
 
       // Build sort object
       const sortObj: any = {};
@@ -1596,12 +1517,10 @@ static async getWeeklyActivity  (req: Request, res: Response)  {
       const sortDir = sortOrder === "desc" ? -1 : 1;
       sortObj[sortField as string] = sortDir;
 
-      console.log("🔀 [GetAllMeetings] Sort settings:", sortObj);
-
-      console.log(
-        "📊 [GetAllMeetings] Final filter object:",
-        JSON.stringify(filter, null, 2)
-      );
+      // console.log(
+      //   "📊 [GetAllMeetings] Final filter object:",
+      //   JSON.stringify(filter, null, 2)
+      // );
 
       // Execute query with pagination
       const [meetings, totalCount] = await Promise.all([
@@ -1616,23 +1535,23 @@ static async getWeeklyActivity  (req: Request, res: Response)  {
         Meeting.countDocuments(filter),
       ]);
 
-      console.log("✅ [GetAllMeetings] Meetings fetched:", {
-        returned: meetings.length,
-        total: totalCount,
-        page: pageNum,
-      });
+      // console.log("✅ [GetAllMeetings] Meetings fetched:", {
+      //   returned: meetings.length,
+      //   total: totalCount,
+      //   page: pageNum,
+      // });
 
       // Calculate pagination metadata
       const totalPages = Math.ceil(totalCount / limitNum);
       const hasNextPage = pageNum < totalPages;
       const hasPrevPage = pageNum > 1;
 
-      console.log("📊 [GetAllMeetings] Pagination metadata:", {
-        totalPages,
-        hasNextPage,
-        hasPrevPage,
-        currentPage: pageNum,
-      });
+      // console.log("📊 [GetAllMeetings] Pagination metadata:", {
+      //   totalPages,
+      //   hasNextPage,
+      //   hasPrevPage,
+      //   currentPage: pageNum,
+      // });
 
       res.setHeader("Cache-Control", "no-store");
 

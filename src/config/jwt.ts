@@ -28,10 +28,8 @@ export const verifyToken = (token: string): TokenPayload => {
 };
 
 export const verifyRefreshToken = (token: string): TokenPayload => {
-  console.log("toke", token);
   
   const verify= jwt.verify(token, JWT_REFRESH_SECRET) as TokenPayload;
-  console.log("verify", verify);
   return verify
 };
 

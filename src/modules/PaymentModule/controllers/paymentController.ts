@@ -38,9 +38,7 @@ export default class PaymentController {
   static async createPaymentOrder(req: Request, res: Response) {
     try {
       let { amount, currency = "USD", userId, plan, source } = req.body;
-      console.log("this is the userid and the plan:- ", userId, plan);
       //    amount = 0.011
-      console.log("this is the request body:- ", req.body);
       const paymentSource = source === "app" ? "app" : "web";
       const userAmount = amount;
 
@@ -66,19 +64,11 @@ export default class PaymentController {
         paymentSource == "app" ? "stripe" : getPreferredGateway(countryCode);
       // const preferredGateway: PreferedType = "stripe";
 
-      console.log(
-        `🌍 Country: ${countryCode}, Preferred Gateway: ${preferredGateway}`,
-      );
-
       if (preferredGateway === "ngenius" && currency === "USD") {
         const rate = await getUsdToAedRate();
         amount = Number((amount * rate).toFixed(2));
         currency = "AED";
       }
-
-      console.log(
-        `💳 Creating payment order - Gateway: ${preferredGateway}, Amount: ${amount} ${currency}, Plan: ${plan}`,
-      );
 
       let paymentData: any;
 
@@ -145,8 +135,6 @@ export default class PaymentController {
 
       // Get session details from Stripe
       const session = await StripeService.getCheckoutSession(sessionId);
-
-      console.log(`🔍 Stripe session status: ${session.payment_status}`);
 
       if (session.payment_status === "paid") {
         // Get or create payment record
@@ -339,8 +327,6 @@ export default class PaymentController {
         });
       }
 
-      console.log(`🔍 nGenius payment found: ${payment._id}`);
-
       // Check if already verified
       if (payment.status === "COMPLETED" || payment.subscriptionActivated) {
         return res.status(200).json({
@@ -374,7 +360,6 @@ export default class PaymentController {
             ngeniusStatus = orderStatus?.status || "PENDING";
           }
 
-          console.log("✅ nGenius Status:", ngeniusStatus);
         } catch (error) {
           console.error("❌ Error fetching order status:", error);
           ngeniusStatus = "PENDING";
@@ -407,8 +392,6 @@ export default class PaymentController {
         },
         { new: true },
       );
-
-      console.log(`✅ nGenius Payment updated - Status: ${paymentStatus}`);
 
       // For mobile, return immediately with status
       // Subscription will be activated by a separate cron job or webhook
@@ -466,9 +449,6 @@ export default class PaymentController {
       // ✅ FIX: Check if subscription was already activated (subscription status field)
       // This prevents double activation even if payment is marked COMPLETED
       if (payment.subscriptionActivated) {
-        console.log(
-          `✅ Subscription already activated for payment ${payment._id}`,
-        );
         return res.status(200).json({
           success: true,
           message: "✅ Payment already processed",
@@ -490,7 +470,6 @@ export default class PaymentController {
         paymentStatus = "FAILED";
       }
 
-      console.log("sesssssssssssssiom", session.subscription);
       const subscriptionId = session.subscription as string | null;
 
       // ✅ FIX: Mark that subscription is about to be activated
@@ -506,8 +485,6 @@ export default class PaymentController {
         },
         { new: true },
       );
-
-      console.log(`✅ Stripe Payment updated - Status: ${paymentStatus}`);
 
       return this.activateSubscription(
         payment,
@@ -553,18 +530,10 @@ export default class PaymentController {
           const hasExistingPlan =
             user.plan && user.subscription?.status === "active";
 
-          console.log(`📊 Current Credits:`, user.classCredits);
-          console.log(`📊 New Credits from Plan:`, newCredits);
-          console.log(`📊 Has Existing Plan:`, hasExistingPlan);
-
           // Update classCredits
           if (hasExistingPlan) {
-            console.log(
-              `📈 Upgrading from ${user.plan} to ${plan} - Adding credits`,
-            );
             user.classCredits = addCredits(user.classCredits, newCredits);
           } else {
-            console.log(`✨ New subscription plan: ${plan}`);
             user.classCredits = newCredits;
           }
 
@@ -592,9 +561,6 @@ export default class PaymentController {
           // ✅ CRITICAL: Store Stripe subscription ID for future cancellation
           if (payment?.gateway === "stripe" && payment?.subscriptionId) {
             user.stripeSubscriptionId = payment.subscriptionId;
-            console.log(
-              `✅ Stored Stripe subscription ID fffffff: ${payment.subscriptionId}`,
-            );
           }
 
           // Update plan
@@ -602,13 +568,6 @@ export default class PaymentController {
           user.onboardingCompleted = true;
 
           await user.save();
-
-          console.log(
-            `✅ Subscription activated - Credits: ${JSON.stringify(user.classCredits)}`,
-          );
-          console.log(
-            `✅ Total Class Credits (Cumulative): ${user.totalClassCredits}`,
-          );
 
           if (payment?.source === "app") {
             await this.notifyPaymentSuccess(user._id.toString(), payment);
@@ -1388,8 +1347,6 @@ export default class PaymentController {
         });
       }
 
-      console.log(`📋 Cancelling subscription for user ${userId}`);
-
       const gateway = user.gateway || user.lastPaymentGateway;
 
       // Cancel based on gateway
@@ -1456,8 +1413,6 @@ export default class PaymentController {
         { new: true }
       );
 
-      console.log(`✅ Subscription cancelled for user ${userId}`);
-
       return res.status(200).json({
         success: true,
         message: "Subscription cancelled successfully",
@@ -1491,10 +1446,6 @@ export default class PaymentController {
         user.stripeSubscriptionId,
       );
 
-      console.log(
-        `✅ Stripe subscription cancelled: ${user.stripeSubscriptionId}`,
-      );
-
       // Mark related payments as cancelled
       await Payment.updateMany(
         {
@@ -1508,9 +1459,6 @@ export default class PaymentController {
         },
       );
 
-      console.log(
-        `✅ Stripe payments marked as cancelled for user ${user._id}`,
-      );
     } catch (error) {
       console.error("❌ Error cancelling Stripe subscription:", error);
       throw error;
@@ -1536,10 +1484,6 @@ export default class PaymentController {
         },
       );
 
-      console.log(
-        `✅ nGenius payments marked as cancelled for user ${user._id}:`,
-        result.modifiedCount,
-      );
     } catch (error) {
       console.error("❌ Error cancelling nGenius subscription:", error);
       throw error;
@@ -1553,11 +1497,11 @@ export default class PaymentController {
     try {
       const { sessionId, orderRef, reference } = req.body;
 
-      console.log("📱 Mobile payment verification:", {
-        sessionId,
-        orderRef,
-        reference,
-      });
+      // console.log("📱 Mobile payment verification:", {
+      //   sessionId,
+      //   orderRef,
+      //   reference,
+      // });
 
       // Determine which gateway and call appropriate verification
       if (sessionId) {
@@ -1606,7 +1550,6 @@ export default class PaymentController {
         subscriptionEndDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       });
 
-      console.log(`✅ Socket notification sent to user: ${userId}`);
     } catch (error) {
       console.error("❌ Error sending socket notification:", error);
     }

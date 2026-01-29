@@ -24,10 +24,6 @@ function verifyNgeniusWebhookSignature(
       .update(payload)
       .digest("hex");
 
-    console.log('🔐 Signature verification:');
-    console.log('   Received:', signature.substring(0, 16) + '...');
-    console.log('   Computed:', hash.substring(0, 16) + '...');
-
     // Constant-time comparison to prevent timing attacks
     return crypto.timingSafeEqual(
       Buffer.from(hash),
@@ -56,11 +52,10 @@ router.post("/ngenius", async (req: Request, res: Response) => {
   let rawBody: string = "";
 
   try {
-    console.log("📨 nGenius Webhook received at:", new Date().toISOString());
-    console.log("🔗 Headers:", {
-      "x-signature": req.headers["x-signature"] ? "present" : "missing",
-      "content-type": req.headers["content-type"],
-    });
+    // console.log("🔗 Headers:", {
+    //   "x-signature": req.headers["x-signature"] ? "present" : "missing",
+    //   "content-type": req.headers["content-type"],
+    // });
 
     // 1️⃣ VERIFY WEBHOOK SIGNATURE
     const signature = req.headers["x-signature"] as string;
@@ -76,7 +71,6 @@ router.post("/ngenius", async (req: Request, res: Response) => {
 
     if (!signature) {
       console.error("❌ No x-signature header provided");
-      console.log("📋 Available headers:", Object.keys(req.headers));
       return res.status(200).json({ 
         received: true,
         error: "Missing signature header (but acknowledged)"
@@ -89,8 +83,6 @@ router.post("/ngenius", async (req: Request, res: Response) => {
       ? req.body 
       : JSON.stringify(req.body);
 
-    console.log("📦 Webhook payload size:", rawBody.length, "bytes");
-
     const isValid = verifyNgeniusWebhookSignature(
       rawBody,
       signature,
@@ -99,14 +91,11 @@ router.post("/ngenius", async (req: Request, res: Response) => {
 
     if (!isValid) {
       console.error("❌ Invalid webhook signature");
-      console.log("   Secret preview:", webhookSecret.substring(0, 16) + "...");
       return res.status(200).json({ 
         received: true,
         error: "Invalid signature (but acknowledged to prevent retry loop)"
       });
     }
-
-    console.log("✅ Webhook signature verified successfully");
 
     // 2️⃣ EXTRACT WEBHOOK DATA
     const {
@@ -117,12 +106,12 @@ router.post("/ngenius", async (req: Request, res: Response) => {
       _embedded,
     } = req.body;
 
-    console.log(`📋 Event Details:`, {
-      eventId,
-      eventType,
-      reference,
-      timestamp: eventTimestamp,
-    });
+    // console.log(`📋 Event Details:`, {
+    //   eventId,
+    //   eventType,
+    //   reference,
+    //   timestamp: eventTimestamp,
+    // });
 
     // 3️⃣ FIND PAYMENT RECORD
     let payment = await Payment.findOne({ reference });
@@ -137,17 +126,16 @@ router.post("/ngenius", async (req: Request, res: Response) => {
       });
     }
 
-    console.log(`📝 Payment found:`, {
-      id: payment._id,
-      source: payment.source,
-      status: payment.status,
-      subscriptionActivated: payment.subscriptionActivated,
-    });
+    // console.log(`📝 Payment found:`, {
+    //   id: payment._id,
+    //   source: payment.source,
+    //   status: payment.status,
+    //   subscriptionActivated: payment.subscriptionActivated,
+    // });
 
     // 4️⃣ ONLY PROCESS WEBHOOKS FOR APP SOURCE
     // Web source is handled via redirect + payment verification
     if (payment.source === "web") {
-      console.log("ℹ️  Web payment - Webhook not processed (handled via redirect)");
       return res.status(200).json({
         received: true,
         message: "Web payment - webhook acknowledged but not processed",
@@ -163,7 +151,6 @@ router.post("/ngenius", async (req: Request, res: Response) => {
       case "PAYMENT_CAPTURED":
       case "PAYMENT_SETTLED":
       case "PAYMENT_AUTHORISED": {
-        console.log("🎉 Payment captured/settled/authorised");
 
         const paymentDetails = _embedded?.payment?.[0];
 
@@ -174,7 +161,6 @@ router.post("/ngenius", async (req: Request, res: Response) => {
 
         const ngeniusState = paymentDetails.state;
 
-        console.log(`📊 nGenius Payment State: ${ngeniusState}`);
 
         if (
           ngeniusState === "CAPTURED" ||
@@ -183,9 +169,9 @@ router.post("/ngenius", async (req: Request, res: Response) => {
         ) {
           // 🔒 IDEMPOTENCY CHECK - Prevent double activation
           if (payment.subscriptionActivated) {
-            console.log(
-              "⚠️  Subscription already activated, skipping (idempotency protection)"
-            );
+            // console.log(
+            //   "⚠️  Subscription already activated, skipping (idempotency protection)"
+            // );
             return res.status(200).json({ received: true });
           }
 
@@ -204,13 +190,10 @@ router.post("/ngenius", async (req: Request, res: Response) => {
 
           await payment.save();
 
-          console.log(`✅ Payment updated - Status: COMPLETED`);
-
           // 🔥 ACTIVATE SUBSCRIPTION
           // This is critical - only once per payment
           try {
             await PaymentController.handleSuccessfulPayment(payment);
-            console.log(`✅ Payment handler completed successfully`);
           } catch (handlerError) {
             console.error(`❌ Error in payment handler:`, handlerError);
             // Continue anyway - mark as activated
@@ -220,17 +203,12 @@ router.post("/ngenius", async (req: Request, res: Response) => {
           payment.subscriptionActivated = true;
           await payment.save();
 
-          console.log(
-            `🎉 Subscription activated and marked (subscriptionActivated: true)`
-          );
-
           // Notify user (async, don't wait)
           try {
             await NgeniusService.notifyPaymentSuccess(
               payment.userId.toString(),
               payment
             );
-            console.log(`📧 Payment success notification sent`);
           } catch (notifyError) {
             console.error(`⚠️  Error sending notification:`, notifyError);
           }
@@ -245,7 +223,6 @@ router.post("/ngenius", async (req: Request, res: Response) => {
       case "PAYMENT_DECLINED":
       case "PAYMENT_FAILED":
       case "PAYMENT_CANCELLED": {
-        console.log("❌ Payment failed/declined/cancelled");
 
         const paymentDetails = _embedded?.payment?.[0];
 
@@ -255,8 +232,6 @@ router.post("/ngenius", async (req: Request, res: Response) => {
         }
 
         const ngeniusState = paymentDetails.state;
-
-        console.log(`📊 nGenius Failure State: ${ngeniusState}`);
 
         if (
           ngeniusState === "DECLINED" ||
@@ -272,16 +247,9 @@ router.post("/ngenius", async (req: Request, res: Response) => {
 
           await payment.save();
 
-          console.log(
-            `❌ Payment failed - Billing Attempt: ${payment.billingAttempt}`
-          );
-
           // Handle recurring payment failure
           if (payment.isRecurring && payment.userId) {
             if (payment.billingAttempt >= 3) {
-              console.log(
-                `⛔ Max retries reached for user ${payment.userId}`
-              );
 
               const user = await User.findById(payment.userId);
               if (user && user.subscription) {
@@ -292,16 +260,12 @@ router.post("/ngenius", async (req: Request, res: Response) => {
                 await NgeniusService.notifySubscriptionSuspended(
                   payment.userId.toString()
                 );
-
-                console.log(`⛔ Subscription suspended for user ${payment.userId}`);
               }
             } else {
               await NgeniusService.notifyPaymentFailure(
                 payment.userId.toString(),
                 payment.plan
               );
-
-              console.log(`📧 Payment failure notification sent (attempt ${payment.billingAttempt})`);
             }
           }
         }
@@ -312,12 +276,10 @@ router.post("/ngenius", async (req: Request, res: Response) => {
        * ⏳ PENDING PAYMENT
        */
       case "PAYMENT_PENDING": {
-        console.log("⏳ Payment pending");
         payment.status = "PENDING";
         payment.ngeniusStatus = "PENDING";
         payment.gatewayResponse = _embedded?.payment?.[0];
         await payment.save();
-        console.log(`📊 Payment status updated to PENDING`);
         break;
       }
 
@@ -325,20 +287,15 @@ router.post("/ngenius", async (req: Request, res: Response) => {
        * 🔄 RECURRING PAYMENT CREATED
        */
       case "RECURRING_PAYMENT_CREATED": {
-        console.log("🔄 Recurring payment token created");
         payment.ngeniusStatus = "RECURRING_CREATED";
         await payment.save();
-        console.log(`✅ Recurring payment token saved`);
         break;
       }
 
       default:
-        console.log(`ℹ️  Unhandled nGenius event type: ${eventType}`);
+        console.log(`ℹ️  Unhandled nGenius event type.`);
     }
 
-    // 6️⃣ ACKNOWLEDGE RECEIPT
-    console.log(`✅ Webhook processing complete for event ${eventId}`);
-    
     res.status(200).json({
       received: true,
       eventId,

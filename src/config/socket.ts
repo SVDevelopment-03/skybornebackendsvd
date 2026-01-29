@@ -21,8 +21,6 @@ export function initializeSocket(httpServer: HTTPServer) {
   });
 
   io.on("connection", (socket: Socket) => {
-    console.log(`✅ User connected: ${socket.id}`);
-    console.log(`📊 Total connected users: ${io.engine.clientsCount}`);
 
     // Register user socket on connection
     socket.on("register-user", (userId: string) => {
@@ -43,7 +41,6 @@ export function initializeSocket(httpServer: HTTPServer) {
       userSocketMap.set(userId, socket.id);
       socket.join(`user-${userId}`); // Join room specific to user
       
-      console.log(`📱 User ${userId} registered with socket ${socket.id}`);
       socket.emit("registration-success", { 
         message: "You are now connected",
         socketId: socket.id 
@@ -52,12 +49,10 @@ export function initializeSocket(httpServer: HTTPServer) {
 
     // Handle disconnection
     socket.on("disconnect", (reason) => {
-      console.log(`❌ User disconnected: ${socket.id} (Reason: ${reason})`);
       
       for (const [userId, socketId] of userSocketMap.entries()) {
         if (socketId === socket.id) {
           userSocketMap.delete(userId);
-          console.log(`🚪 User ${userId} removed from socket map`);
           break;
         }
       }
@@ -82,7 +77,6 @@ let ioInstance: SocketServer;
 
 export function setIOInstance(io: SocketServer) {
   ioInstance = io;
-  console.log("✅ Socket.io instance set globally");
 }
 
 export function getIO() {

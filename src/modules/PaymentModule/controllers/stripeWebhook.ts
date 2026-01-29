@@ -11,7 +11,6 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
 });
 
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!;
-console.log("Webhook secret:", webhookSecret);
 
 /**
  * Stripe Webhook (RAW BODY REQUIRED)
@@ -20,7 +19,6 @@ router.post(
   "/stripe",
   express.raw({ type: "application/json" }),
   async (req, res) => {
-    console.log("webhook triggered");
 
     const sig = req.headers["stripe-signature"] as string;
     let event: Stripe.Event;
@@ -40,13 +38,10 @@ router.post(
         case "checkout.session.completed": {
           const session = event.data.object as Stripe.Checkout.Session;
 
-          console.log("stripe webhook", session?.metadata);
           const { orderRef } = session.metadata || {};
-          console.log("this is the order ref:- ", orderRef);
           if (!orderRef) break;
 
           const payment = await Payment.findOne({ orderRef });
-          console.log("this is the payment:- ", payment);
           if (!payment) break;
 
           // 🔒 STRONG IDEMPOTENCY
@@ -59,8 +54,6 @@ router.post(
           payment.gateway = "stripe";
           payment.gatewayResponse = session;
           payment.verifiedAt = new Date();
-
-          console.log("payment", payment);
 
           await payment.save();
 
@@ -106,7 +99,7 @@ router.post(
         // }
 
         default:
-          console.log("ℹ️ Unhandled Stripe event:", event.type);
+          console.log("ℹ️ Unhandled Stripe event.");
       }
 
       res.status(200).json({ received: true });

@@ -26,17 +26,14 @@ redisClient.on('error', (err) => {
 
 redisClient.on('connect', () => {
   logger.info('Redis Connected');
-  console.log('✅ Redis Connected');
 });
 
 redisClient.on('reconnecting', () => {
   logger.warn('Redis Reconnecting...');
-  console.log('⚠️ Redis Reconnecting...');
 });
 
 redisClient.on('ready', () => {
   logger.info('Redis Ready');
-  console.log('✅ Redis Ready');
 });
 
 export const connectRedis = async (): Promise<void> => {

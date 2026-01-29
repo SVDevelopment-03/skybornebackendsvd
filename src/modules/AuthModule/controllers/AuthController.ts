@@ -27,7 +27,6 @@ export class AuthController {
       const ip = req.ip || req.headers["x-forwarded-for"] || "unknown";
       const userAgent = req.headers["user-agent"] || "unknown";
 
-      console.log("body", req.body);
       let payload: any = {};
 
       if (req?.body?.phoneNumber) {
@@ -128,8 +127,6 @@ export class AuthController {
           message: "Please login with your social account",
         });
       }
-
-      console.log("User found:", password);
 
       // Verify password
       const isPasswordValid = await user.comparePassword(password);
@@ -381,8 +378,6 @@ export class AuthController {
     try {
       const { email, otp } = req.body;
 
-      console.log("otp", email, otp);
-
       // 1️⃣ Validate OTP via Redis
       const valid = await OTPService.verifyOTP(email, otp);
 
@@ -499,10 +494,7 @@ export class AuthController {
   static async refreshAccessToken(req: Request, res: Response) {
     const { refreshToken } = req.body;
 
-    console.log("a", refreshToken);
-
     const decoded = verifyRefreshToken(refreshToken);
-    console.log("c", decoded);
 
     const { accessToken, refreshToken: newRefreshToken } = generateTokens({
       _id: decoded.id,
