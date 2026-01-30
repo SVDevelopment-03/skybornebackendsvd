@@ -50,4 +50,11 @@ export const AdminRoutes = [
     action: _adminController.getPendingApprovals,
     method: "get",
   },
+
+  {
+    path: "/stats/revenue-by-country",
+    request: null,
+    action: _adminController.getRevenueByCountry,
+    method: "get",
+  },
 ];

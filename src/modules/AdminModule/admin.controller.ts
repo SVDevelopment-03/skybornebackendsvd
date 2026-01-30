@@ -612,4 +612,89 @@ getOverviewStats = async (req: Request, res: Response): Promise<void> => {
       });
     }
   };
+
+  /**
+ * Add this method to your AdminController class
+ * GET /stats/revenue-by-country
+ * Returns revenue data grouped by country with grand total
+ */
+
+getRevenueByCountry = async (req: Request, res: Response): Promise<void> => {
+  try {
+    // Aggregate payments by country
+    const revenueByCountry = await Payment.aggregate([
+      {
+        // Step 1: Match only completed payments
+        $match: {
+          status: "COMPLETED",
+        },
+      },
+      {
+        // Step 2: Lookup user information to get country
+        $lookup: {
+          from: "users",
+          localField: "userId",
+          foreignField: "_id",
+          as: "userInfo",
+        },
+      },
+      {
+        // Step 3: Unwind the user array
+        $unwind: {
+          path: "$userInfo",
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      {
+        // Step 4: Group by country and sum amounts
+        $group: {
+          _id: "$userInfo.country",
+          totalAmount: { $sum: "$amount" },
+          count: { $sum: 1 },
+        },
+      },
+      {
+        // Step 5: Sort by total amount descending
+        $sort: { totalAmount: -1 },
+      },
+    ]);
+
+  console.log("revenue", revenueByCountry);
+  
+
+    // Calculate grand total
+    const grandTotal = revenueByCountry.reduce(
+      (sum, item) => sum + item.totalAmount,
+      0
+    );
+
+    // Format the data
+    const formattedData = revenueByCountry.map((item) => ({
+      country: item._id || "N/A",
+      count: item.count,
+      amount: item.totalAmount,
+    }));
+
+    // Add grand total row
+    const tableData = {
+      rows: formattedData,
+      grandTotal: {
+        country: "Grand Total",
+        count: formattedData.reduce((sum, row) => sum + row.count, 0),
+        amount: grandTotal,
+      },
+    };
+
+    res.status(200).json({
+      success: true,
+      data: tableData,
+    });
+  } catch (error) {
+    console.error("Error in getRevenueByCountry:", error);
+    res.status(500).json({
+      success: false,
+      message: error instanceof Error ? error.message : "Server error",
+    });
+  }
+};
 }
