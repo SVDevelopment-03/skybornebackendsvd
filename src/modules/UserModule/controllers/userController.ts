@@ -16,6 +16,7 @@ export class UserController {
       const limit = parseInt(req.query.limit as string) || 10;
       const search = (req.query.search as string) || "";
       const country = (req.query.country as string) || "";
+      const plan = (req.query.plan as string) || "";
       const filter = (req.query.filter as string) || "";
 
       const skip = (page - 1) * limit;
@@ -27,6 +28,11 @@ export class UserController {
       // Filter by country code
       if (country && country !== "all") {
         query.countryCode = country.toUpperCase();
+      }
+
+      // Filter by plan
+      if (plan && plan !== "all") {
+        query.plan = plan;
       }
 
       // Build search query
@@ -91,6 +97,7 @@ export class UserController {
     try {
       const search = (req.query.search as string) || "";
       const country = (req.query.country as string) || "";
+      const plan = (req.query.plan as string) || "";
 
       // Build query object
       const query: any = { role: "user" };
@@ -99,6 +106,11 @@ export class UserController {
       // Filter by country code
       if (country && country !== "all") {
         query.countryCode = country.toUpperCase();
+      }
+
+      // Filter by plan
+      if (plan && plan !== "all") {
+        query.plan = plan;
       }
 
       // Build search query
