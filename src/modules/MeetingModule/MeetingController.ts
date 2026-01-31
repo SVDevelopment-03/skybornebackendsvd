@@ -15,7 +15,7 @@ import TrainerModel from "../TrainerModule/TrainerModel";
 const _countryRepository = new CountryRepository();
 
 export default class MeetingController {
-static async CreateMeeting(req: Request, res: Response) {
+  static async CreateMeeting(req: Request, res: Response) {
     try {
       const token = await getZoomAccessToken();
       const {
@@ -25,7 +25,7 @@ static async CreateMeeting(req: Request, res: Response) {
         liveTime,
         trainer,
         duration,
-        autoRecording=true,
+        autoRecording = true,
         rotationEnabled,
         startDate,
         localTime,
@@ -48,7 +48,7 @@ static async CreateMeeting(req: Request, res: Response) {
         !adminId
       ) {
         console.warn(
-          "⚠️ [CreateMeeting] Validation failed - Missing required fields"
+          "⚠️ [CreateMeeting] Validation failed - Missing required fields",
         );
         return res.status(400).json({
           success: false,
@@ -119,12 +119,12 @@ static async CreateMeeting(req: Request, res: Response) {
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
-        }
+        },
       );
 
       const meetingId = zoomResponse.data.id;
       const password = zoomResponse.data.password;
-      const occurrences = zoomResponse.data.occurrences; 
+      const occurrences = zoomResponse.data.occurrences;
 
       // Web client URLs
       const webJoinUrl = `https://app.zoom.us/wc/${meetingId}/join?pwd=${password}&browser=1`;
@@ -132,6 +132,7 @@ static async CreateMeeting(req: Request, res: Response) {
 
       const meetingRecord = await Meeting.create({
         zoomMeetingId: meetingId,
+
         service,
         title,
         regions,
@@ -187,8 +188,7 @@ static async CreateMeeting(req: Request, res: Response) {
               startUrl: webStartUrl,
               recordingUrl: "",
               createdBy: adminId,
-              parentMeetingId: meetingRecord._id, // Reference to parent meeting
-              status: "scheduled",
+              parentMeetingId: meetingRecord._id,
             });
 
             storedInstances.push({
@@ -201,7 +201,7 @@ static async CreateMeeting(req: Request, res: Response) {
           } catch (error: any) {
             console.error(
               `  ❌ Error saving instance ${occurrence.occurrence_id}:`,
-              error.message
+              error.message,
             );
           }
         }
@@ -239,7 +239,7 @@ static async CreateMeeting(req: Request, res: Response) {
       console.error("📝 [CreateMeeting] Error message:", error.message);
       console.error(
         "🔍 [CreateMeeting] Zoom API error data:",
-        error.response?.data
+        error.response?.data,
       );
       console.error("📊 [CreateMeeting] Full error object:", error);
 
@@ -251,14 +251,101 @@ static async CreateMeeting(req: Request, res: Response) {
     }
   }
 
-static async GetUpcomingMeetings(req: Request, res: Response) {
+  static async GetUpcomingMeetings(req: Request, res: Response) {
+    try {
+      const { search = "", skip = 0, limit = 10 } = req?.query;
+      const skipNum = parseInt(skip as string) || 0;
+      const limitNum = parseInt(limit as string) || 10;
+
+      // console.log("search:", search, "skip:", skipNum, "limit:", limitNum);
+
+      const userId = req.user?.id;
+
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated",
+        });
+      }
+
+      const user = await User.findById(userId).select(
+        "plan country countryCode",
+      );
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found",
+        });
+      }
+
+      const now = new Date();
+      const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+
+      let serviceTitles: string[] = [];
+
+      if (user.plan === "gold-yoga") {
+        serviceTitles = ["Yoga"];
+      } else if (user.plan === "gold-zumba") {
+        serviceTitles = ["Zumba Dance"];
+      } else if (user.plan === "gold-mixed") {
+        serviceTitles = ["Yoga", "Zumba Dance"];
+      } else if (user.plan === "diamond" || user.plan === "platinum") {
+        serviceTitles = ["Yoga", "Zumba Dance", "Diet & Nutrition"];
+      }
+
+      const services = await Service.find({
+        title: { $in: serviceTitles },
+      }).select("_id");
+
+      const serviceIds = services.map((service) => service._id);
+
+      // Get total count
+      const totalCount = await Meeting.countDocuments({
+        localTime: { $gte: oneHourAgo },
+        title: { $regex: search, $options: "i" },
+        service: { $in: serviceIds },
+      });
+
+      // Fetch paginated meetings
+      const meetings = await Meeting.find({
+        localTime: { $gte: oneHourAgo },
+        title: { $regex: search, $options: "i" },
+        service: { $in: serviceIds },
+      })
+        .sort({ localTime: 1 })
+        .skip(skipNum)
+        .limit(limitNum)
+        .populate("service", "title name _id")
+        .populate("trainer", "name email _id")
+        .populate("createdBy", "firstName lastName email _id")
+        .lean();
+
+      res.setHeader("Cache-Control", "no-store");
+
+      return res.json({
+        success: true,
+        count: meetings?.length,
+        totalCount,
+        hasMore: skipNum + limitNum < totalCount,
+        meetings,
+        userPlan: user.plan,
+      });
+    } catch (error: any) {
+      console.error("Error fetching upcoming meetings:", error.message);
+      return res.status(500).json({
+        success: false,
+        message: error.message || "Error fetching upcoming meetings",
+      });
+    }
+  }
+
+  static async GetAllMeetings(req: Request, res: Response) {
   try {
     const { search = "", skip = 0, limit = 10 } = req?.query;
     const skipNum = parseInt(skip as string) || 0;
     const limitNum = parseInt(limit as string) || 10;
 
-    // console.log("search:", search, "skip:", skipNum, "limit:", limitNum);
-    
     const userId = req.user?.id;
 
     if (!userId) {
@@ -269,7 +356,7 @@ static async GetUpcomingMeetings(req: Request, res: Response) {
     }
 
     const user = await User.findById(userId).select(
-      "plan country countryCode"
+      "plan country countryCode",
     );
 
     if (!user) {
@@ -278,9 +365,6 @@ static async GetUpcomingMeetings(req: Request, res: Response) {
         message: "User not found",
       });
     }
-
-    const now = new Date();
-    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
 
     let serviceTitles: string[] = [];
 
@@ -300,20 +384,18 @@ static async GetUpcomingMeetings(req: Request, res: Response) {
 
     const serviceIds = services.map((service) => service._id);
 
-    // Get total count
+    // Get total count - no time filter, includes all meetings
     const totalCount = await Meeting.countDocuments({
-      localTime: { $gte: oneHourAgo },
       title: { $regex: search, $options: "i" },
       service: { $in: serviceIds },
     });
 
-    // Fetch paginated meetings
+    // Fetch paginated meetings - no time filter, includes all meetings
     const meetings = await Meeting.find({
-      localTime: { $gte: oneHourAgo },
       title: { $regex: search, $options: "i" },
       service: { $in: serviceIds },
     })
-      .sort({ localTime: 1 })
+      .sort({ localTime: -1 }) // Sort by most recent first
       .skip(skipNum)
       .limit(limitNum)
       .populate("service", "title name _id")
@@ -332,13 +414,49 @@ static async GetUpcomingMeetings(req: Request, res: Response) {
       userPlan: user.plan,
     });
   } catch (error: any) {
-    console.error("Error fetching upcoming meetings:", error.message);
+    console.error("Error fetching all meetings:", error.message);
     return res.status(500).json({
       success: false,
-      message: error.message || "Error fetching upcoming meetings",
+      message: error.message || "Error fetching all meetings",
     });
   }
 }
+  static async GetMeetingRecording(req: Request, res: Response) {
+    try {
+      const meeting = await Meeting.findById(req.params.id);
+      if (!meeting) return res.status(404).send("Meeting not found");
+
+      const token = await getZoomAccessToken();
+
+      // STEP 1: Ask Zoom for real recording files
+      const { data } = await axios.get(
+        `https://api.zoom.us/v2/meetings/${meeting.zoomMeetingId}/recordings`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      );
+
+      const file = data.recording_files.find((f: any) => f.file_type === "MP4");
+
+      if (!file) return res.status(404).send("Recording file not found");
+
+      // STEP 2: This URL works with header
+      const videoStream = await axios.get(file.download_url, {
+        responseType: "stream",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      res.setHeader("Content-Type", "video/mp4");
+      videoStream.data.pipe(res);
+    } catch (e) {
+      console.log("Recording error", e);
+      res.status(500).send("Error streaming recording");
+    }
+  }
 
   static async GetTodaysMeetings(req: Request, res: Response) {
     try {
@@ -355,7 +473,7 @@ static async GetUpcomingMeetings(req: Request, res: Response) {
 
       // Fetch user with their plan
       const user = await User.findById(userId).select(
-        "plan country countryCode"
+        "plan country countryCode",
       );
 
       if (!user) {
@@ -367,8 +485,16 @@ static async GetUpcomingMeetings(req: Request, res: Response) {
 
       // Get today's date range (start of day to end of day)
       const now = new Date();
-      const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+      const startOfDay = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate(),
+      );
+      const endOfDay = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate() + 1,
+      );
 
       // Determine which service titles to filter based on plan
       let serviceTitles: string[] = [];
@@ -423,288 +549,286 @@ static async GetUpcomingMeetings(req: Request, res: Response) {
   }
 
   /**
- * Get past/completed sessions for the current user
- * Shows sessions that have already occurred (localTime is in the past)
- * Supports pagination and search
- */
-static async GetPastSessions(req: Request, res: Response) {
-  try {
-    const { search = "", skip = 0, limit = 10 } = req?.query;
-    const skipNum = parseInt(skip as string) || 0;
-    const limitNum = parseInt(limit as string) || 10;
+   * Get past/completed sessions for the current user
+   * Shows sessions that have already occurred (localTime is in the past)
+   * Supports pagination and search
+   */
+  static async GetPastSessions(req: Request, res: Response) {
+    try {
+      const { search = "", skip = 0, limit = 10 } = req?.query;
+      const skipNum = parseInt(skip as string) || 0;
+      const limitNum = parseInt(limit as string) || 10;
 
-    // console.log("search:", search, "skip:", skipNum, "limit:", limitNum);
+      // console.log("search:", search, "skip:", skipNum, "limit:", limitNum);
 
-    const userId = req.user?.id;
+      const userId = req.user?.id;
 
-    if (!userId) {
-      return res.status(401).json({
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated",
+        });
+      }
+
+      // Get user with plan info
+      const user = await User.findById(userId).select(
+        "plan country countryCode",
+      );
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found",
+        });
+      }
+
+      // Determine services based on user plan
+      let serviceTitles: string[] = [];
+
+      if (user.plan === "gold-yoga") {
+        serviceTitles = ["Yoga"];
+      } else if (user.plan === "gold-zumba") {
+        serviceTitles = ["Zumba Dance"];
+      } else if (user.plan === "gold-mixed") {
+        serviceTitles = ["Yoga", "Zumba Dance"];
+      } else if (user.plan === "diamond" || user.plan === "platinum") {
+        serviceTitles = ["Yoga", "Zumba Dance", "Diet & Nutrition"];
+      }
+
+      const services = await Service.find({
+        title: { $in: serviceTitles },
+      }).select("_id");
+
+      const serviceIds = services.map((service) => service._id);
+
+      // Get current time - only show sessions that have already completed
+      const now = new Date();
+
+      // Build search query
+      const searchQuery: any = {
+        // Sessions that have occurred (localTime is in the past)
+        localTime: { $lt: now },
+        service: { $in: serviceIds },
+        // Only show completed sessions or sessions with attendance
+        status: { $in: ["completed", "pending"] },
+      };
+
+      // Add search filter if provided
+      if (search && (search as string)?.trim()) {
+        searchQuery.$or = [
+          { title: { $regex: search, $options: "i" } },
+          { "service.title": { $regex: search, $options: "i" } },
+          { "trainer.name": { $regex: search, $options: "i" } },
+        ];
+      }
+
+      // Get total count for pagination
+      const totalCount = await Meeting.countDocuments(searchQuery);
+
+      // Fetch paginated meetings sorted by most recent first
+      const meetings = await Meeting.find(searchQuery)
+        .sort({ localTime: -1 }) // Most recent first
+        .skip(skipNum)
+        .limit(limitNum)
+        .populate("service", "title name _id")
+        .populate("trainer", "name email _id")
+        .populate("createdBy", "firstName lastName email _id")
+        .lean();
+
+      // For each meeting, fetch attendance data if available
+      const enrichedMeetings = await Promise.all(
+        meetings.map(async (meeting) => {
+          const attendance = await MeetingAttendance.findOne({
+            meeting: meeting._id,
+            user: userId,
+          }).lean();
+
+          return {
+            ...meeting,
+            attendance: attendance || {
+              totalDuration: 0,
+              status: "missed",
+            },
+          };
+        }),
+      );
+
+      res.setHeader("Cache-Control", "no-store");
+
+      return res.json({
+        success: true,
+        count: enrichedMeetings?.length,
+        totalCount,
+        hasMore: skipNum + limitNum < totalCount,
+        meetings: enrichedMeetings,
+        userPlan: user.plan,
+      });
+    } catch (error: any) {
+      console.error("Error fetching past sessions:", error.message);
+      return res.status(500).json({
         success: false,
-        message: "User not authenticated",
+        message: error.message || "Error fetching past sessions",
       });
     }
-
-    // Get user with plan info
-    const user = await User.findById(userId).select(
-      "plan country countryCode"
-    );
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
-
-    // Determine services based on user plan
-    let serviceTitles: string[] = [];
-
-    if (user.plan === "gold-yoga") {
-      serviceTitles = ["Yoga"];
-    } else if (user.plan === "gold-zumba") {
-      serviceTitles = ["Zumba Dance"];
-    } else if (user.plan === "gold-mixed") {
-      serviceTitles = ["Yoga", "Zumba Dance"];
-    } else if (user.plan === "diamond" || user.plan === "platinum") {
-      serviceTitles = ["Yoga", "Zumba Dance", "Diet & Nutrition"];
-    }
-
-    const services = await Service.find({
-      title: { $in: serviceTitles },
-    }).select("_id");
-
-    const serviceIds = services.map((service) => service._id);
-
-    // Get current time - only show sessions that have already completed
-    const now = new Date();
-
-    // Build search query
-    const searchQuery: any = {
-      // Sessions that have occurred (localTime is in the past)
-      localTime: { $lt: now },
-      service: { $in: serviceIds },
-      // Only show completed sessions or sessions with attendance
-      status: { $in: ["completed", "pending"] },
-    };
-
-    // Add search filter if provided
-    if (search && (search as string)?.trim()) {
-      searchQuery.$or = [
-        { title: { $regex: search, $options: "i" } },
-        { "service.title": { $regex: search, $options: "i" } },
-        { "trainer.name": { $regex: search, $options: "i" } },
-      ];
-    }
-
-    // Get total count for pagination
-    const totalCount = await Meeting.countDocuments(searchQuery);
-
-    // Fetch paginated meetings sorted by most recent first
-    const meetings = await Meeting.find(searchQuery)
-      .sort({ localTime: -1 }) // Most recent first
-      .skip(skipNum)
-      .limit(limitNum)
-      .populate("service", "title name _id")
-      .populate("trainer", "name email _id")
-      .populate("createdBy", "firstName lastName email _id")
-      .lean();
-
-    // For each meeting, fetch attendance data if available
-    const enrichedMeetings = await Promise.all(
-      meetings.map(async (meeting) => {
-        const attendance = await MeetingAttendance.findOne({
-          meeting: meeting._id,
-          user: userId,
-        }).lean();
-
-        return {
-          ...meeting,
-          attendance: attendance || {
-            totalDuration: 0,
-            status: "missed",
-          },
-        };
-      })
-    );
-
-    res.setHeader("Cache-Control", "no-store");
-
-    return res.json({
-      success: true,
-      count: enrichedMeetings?.length,
-      totalCount,
-      hasMore: skipNum + limitNum < totalCount,
-      meetings: enrichedMeetings,
-      userPlan: user.plan,
-    });
-  } catch (error: any) {
-    console.error("Error fetching past sessions:", error.message);
-    return res.status(500).json({
-      success: false,
-      message: error.message || "Error fetching past sessions",
-    });
   }
-}
-
 
   static async GetTrainerUpcomingMeetings(req: Request, res: Response) {
-  try {
-    const userId = req.user?.id; // User ID from auth
-    const { search = "", date } = req.query;
+    try {
+      const userId = req.user?.id; // User ID from auth
+      const { search = "", date } = req.query;
 
-    if (!userId) {
-      return res.status(401).json({
-        success: false,
-        message: "User not authenticated",
-      });
-    }
-
-    // Fetch user and get their trainer ID
-    const user = await User.findById(userId).select("trainer");
-    
-    if (!user || !user.trainer) {
-      return res.status(400).json({
-        success: false,
-        message: "User is not associated with a trainer profile",
-      });
-    }
-
-    const trainerId = user.trainer;
-
-    // Get today's date at midnight
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    // Get tomorrow at midnight
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-
-    // If specific date is provided, use that
-    let startTime = today;
-    let endTime = tomorrow;
-
-    if (date) {
-      const specifiedDate = new Date(date as string);
-      specifiedDate.setHours(0, 0, 0, 0);
-      startTime = specifiedDate;
-      endTime = new Date(specifiedDate);
-      endTime.setDate(endTime.getDate() + 1);
-    }
-
-    // Find meetings where this trainer is assigned
-    const meetings = await Meeting.find({
-      trainer: trainerId, // Filter by trainer
-      localTime: {
-        $gte: startTime,
-        $lt: endTime,
-      },
-      title: { $regex: search || "", $options: "i" },
-    })
-      .sort({ localTime: 1 })
-      .populate("service", "title name _id")
-      .populate("trainer", "name email _id")
-      .populate("createdBy", "firstName lastName email _id")
-      .lean();
-
-    // Transform response to include region info
-    const formattedMeetings = meetings.map((meeting: any) => ({
-      ...meeting,
-      regions: [
-        {
-          region: meeting.region || "IN",
-          mode: meeting.isLive ? "live" : "recorded",
-        },
-      ],
-    }));
-
-    res.setHeader("Cache-Control", "no-store");
-
-    return res.json({
-      success: true,
-      count: formattedMeetings.length,
-      meetings: formattedMeetings,
-      date: date || today.toISOString().split("T")[0],
-    });
-  } catch (error: any) {
-    console.error("Error fetching trainer upcoming meetings:", error.message);
-    return res.status(500).json({
-      success: false,
-      message: error.message || "Error fetching upcoming meetings",
-    });
-  }
-}
-
-static async getWeeklyActivity  (req: Request, res: Response)  {
-  try {
-    const userId = req.user?.id || req.params.userId;
-
-    if (!userId) {
-      return res.status(400).json({ message: "User ID required" });
-    }
-
-    // Get start & end of current week (Mon - Sun)
-    const now = new Date();
-    const startOfWeek = new Date(now);
-    startOfWeek.setDate(now.getDate() - ((now.getDay() + 6) % 7));
-    startOfWeek.setHours(0, 0, 0, 0);
-
-    const endOfWeek = new Date(startOfWeek);
-    endOfWeek.setDate(startOfWeek.getDate() + 6);
-    endOfWeek.setHours(23, 59, 59, 999);
-
-    // Fetch attendance records for this week
-    const attendances = await MeetingAttendance.find({
-      user: new mongoose.Types.ObjectId(userId),
-      createdAt: { $gte: startOfWeek, $lte: endOfWeek },
-    }).lean();
-
-    // Prepare week map
-    const weekDays = ["M", "T", "W", "T", "F", "S", "S"];
-    const activityMap: Record<number, boolean> = {
-      0: false,
-      1: false,
-      2: false,
-      3: false,
-      4: false,
-      5: false,
-      6: false,
-    };
-
-    // Mark active days
-    attendances.forEach((attendance) => {
-      attendance.sessions?.forEach((session) => {
-        const dayIndex = (new Date(session.joinTime).getDay() + 6) % 7;
-        activityMap[dayIndex] = true;
-      });
-
-      if (attendance.status === "completed" && attendance.completedAt) {
-        const dayIndex =
-          (new Date(attendance.completedAt).getDay() + 6) % 7;
-        activityMap[dayIndex] = true;
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated",
+        });
       }
-    });
 
-    const days = weekDays.map((day, index) => ({
-      day,
-      completed: activityMap[index],
-    }));
+      // Fetch user and get their trainer ID
+      const user = await User.findById(userId).select("trainer");
 
-    const completedDays = days.filter((d) => d.completed).length;
-    const progressPercent = Math.round((completedDays / 7) * 100);
+      if (!user || !user.trainer) {
+        return res.status(400).json({
+          success: false,
+          message: "User is not associated with a trainer profile",
+        });
+      }
 
-    res.json({
-      totalDays: 7,
-      completedDays,
-      progressPercent,
-      days,
-    });
-  } catch (error) {
-    console.error("Weekly activity error:", error);
-    res.status(500).json({ message: "Server error" });
+      const trainerId = user.trainer;
+
+      // Get today's date at midnight
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      // Get tomorrow at midnight
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+
+      // If specific date is provided, use that
+      let startTime = today;
+      let endTime = tomorrow;
+
+      if (date) {
+        const specifiedDate = new Date(date as string);
+        specifiedDate.setHours(0, 0, 0, 0);
+        startTime = specifiedDate;
+        endTime = new Date(specifiedDate);
+        endTime.setDate(endTime.getDate() + 1);
+      }
+
+      // Find meetings where this trainer is assigned
+      const meetings = await Meeting.find({
+        trainer: trainerId, // Filter by trainer
+        localTime: {
+          $gte: startTime,
+          $lt: endTime,
+        },
+        title: { $regex: search || "", $options: "i" },
+      })
+        .sort({ localTime: 1 })
+        .populate("service", "title name _id")
+        .populate("trainer", "name email _id")
+        .populate("createdBy", "firstName lastName email _id")
+        .lean();
+
+      // Transform response to include region info
+      const formattedMeetings = meetings.map((meeting: any) => ({
+        ...meeting,
+        regions: [
+          {
+            region: meeting.region || "IN",
+            mode: meeting.isLive ? "live" : "recorded",
+          },
+        ],
+      }));
+
+      res.setHeader("Cache-Control", "no-store");
+
+      return res.json({
+        success: true,
+        count: formattedMeetings.length,
+        meetings: formattedMeetings,
+        date: date || today.toISOString().split("T")[0],
+      });
+    } catch (error: any) {
+      console.error("Error fetching trainer upcoming meetings:", error.message);
+      return res.status(500).json({
+        success: false,
+        message: error.message || "Error fetching upcoming meetings",
+      });
+    }
   }
-};
 
- static async JoinMeeting(req: Request, res: Response) {
+  static async getWeeklyActivity(req: Request, res: Response) {
+    try {
+      const userId = req.user?.id || req.params.userId;
+
+      if (!userId) {
+        return res.status(400).json({ message: "User ID required" });
+      }
+
+      // Get start & end of current week (Mon - Sun)
+      const now = new Date();
+      const startOfWeek = new Date(now);
+      startOfWeek.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+      startOfWeek.setHours(0, 0, 0, 0);
+
+      const endOfWeek = new Date(startOfWeek);
+      endOfWeek.setDate(startOfWeek.getDate() + 6);
+      endOfWeek.setHours(23, 59, 59, 999);
+
+      // Fetch attendance records for this week
+      const attendances = await MeetingAttendance.find({
+        user: new mongoose.Types.ObjectId(userId),
+        createdAt: { $gte: startOfWeek, $lte: endOfWeek },
+      }).lean();
+
+      // Prepare week map
+      const weekDays = ["M", "T", "W", "T", "F", "S", "S"];
+      const activityMap: Record<number, boolean> = {
+        0: false,
+        1: false,
+        2: false,
+        3: false,
+        4: false,
+        5: false,
+        6: false,
+      };
+
+      // Mark active days
+      attendances.forEach((attendance) => {
+        attendance.sessions?.forEach((session) => {
+          const dayIndex = (new Date(session.joinTime).getDay() + 6) % 7;
+          activityMap[dayIndex] = true;
+        });
+
+        if (attendance.status === "completed" && attendance.completedAt) {
+          const dayIndex = (new Date(attendance.completedAt).getDay() + 6) % 7;
+          activityMap[dayIndex] = true;
+        }
+      });
+
+      const days = weekDays.map((day, index) => ({
+        day,
+        completed: activityMap[index],
+      }));
+
+      const completedDays = days.filter((d) => d.completed).length;
+      const progressPercent = Math.round((completedDays / 7) * 100);
+
+      res.json({
+        totalDays: 7,
+        completedDays,
+        progressPercent,
+        days,
+      });
+    } catch (error) {
+      console.error("Weekly activity error:", error);
+      res.status(500).json({ message: "Server error" });
+    }
+  }
+
+  static async JoinMeeting(req: Request, res: Response) {
     try {
       const { meetingId, userId, region } = req.body;
       const user = req.user;
@@ -720,7 +844,7 @@ static async getWeeklyActivity  (req: Request, res: Response)  {
       // Find the meeting
       const meeting = await Meeting.findById(meetingId).populate(
         "createdBy",
-        "_id"
+        "_id",
       );
 
       if (!meeting) {
@@ -729,6 +853,8 @@ static async getWeeklyActivity  (req: Request, res: Response)  {
           message: "Meeting not found",
         });
       }
+
+      console.log("meeting", meeting);
 
       // Check if user is a trainer or admin
       const isTrainer = userData.trainer ? true : false;
@@ -756,7 +882,7 @@ static async getWeeklyActivity  (req: Request, res: Response)  {
 
       // Find the region entry for this specific region
       const regionEntry = meeting.regions.find(
-        (r) => r.region.toLowerCase() === region.toLowerCase()
+        (r) => r.region.toLowerCase() === region.toLowerCase(),
       );
 
       if (!regionEntry) {
@@ -771,16 +897,17 @@ static async getWeeklyActivity  (req: Request, res: Response)  {
         new Date(meeting.localTime).getTime() + meeting.duration * 60000;
       const currentTime = Date.now();
 
-      if (currentTime > meetingEndTime) {
-        return res.status(400).json({
-          success: false,
-          expired: true,
-          message: "Meeting has already ended",
-        });
-      }
+      // if (currentTime > meetingEndTime) {
+      //   return res.status(400).json({
+      //     success: false,
+      //     expired: true,
+      //     message: "Meeting has already ended",
+      //   });
+      // }
 
       // Determine the URL based on region mode
       let accessUrl: string;
+      const recordUrl = `${process.env.API_BASE_URL}/meetings/${meeting?._id}/recording`;
       const isLiveMode = regionEntry.mode === "live";
 
       if (isLiveMode) {
@@ -797,7 +924,8 @@ static async getWeeklyActivity  (req: Request, res: Response)  {
             canRetry: true,
           });
         }
-        accessUrl = meeting?.recordingUrl;
+        // accessUrl = meeting?.recordingUrl;
+        accessUrl = `${process.env.API_BASE_URL}/meetings/${meeting?._id}/recording`;
       }
 
       // console.log("meeting id", meeting.zoomMeetingId);
@@ -838,6 +966,7 @@ static async getWeeklyActivity  (req: Request, res: Response)  {
         data: {
           accessUrl, // Returns joinUrl for live, recordingUrl for replay
           mode: regionEntry.mode,
+          recordUrl,
           attendanceId: attendance._id,
           role: isTrainerOrAdmin ? 1 : 0,
           meetingDetails: {
@@ -1051,7 +1180,7 @@ static async getWeeklyActivity  (req: Request, res: Response)  {
         const found = monthlyData.find(
           (item) =>
             item._id.month === monthObj.monthNum &&
-            item._id.year === monthObj.year
+            item._id.year === monthObj.year,
         );
         return {
           month: monthObj.month,
@@ -1077,7 +1206,7 @@ static async getWeeklyActivity  (req: Request, res: Response)  {
   static async getAllMeetings(
     req: Request,
     res: Response,
-    next: NextFunction
+    next: NextFunction,
   ): Promise<void> {
     try {
       const page = parseInt(req.query.page as string) || 1;
@@ -1203,7 +1332,7 @@ static async getWeeklyActivity  (req: Request, res: Response)  {
         trainer,
         duration,
         autoRecording,
-        rotationEnabled=false,
+        rotationEnabled = false,
         startDate,
         localTime,
         regions,
@@ -1235,7 +1364,7 @@ static async getWeeklyActivity  (req: Request, res: Response)  {
         !regions
       ) {
         console.warn(
-          "⚠️ [UpdateMeeting] Validation failed - Missing required fields"
+          "⚠️ [UpdateMeeting] Validation failed - Missing required fields",
         );
         return res.status(400).json({
           success: false,
@@ -1295,13 +1424,12 @@ static async getWeeklyActivity  (req: Request, res: Response)  {
               Authorization: `Bearer ${token}`,
               "Content-Type": "application/json",
             },
-          }
+          },
         );
-
       } catch (zoomError: any) {
         console.error(
           "⚠️ [UpdateMeeting] Error updating Zoom meeting:",
-          zoomError.message
+          zoomError.message,
         );
         // Don't fail the entire request if Zoom update fails
       }
@@ -1366,12 +1494,12 @@ static async getWeeklyActivity  (req: Request, res: Response)  {
             headers: {
               Authorization: `Bearer ${token}`,
             },
-          }
+          },
         );
       } catch (zoomError: any) {
         console.error(
           "⚠️ [DeleteMeeting] Error deleting Zoom meeting:",
-          zoomError.message
+          zoomError.message,
         );
         // Don't fail if Zoom deletion fails
       }
@@ -1394,7 +1522,6 @@ static async getWeeklyActivity  (req: Request, res: Response)  {
 
   static async GetAllTrainerMeetings(req: Request, res: Response) {
     try {
-
       const {
         search = "",
         page = 1,
@@ -1438,7 +1565,10 @@ static async getWeeklyActivity  (req: Request, res: Response)  {
       const trainerId = user.trainer;
 
       if (!trainerId) {
-        console.warn("⚠️ [GetAllMeetings] No trainer assigned to user:", userId);
+        console.warn(
+          "⚠️ [GetAllMeetings] No trainer assigned to user:",
+          userId,
+        );
         return res.status(400).json({
           success: false,
           message: "No trainer assigned to this user",
@@ -1447,7 +1577,7 @@ static async getWeeklyActivity  (req: Request, res: Response)  {
 
       // Fetch trainer details
       const trainer = await TrainerModel.findById(trainerId).select(
-        "_id name email profileImage"
+        "_id name email profileImage",
       );
 
       if (!trainer) {
@@ -1597,203 +1727,209 @@ static async getWeeklyActivity  (req: Request, res: Response)  {
     }
   }
 
+  /**
+   * Get weekly meetings for all 7 days
+   * Filters by user plan and returns meetings grouped by day
+   */
+  static async GetWeeklyMeetings(req: Request, res: Response) {
+    try {
+      const userId = req.user?.id;
+
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated",
+        });
+      }
+
+      // Fetch user with their plan
+      const user = await User.findById(userId).select(
+        "plan country countryCode",
+      );
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found",
+        });
+      }
+
+      // Determine service titles based on plan
+      let serviceTitles: string[] = [];
+
+      if (user.plan === "gold-yoga") {
+        serviceTitles = ["Yoga"];
+      } else if (user.plan === "gold-zumba") {
+        serviceTitles = ["Zumba Dance"];
+      } else if (user.plan === "gold-mixed") {
+        serviceTitles = ["Yoga", "Zumba Dance"];
+      } else if (user.plan === "diamond" || user.plan === "platinum") {
+        serviceTitles = ["Yoga", "Zumba Dance", "Diet & Nutrition"];
+      }
+
+      // Fetch service IDs based on titles
+      const services = await Service.find({
+        title: { $in: serviceTitles },
+      }).select("_id");
+
+      const serviceIds = services.map((service) => service._id);
+
+      // Calculate current week (Sunday to Saturday)
+      const now = new Date();
+      const dayOfWeek = now.getDay();
+      const diff = now.getDate() - dayOfWeek;
+      const weekStart = new Date(now.setDate(diff));
+      weekStart.setHours(0, 0, 0, 0);
+
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekEnd.getDate() + 7);
+      weekEnd.setHours(23, 59, 59, 999);
+
+      // Fetch all meetings for the week
+      const meetings = await Meeting.find({
+        localTime: {
+          $gte: weekStart,
+          $lte: weekEnd,
+        },
+        service: { $in: serviceIds },
+        status: { $in: ["pending", "completed"] },
+      })
+        .sort({ localTime: 1 })
+        .populate("service", "title name _id")
+        .populate("trainer", "name email _id")
+        .populate("createdBy", "firstName lastName email _id")
+        .lean();
+
+      // Group meetings by day
+      const groupedByDay: { [key: number]: any[] } = {};
+
+      for (let i = 0; i < 7; i++) {
+        groupedByDay[i] = [];
+      }
+
+      meetings.forEach((meeting) => {
+        const meetingDate = new Date(meeting.localTime);
+        const dayIndex = meetingDate.getDay();
+        groupedByDay[dayIndex].push(meeting);
+      });
+
+      // Flatten back to array for response
+      const allMeetings = meetings;
+
+      res.setHeader("Cache-Control", "no-store");
+
+      return res.json({
+        success: true,
+        count: allMeetings.length,
+        meetings: allMeetings,
+        userPlan: user.plan,
+        weekStart: weekStart.toISOString(),
+        weekEnd: weekEnd.toISOString(),
+      });
+    } catch (error: any) {
+      console.error("Error fetching weekly meetings:", error.message);
+      return res.status(500).json({
+        success: false,
+        message: error.message || "Error fetching weekly meetings",
+      });
+    }
+  }
 
   /**
- * Get weekly meetings for all 7 days
- * Filters by user plan and returns meetings grouped by day
- */
-static async GetWeeklyMeetings  (req: Request, res: Response)  {
-  try {
-    const userId = req.user?.id;
+   * Get meetings for a specific day of the week (0-6, where 0 is Sunday)
+   */
+  static async GetMeetingsByDay(req: Request, res: Response) {
+    try {
+      const userId = req.user?.id;
+      const { dayIndex } = req.params;
 
-    if (!userId) {
-      return res.status(401).json({
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated",
+        });
+      }
+
+      if (
+        isNaN(Number(dayIndex)) ||
+        Number(dayIndex) < 0 ||
+        Number(dayIndex) > 6
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid day index. Must be between 0 and 6.",
+        });
+      }
+
+      const user = await User.findById(userId).select(
+        "plan country countryCode",
+      );
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found",
+        });
+      }
+
+      // Determine service titles based on plan
+      let serviceTitles: string[] = [];
+
+      if (user.plan === "gold-yoga") {
+        serviceTitles = ["Yoga"];
+      } else if (user.plan === "gold-zumba") {
+        serviceTitles = ["Zumba Dance"];
+      } else if (user.plan === "gold-mixed") {
+        serviceTitles = ["Yoga", "Zumba Dance"];
+      } else if (user.plan === "diamond" || user.plan === "platinum") {
+        serviceTitles = ["Yoga", "Zumba Dance", "Diet & Nutrition"];
+      }
+
+      const services = await Service.find({
+        title: { $in: serviceTitles },
+      }).select("_id");
+
+      const serviceIds = services.map((service) => service._id);
+
+      // Calculate the specific day of current week
+      const now = new Date();
+      const dayOfWeek = now.getDay();
+      const diff = now.getDate() - dayOfWeek + Number(dayIndex);
+
+      const dayStart = new Date(now.setDate(diff));
+      dayStart.setHours(0, 0, 0, 0);
+
+      const dayEnd = new Date(dayStart);
+      dayEnd.setHours(23, 59, 59, 999);
+
+      const meetings = await Meeting.find({
+        localTime: {
+          $gte: dayStart,
+          $lte: dayEnd,
+        },
+        service: { $in: serviceIds },
+        status: { $in: ["pending", "completed"] },
+      })
+        .sort({ localTime: 1 })
+        .populate("service", "title name _id")
+        .populate("trainer", "name email _id")
+        .populate("createdBy", "firstName lastName email _id")
+        .lean();
+
+      res.setHeader("Cache-Control", "no-store");
+
+      return res.json({
+        success: true,
+        count: meetings.length,
+        meetings,
+        userPlan: user.plan,
+      });
+    } catch (error: any) {
+      console.error("Error fetching meetings by day:", error.message);
+      return res.status(500).json({
         success: false,
-        message: 'User not authenticated',
+        message: error.message || "Error fetching meetings by day",
       });
     }
-
-    // Fetch user with their plan
-    const user = await User.findById(userId).select('plan country countryCode');
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found',
-      });
-    }
-
-    // Determine service titles based on plan
-    let serviceTitles: string[] = [];
-
-    if (user.plan === 'gold-yoga') {
-      serviceTitles = ['Yoga'];
-    } else if (user.plan === 'gold-zumba') {
-      serviceTitles = ['Zumba Dance'];
-    } else if (user.plan === 'gold-mixed') {
-      serviceTitles = ['Yoga', 'Zumba Dance'];
-    } else if (user.plan === 'diamond' || user.plan === 'platinum') {
-      serviceTitles = ['Yoga', 'Zumba Dance', 'Diet & Nutrition'];
-    }
-
-    // Fetch service IDs based on titles
-    const services = await Service.find({
-      title: { $in: serviceTitles },
-    }).select('_id');
-
-    const serviceIds = services.map(service => service._id);
-
-    // Calculate current week (Sunday to Saturday)
-    const now = new Date();
-    const dayOfWeek = now.getDay();
-    const diff = now.getDate() - dayOfWeek;
-    const weekStart = new Date(now.setDate(diff));
-    weekStart.setHours(0, 0, 0, 0);
-
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekEnd.getDate() + 7);
-    weekEnd.setHours(23, 59, 59, 999);
-
-    // Fetch all meetings for the week
-    const meetings = await Meeting.find({
-      localTime: {
-        $gte: weekStart,
-        $lte: weekEnd,
-      },
-      service: { $in: serviceIds },
-      status: { $in: ['pending', 'completed'] },
-    })
-      .sort({ localTime: 1 })
-      .populate('service', 'title name _id')
-      .populate('trainer', 'name email _id')
-      .populate('createdBy', 'firstName lastName email _id')
-      .lean();
-
-    // Group meetings by day
-    const groupedByDay: { [key: number]: any[] } = {};
-
-    for (let i = 0; i < 7; i++) {
-      groupedByDay[i] = [];
-    }
-
-    meetings.forEach(meeting => {
-      const meetingDate = new Date(meeting.localTime);
-      const dayIndex = meetingDate.getDay();
-      groupedByDay[dayIndex].push(meeting);
-    });
-
-    // Flatten back to array for response
-    const allMeetings = meetings;
-
-    res.setHeader('Cache-Control', 'no-store');
-
-    return res.json({
-      success: true,
-      count: allMeetings.length,
-      meetings: allMeetings,
-      userPlan: user.plan,
-      weekStart: weekStart.toISOString(),
-      weekEnd: weekEnd.toISOString(),
-    });
-  } catch (error: any) {
-    console.error('Error fetching weekly meetings:', error.message);
-    return res.status(500).json({
-      success: false,
-      message: error.message || 'Error fetching weekly meetings',
-    });
   }
-};
-
-/**
- * Get meetings for a specific day of the week (0-6, where 0 is Sunday)
- */
-static async GetMeetingsByDay  (req: Request, res: Response) {
-  try {
-    const userId = req.user?.id;
-    const { dayIndex } = req.params;
-
-    if (!userId) {
-      return res.status(401).json({
-        success: false,
-        message: 'User not authenticated',
-      });
-    }
-
-    if (isNaN(Number(dayIndex)) || Number(dayIndex) < 0 || Number(dayIndex) > 6) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid day index. Must be between 0 and 6.',
-      });
-    }
-
-    const user = await User.findById(userId).select('plan country countryCode');
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found',
-      });
-    }
-
-    // Determine service titles based on plan
-    let serviceTitles: string[] = [];
-
-    if (user.plan === 'gold-yoga') {
-      serviceTitles = ['Yoga'];
-    } else if (user.plan === 'gold-zumba') {
-      serviceTitles = ['Zumba Dance'];
-    } else if (user.plan === 'gold-mixed') {
-      serviceTitles = ['Yoga', 'Zumba Dance'];
-    } else if (user.plan === 'diamond' || user.plan === 'platinum') {
-      serviceTitles = ['Yoga', 'Zumba Dance', 'Diet & Nutrition'];
-    }
-
-    const services = await Service.find({
-      title: { $in: serviceTitles },
-    }).select('_id');
-
-    const serviceIds = services.map(service => service._id);
-
-    // Calculate the specific day of current week
-    const now = new Date();
-    const dayOfWeek = now.getDay();
-    const diff = now.getDate() - dayOfWeek + Number(dayIndex);
-    
-    const dayStart = new Date(now.setDate(diff));
-    dayStart.setHours(0, 0, 0, 0);
-
-    const dayEnd = new Date(dayStart);
-    dayEnd.setHours(23, 59, 59, 999);
-
-    const meetings = await Meeting.find({
-      localTime: {
-        $gte: dayStart,
-        $lte: dayEnd,
-      },
-      service: { $in: serviceIds },
-      status: { $in: ['pending', 'completed'] },
-    })
-      .sort({ localTime: 1 })
-      .populate('service', 'title name _id')
-      .populate('trainer', 'name email _id')
-      .populate('createdBy', 'firstName lastName email _id')
-      .lean();
-
-    res.setHeader('Cache-Control', 'no-store');
-
-    return res.json({
-      success: true,
-      count: meetings.length,
-      meetings,
-      userPlan: user.plan,
-    });
-  } catch (error: any) {
-    console.error('Error fetching meetings by day:', error.message);
-    return res.status(500).json({
-      success: false,
-      message: error.message || 'Error fetching meetings by day',
-    });
-  }
-};
-
 }

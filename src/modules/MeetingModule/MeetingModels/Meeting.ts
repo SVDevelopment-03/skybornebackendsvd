@@ -5,10 +5,10 @@ import autopopulate from "mongoose-autopopulate";
 // Meeting Interface
 // -----------------------------
 export interface IRegionEntry {
-  region: string;           // e.g. "Gulf"
-  localTime: string;        // e.g. "10:00 AM"
-  timezone: string;         // e.g. "Asia/Dubai"
-  mode: "live" | "replay";  // tells frontend live or replay
+  region: string; // e.g. "Gulf"
+  localTime: string; // e.g. "10:00 AM"
+  timezone: string; // e.g. "Asia/Dubai"
+  mode: "live" | "replay"; // tells frontend live or replay
 }
 
 export interface IService {
@@ -23,6 +23,7 @@ export interface IMeeting extends Document {
   zoomMeetingId: number;
   service: Types.ObjectId | IService;
   title: string;
+  occurrenceId?: string;
 
   // NEW FIELD: dynamic region grid
   regions: IRegionEntry[];
@@ -47,7 +48,7 @@ export interface IMeeting extends Document {
   // NEW FIELD: recording cloud URL from Zoom
   recordingUrl: string;
 
-  status: "pending"| "completed"| "failed";
+  status: "pending" | "completed" | "failed";
 
   createdBy: Types.ObjectId;
 }
@@ -61,7 +62,12 @@ const MeetingSchema = new Schema<IMeeting>(
       type: Number,
       required: true,
     },
-
+    occurrenceId: {
+      type: String,
+      default: null,
+      required: false,
+      index: true,
+    },
     service: {
       type: Schema.Types.ObjectId,
       ref: "Service",
@@ -166,7 +172,7 @@ const MeetingSchema = new Schema<IMeeting>(
       autopopulate: true,
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 // Plugin

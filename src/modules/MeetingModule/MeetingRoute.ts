@@ -26,6 +26,12 @@ export const MeetingRoute = [
     method: "get",
   },
   {
+    path: "/meetings/all",
+    request: null,
+    action: MeetingController.GetAllMeetings,
+    method: "get",
+  },
+  {
     path: "/meetings/weekly-activity",
     request: null,
     action: MeetingController.getWeeklyActivity,
@@ -35,6 +41,12 @@ export const MeetingRoute = [
     path: "/meetings/today",
     request: UpcomingMeetingsSchema,
     action: MeetingController.GetTodaysMeetings,
+    method: "get",
+  },
+    {
+    path: "/meetings/:id/recording",
+    request: null,
+    action: MeetingController.GetMeetingRecording,
     method: "get",
   },
   {
