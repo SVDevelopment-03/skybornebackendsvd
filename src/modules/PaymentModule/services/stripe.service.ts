@@ -32,9 +32,21 @@ export class StripeService {
     this.stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
   }
 
-  // ========================================
-  // ADD THIS TO StripeService
-  // ========================================
+  /**
+   * Get billing interval based on billing type
+   */
+  private static getBillingInterval(billingType: "monthly" | "yearly" = "monthly"): "month" | "year" {
+    return billingType === "yearly" ? "year" : "month";
+  }
+
+  /**
+   * Get subscription duration in milliseconds
+   */
+  private static getSubscriptionDuration(billingType: "monthly" | "yearly" = "monthly"): number {
+    return billingType === "yearly" 
+      ? 365 * 24 * 60 * 60 * 1000  // 1 year
+      : 30 * 24 * 60 * 60 * 1000;  // ~1 month
+  }
 
   /**
    * Get all subscriptions for a customer
@@ -58,6 +70,7 @@ export class StripeService {
   /**
    * Create a checkout session for payment (REDIRECT METHOD)
    * User is redirected directly to Stripe Checkout
+   * Supports both monthly and yearly billing
    */
   static async createCheckoutSession(
     userId: string,
@@ -66,6 +79,7 @@ export class StripeService {
     plan: string,
     userAmount: number,
     source: "app" | "web" = "web",
+    billingType: "monthly" | "yearly" = "monthly",
   ): Promise<{
     checkoutUrl: string;
     sessionId: string;
@@ -76,49 +90,48 @@ export class StripeService {
       if (!user) throw new Error("User not found");
 
       const orderRef = `STR-${Date.now()}`;
-       const successUrl =
-      source === "app"
-        ? "skybornedrop://payment-processing" 
-        : `${process.env.FRONTEND_URL}/payment-success?sessionId={CHECKOUT_SESSION_ID}`;
+      const billingInterval = this.getBillingInterval(billingType);
+      
+      const successUrl =
+        source === "app"
+          ? "skybornedrop://payment-processing" 
+          : `${process.env.FRONTEND_URL}/payment-success?sessionId={CHECKOUT_SESSION_ID}`;
 
-    const cancelUrl =
-      source === "app"
-        ? "skybornedrop://payment-processing"
-        : `${process.env.FRONTEND_URL}/payment-failed`;
+      const cancelUrl =
+        source === "app"
+          ? "skybornedrop://payment-processing"
+          : `${process.env.FRONTEND_URL}/payment-failed`;
 
       // Create checkout session
       const session = await this.stripe.checkout.sessions.create({
         payment_method_types: ["card"],
-
         mode: "subscription",
-
         line_items: [
           {
             price_data: {
               currency: currency.toLowerCase(),
               product_data: {
                 name: `${plan.charAt(0).toUpperCase() + plan.slice(1)} Plan`,
-                description: `${plan}`,
+                description: `${plan} - ${billingType === "yearly" ? "Annual" : "Monthly"} Subscription`,
               },
               unit_amount: Math.round(amount * 100), // cents
               recurring: {
-                interval: "month",
+                interval: billingInterval,
+                interval_count: billingType === "yearly" ? 1 : 1,
               },
             },
             quantity: 1,
           },
         ],
-
-        customer_email: user.email,       
-
+        customer_email: user.email,
         metadata: {
           userId,
           plan,
           orderRef,
-          userAmount: userAmount.toString()
+          userAmount: userAmount.toString(),
+          billingType,
         },
-        
-        success_url:successUrl,
+        success_url: successUrl,
         cancel_url: cancelUrl,
       } as Stripe.Checkout.SessionCreateParams);
 
@@ -131,6 +144,7 @@ export class StripeService {
         localAmount: amount,
         currency,
         plan,
+        billingType,
         status: "PENDING",
         gateway: "stripe",
         paymentIntentId: session.id,
@@ -140,7 +154,6 @@ export class StripeService {
         },
         source: source,
       });
-      // console.log("this is payment:- ", payment);
 
       return {
         checkoutUrl: session.url || "",
@@ -176,17 +189,35 @@ export class StripeService {
       const session = await this.stripe.checkout.sessions.retrieve(sessionId);
 
       if (session.payment_status === "paid") {
+        // Get billing type from metadata
+        const billingType = (session.metadata?.billingType as "monthly" | "yearly") || "monthly";
+        
         // Update payment record
         const payment = await Payment.findOneAndUpdate(
           { paymentIntentId: sessionId },
           {
             status: "COMPLETED",
+            billingType,
             verifiedAt: new Date(),
           },
           { new: true },
         );
 
         if (payment) {
+          // Update user subscription
+          const user = await User.findById(payment.userId);
+          if (user) {
+            const subscriptionDuration = this.getSubscriptionDuration(billingType);
+            user.subscription = {
+              ...user.subscription,
+              startDate: new Date(),
+              endDate: new Date(Date.now() + subscriptionDuration),
+              status: "active",
+              // plan: payment.plan as any,
+            };
+            await user.save();
+          }
+
           return payment;
         }
       }
@@ -195,6 +226,7 @@ export class StripeService {
       throw error;
     }
   }
+
   /**
    * Get or create a Stripe customer for a user
    */
@@ -234,6 +266,7 @@ export class StripeService {
     currency: string,
     plan: string,
     userAmount: number,
+    billingType: "monthly" | "yearly" = "monthly",
   ): Promise<{
     clientSecret: string;
     reference: string;
@@ -251,11 +284,12 @@ export class StripeService {
         customer: customerId,
         amount: Math.round(amount * 100), // Convert to cents
         currency: currency.toLowerCase(),
-        description: `Plan: ${plan} - Monthly Subscription`,
+        description: `Plan: ${plan} - ${billingType === "yearly" ? "Annual" : "Monthly"} Subscription`,
         metadata: {
           userId: userId,
           plan,
           orderRef,
+          billingType,
           isRecurring: "true",
         },
         // Enable off-session for recurring charges
@@ -272,6 +306,7 @@ export class StripeService {
         localAmount: amount,
         currency,
         plan,
+        billingType,
         status: "PENDING",
         gateway: "stripe",
         paymentIntentId: paymentIntent.id,
@@ -322,12 +357,14 @@ export class StripeService {
     userId: string,
     priceId: string,
     plan: string,
+    billingType: "monthly" | "yearly" = "monthly",
   ): Promise<{ subscriptionId: string; clientSecret?: string }> {
     try {
       const user = await User.findById(userId);
       if (!user) throw new Error("User not found");
 
       const customerId = await this.getOrCreateCustomer(user);
+      const billingInterval = this.getBillingInterval(billingType);
 
       const subscription = await this.stripe.subscriptions.create({
         customer: customerId,
@@ -335,6 +372,7 @@ export class StripeService {
         metadata: {
           userId: userId,
           plan,
+          billingType,
         },
         // Collect payment on subscription creation
         payment_behavior: "default_incomplete",
@@ -365,12 +403,14 @@ export class StripeService {
 
   /**
    * Charge recurring payment using saved payment method
+   * Supports both monthly and yearly billing cycles
    */
   static async chargeRecurringPayment(
     userId: string,
     plan: string,
     amount: number, // in cents
     currency: string,
+    billingType: "monthly" | "yearly" = "monthly",
     retryAttempt = 0,
     config = this.DEFAULT_RECURRING_CONFIG,
   ): Promise<void> {
@@ -403,10 +443,11 @@ export class StripeService {
         payment_method: defaultPaymentMethod.id,
         off_session: true,
         confirm: true,
-        description: `Recurring charge for ${plan}`,
+        description: `Recurring charge for ${plan} (${billingType})`,
         metadata: {
           userId: userId,
           plan,
+          billingType,
           orderRef,
           isRecurring: "true",
         },
@@ -421,6 +462,7 @@ export class StripeService {
         localAmount: amount / 100,
         currency,
         plan,
+        billingType,
         status: "PENDING",
         gateway: "stripe",
         paymentIntentId: paymentIntent.id,
@@ -432,7 +474,7 @@ export class StripeService {
 
       // Verify payment after delay
       setTimeout(() => {
-        this.verifyRecurringPayment(paymentIntent.id, userId, plan);
+        this.verifyRecurringPayment(paymentIntent.id, userId, plan, billingType);
       }, 3000);
     } catch (error) {
       console.error(
@@ -441,16 +483,13 @@ export class StripeService {
       );
 
       if (retryAttempt < (config.maxRetries || 3)) {
-        // console.log(
-        //   `🔄 Retrying in ${config.retryDelayMs}ms... (Attempt ${retryAttempt + 2}/${(config.maxRetries || 3) + 1})`,
-        // );
-
         setTimeout(() => {
           this.chargeRecurringPayment(
             userId,
             plan,
             amount,
             currency,
+            billingType,
             retryAttempt + 1,
             config,
           );
@@ -469,6 +508,7 @@ export class StripeService {
     paymentIntentId: string,
     userId: string,
     plan: string,
+    billingType: "monthly" | "yearly" = "monthly",
   ) {
     try {
       const payment = await Payment.findOne({
@@ -494,6 +534,7 @@ export class StripeService {
       }
 
       payment.status = paymentStatus as any;
+      payment.billingType = billingType;
       payment.gatewayResponse = { paymentIntentId: paymentIntent.id };
       payment.verifiedAt = new Date();
       await payment.save();
@@ -501,11 +542,11 @@ export class StripeService {
       if (paymentStatus === "COMPLETED") {
         const user = await User.findById(userId);
         if (user && user.subscription) {
+          const subscriptionDuration = this.getSubscriptionDuration(billingType);
           user.subscription.endDate = new Date(
-            Date.now() + 30 * 24 * 60 * 60 * 1000,
+            Date.now() + subscriptionDuration,
           );
           await user.save();
-
         }
       } else {
         await this.notifyPaymentFailure(userId, plan);
@@ -519,72 +560,40 @@ export class StripeService {
    * Initialize recurring payment cron job
    */
   static initRecurringPaymentCron() {
-    // console.log("🔄 Initializing Stripe recurring payment cron job...");
-
+    // Run daily at 2 AM
     cron.schedule("0 2 * * *", async () => {
-      // console.log("⏰ Running Stripe recurring payment check...");
       await this.processRecurringPayments();
     });
-
-    // console.log("✅ Stripe recurring payment cron job initialized");
   }
-
-  //   static initRecurringPaymentCron() {
-  //   console.log('🔄 Initializing Stripe recurring payment cron job (EVERY MINUTE)...');
-
-  //   cron.schedule(
-  //     '* * * * *',
-  //     async () => {
-  //       console.log('⏰ Running Stripe recurring payment check (every minute)...');
-  //       await this.processRecurringPayments();
-  //     },
-  //     {
-  //       timezone: 'Asia/Kolkata',
-  //     }
-  //   );
-
-  //   console.log('✅ Stripe recurring payment cron job initialized');
-  // }
 
   /**
    * Process all Stripe recurring payments
+   * Handles both monthly and yearly subscriptions
    */
   private static async processRecurringPayments() {
     try {
-      const config = this.DEFAULT_RECURRING_CONFIG;
-      const billingDay = config.billingCycleDay || 1;
-      const today = new Date().getDate();
-
-      // console.log(`📅 Billing day: ${billingDay}, Today: ${today}`);
-
-      // if (today !== billingDay) {
-      //   console.log(`⏭️ Not billing day yet. Next billing on: ${billingDay}`);
-      //   return;
-      // }
-
       // Find all active Stripe subscriptions
       const activeUsers = await User.find({
         "subscription.status": "active",
-        // 'subscription.endDate': { $gt: new Date() },
         gateway: "stripe",
       });
 
-      // console.log(`📊 Found ${activeUsers.length} active Stripe subscriptions`);
-
       for (const user of activeUsers) {
         try {
+          const billingType = user.billingType || "monthly";
           const planAmount = this.getPlanAmount(user.plan as string);
+          
           await this.chargeRecurringPayment(
             user._id.toString(),
             user.plan as string,
             planAmount,
             "USD",
+            billingType as any,
           );
         } catch (err) {
           console.error(`❌ Error charging user ${user._id}:`, err);
         }
       }
-
     } catch (error) {
       console.error("❌ Error in processRecurringPayments:", error);
     }
@@ -638,7 +647,6 @@ export class StripeService {
     try {
       const user = await User.findById(userId);
       if (user && user.email) {
-        // console.log(`📧 Sending payment failure notification to ${user.email}`);
         // Implement email notification here
       }
     } catch (error) {
@@ -653,7 +661,6 @@ export class StripeService {
     try {
       const user = await User.findById(userId);
       if (user && user.email) {
-        // console.log(`📧 Sending suspension notification to ${user.email}`);
         // Implement email notification here
       }
     } catch (error) {

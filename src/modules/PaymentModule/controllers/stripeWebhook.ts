@@ -48,6 +48,7 @@ router.post(
           // if (payment.subscriptionActivated) break;
 
           payment.status = "COMPLETED";
+          
           payment.reference = session.id;
           payment.subscriptionId = session.subscription as string;
           payment.invoiceId = session.invoice as string;

@@ -222,6 +222,13 @@ const userSchema = new Schema<IUser>(
       type: String,
       sparse: true,
     },
+    
+    billingType:{
+      type: String,
+      enum: ["monthly", "yearly"],
+      default: "monthly",
+    },  
+
 
     // System
     role: {

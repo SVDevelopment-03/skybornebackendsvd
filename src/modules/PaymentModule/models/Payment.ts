@@ -9,6 +9,7 @@ interface IPayment extends Document {
   amount: number;
   source?:string;
   localAmount: number;
+  billingType?: string;
   subscriptionActivated?: true;
   plan: string;
   currency: string;
@@ -144,6 +145,11 @@ const PaymentSchema = new Schema<IPayment>(
       type: String, // Format: "YYYY-MM"
       sparse: true,
       index: true,
+    },
+    billingType: {
+      type: String,
+      enum: ['monthly', 'yearly'],
+      default: 'monthly',
     },
     billingAttempt: {
       type: Number,

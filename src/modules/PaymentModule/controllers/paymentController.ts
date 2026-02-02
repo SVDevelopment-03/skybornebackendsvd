@@ -30,15 +30,16 @@ export default class PaymentController {
     StripeService.initRecurringPaymentCron();
   }
 
-  /**
+/**
    * Create payment order with automatic gateway selection
    * For Stripe: Returns checkoutUrl for direct redirect
    * For nGenius: Returns paymentLink for redirect
+   * Supports both monthly and yearly billing
    */
   static async createPaymentOrder(req: Request, res: Response) {
     try {
-      let { amount, currency = "USD", userId, plan, source } = req.body;
-      //    amount = 0.011
+      let { amount, currency = "USD", userId, plan, source, billingType = "monthly" } = req.body;
+      
       const paymentSource = source === "app" ? "app" : "web";
       const userAmount = amount;
 
@@ -47,6 +48,14 @@ export default class PaymentController {
         return res.status(400).json({
           success: false,
           message: "userId and plan are required",
+        });
+      }
+
+      // Validate billingType
+      if (!["monthly", "yearly"].includes(billingType)) {
+        return res.status(400).json({
+          success: false,
+          message: "billingType must be 'monthly' or 'yearly'",
         });
       }
 
@@ -62,8 +71,8 @@ export default class PaymentController {
       const countryCode = user.country || user.countryCode;
       const preferredGateway =
         paymentSource == "app" ? "stripe" : getPreferredGateway(countryCode);
-      // const preferredGateway: PreferedType = "stripe";
 
+      // Apply currency conversion for nGenius if needed
       if (preferredGateway === "ngenius" && currency === "USD") {
         const rate = await getUsdToAedRate();
         amount = Number((amount * rate).toFixed(2));
@@ -79,9 +88,11 @@ export default class PaymentController {
           userId,
           plan,
           userAmount,
+          billingType, // Pass billing type to nGenius service
         );
       } else if (preferredGateway === "stripe") {
         // For Stripe: Create checkout session (redirect method)
+        // Pass billingType to calculate correct pricing
         paymentData = await StripeService.createCheckoutSession(
           userId,
           amount,
@@ -89,6 +100,7 @@ export default class PaymentController {
           plan,
           userAmount,
           paymentSource,
+          billingType, // Pass billing type
         );
         // Return paymentLink for compatibility with frontend
         paymentData.paymentLink = paymentData.checkoutUrl;
@@ -99,14 +111,16 @@ export default class PaymentController {
         });
       }
 
-      // Update user with gateway preference
+      // Update user with gateway preference and billing type
       user.gateway = preferredGateway;
       user.lastPaymentGateway = preferredGateway;
+      user.billingType = billingType; // Store user's billing type preference
       await user.save();
 
       return res.status(200).json({
         success: true,
         gateway: preferredGateway,
+        billingType,
         ...paymentData,
         message: "Payment order created successfully",
       });
@@ -505,9 +519,10 @@ export default class PaymentController {
     return this.activateSubscription(payment, true, null as any, () => {});
   }
 
-  /**
+/**
    * Activate subscription for both gateways
    * Updates user plan, subscription, classCredits, and totalClassCredits
+   * Handles both monthly and yearly billing
    * Only called once per payment flow
    */
   private static async activateSubscription(
@@ -524,7 +539,19 @@ export default class PaymentController {
           console.error("❌ User not found:", payment?.userId);
         } else {
           const plan = payment?.plan as PlanType;
-          const newCredits = PLAN_CONFIG[plan];
+          const billingType = payment?.billingType || "monthly";
+          
+          // Get base monthly credits
+          let newCredits = PLAN_CONFIG[plan];
+
+          // ✅ If yearly billing, multiply credits by 12
+          if (billingType === "yearly") {
+            newCredits = {
+              yoga: (newCredits?.yoga || 0) * 12,
+              zumba: (newCredits?.zumba || 0) * 12,
+              specialty: (newCredits?.specialty || 0) * 12,
+            };
+          }
 
           // Check if user has an existing active plan
           const hasExistingPlan =
@@ -551,14 +578,20 @@ export default class PaymentController {
           user.totalClassCredits =
             (user.totalClassCredits || 0) + totalNewCredits;
 
+          // ✅ Calculate subscription end date based on billing type
+          const subscriptionDuration = billingType === "yearly"
+            ? 365 * 24 * 60 * 60 * 1000  // 1 year
+            : 30 * 24 * 60 * 60 * 1000;  // ~1 month
+
           // Update subscription
           user.subscription = {
             startDate: user.subscription?.startDate || new Date(),
-            endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+            endDate: new Date(Date.now() + subscriptionDuration),
             status: "active",
           };
 
-          // ✅ CRITICAL: Store Stripe subscription ID for future cancellation
+          // ✅ CRITICAL: Store billing type and Stripe subscription ID for future reference
+          user.billingType = billingType;
           if (payment?.gateway === "stripe" && payment?.subscriptionId) {
             user.stripeSubscriptionId = payment.subscriptionId;
           }
@@ -579,6 +612,8 @@ export default class PaymentController {
             .toUpperCase()}`;
 
           try {
+            const subscriptionEndDate = new Date(Date.now() + subscriptionDuration);
+            
             const invoicePDF = await generateInvoicePDF({
               invoiceId,
               orderRef: payment!.orderRef,
@@ -589,9 +624,7 @@ export default class PaymentController {
               amount: payment!.amount,
               currency: payment!.currency || "USD",
               date: new Date(),
-              subscriptionEndDate: new Date(
-                Date.now() + 30 * 24 * 60 * 60 * 1000,
-              ),
+              subscriptionEndDate: subscriptionEndDate,
               paymentMethod: `${payment.gateway.toUpperCase()} Payment Gateway`,
             });
 
@@ -608,9 +641,7 @@ export default class PaymentController {
                 amount: payment!.amount,
                 currency: payment!.currency || "USD",
                 date: new Date(),
-                subscriptionEndDate: new Date(
-                  Date.now() + 30 * 24 * 60 * 60 * 1000,
-                ),
+                subscriptionEndDate: subscriptionEndDate,
                 paymentMethod: `${payment.gateway.toUpperCase()} Payment Gateway`,
               },
               invoicePDFBase64,
@@ -635,6 +666,10 @@ export default class PaymentController {
         }
       }
 
+      const subscriptionDuration = payment?.billingType === "yearly"
+        ? 365 * 24 * 60 * 60 * 1000
+        : 30 * 24 * 60 * 60 * 1000;
+
       return res.status(isSuccessful ? 200 : 400).json({
         success: isSuccessful,
         gateway: payment?.gateway,
@@ -644,8 +679,10 @@ export default class PaymentController {
         currency: payment?.currency,
         status: payment?.status,
         plan: payment?.plan,
+        billingType: payment?.billingType,
+        subscriptionEndDate: new Date(Date.now() + subscriptionDuration),
         message: isSuccessful
-          ? "✅ Payment successful! Subscription activated. Monthly billing will begin."
+          ? `✅ Payment successful! Subscription activated. ${payment?.billingType === "yearly" ? "Annual" : "Monthly"} billing will begin.`
           : `❌ Payment ${payment?.status}`,
       });
     } catch (error) {
