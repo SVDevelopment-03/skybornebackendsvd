@@ -10,6 +10,7 @@ import connectDB from "./config/db"; // Your Mongo connection file
 import { connectRedis } from "./config/redis"; // Your Redis connection file
 import app from "./app"; // Imported Express app
 import { initializeSocket, setIOInstance } from "./config/socket";
+import { startCurrencyCron } from "./modules/CurrencyModule/CurrencyCron";
 
 const PORT = process.env.PORT || 8000;
 
@@ -37,6 +38,7 @@ const startServer = async () => {
       },
       () => {
         console.log(`🌐 Server running on port ${PORT}`);
+        startCurrencyCron();
       },
     );
 

@@ -5,6 +5,11 @@ import Payment from "../models/Payment";
 import User from "../../UserModule/models/User";
 import cron from "node-cron";
 import dotenv from "dotenv";
+import {
+  getCurrencyForCountry,
+  formatAmountForStripe,
+} from "../../../config/currencyConfig";
+import { convertUsingDB } from "../../../services/dbCurrencyService";
 
 dotenv.config();
 
@@ -72,6 +77,109 @@ export class StripeService {
    * User is redirected directly to Stripe Checkout
    * Supports both monthly and yearly billing
    */
+  // static async createCheckoutSession(
+  //   userId: string,
+  //   amount: number,
+  //   currency: string,
+  //   plan: string,
+  //   userAmount: number,
+  //   source: "app" | "web" = "web",
+  // ): Promise<{
+  //   checkoutUrl: string;
+  //   sessionId: string;
+  //   reference: string;
+  // }> {
+  //   try {
+  //     const user = await User.findById(userId);
+  //     if (!user) throw new Error("User not found");
+
+  //     const orderRef = `STR-${Date.now()}`;
+  //      const successUrl =
+  //     source === "app"
+  //       ? "skybornedrop://payment-processing" 
+  //       : `${process.env.FRONTEND_URL}/payment-success?sessionId={CHECKOUT_SESSION_ID}`;
+
+  //   const cancelUrl =
+  //     source === "app"
+  //       ? "skybornedrop://payment-processing"
+  //       : `${process.env.FRONTEND_URL}/payment-failed`;
+
+  //     // Create checkout session
+  //     const session = await this.stripe.checkout.sessions.create({
+  //       payment_method_types: ["card"],
+
+  //       mode: "subscription",
+
+  //       line_items: [
+  //         {
+  //           price_data: {
+  //             currency: currency.toLowerCase(),
+  //             product_data: {
+  //               name: `${plan.charAt(0).toUpperCase() + plan.slice(1)} Plan`,
+  //               description: `${plan}`,
+  //             },
+  //             unit_amount: Math.round(amount * 100), // cents
+  //             recurring: {
+  //               interval: "month",
+  //             },
+  //           },
+  //           quantity: 1,
+  //         },
+  //       ],
+
+  //       customer_email: user.email,       
+
+  //       metadata: {
+  //         userId,
+  //         plan,
+  //         orderRef,
+  //         userAmount: userAmount.toString()
+  //       },
+        
+  //       success_url:successUrl,
+  //       cancel_url: cancelUrl,
+  //     } as Stripe.Checkout.SessionCreateParams);
+
+  //     // Create payment record
+  //     const payment = await Payment.create({
+  //       userId,
+  //       orderRef,
+  //       reference: session.id,
+  //       amount: userAmount,
+  //       localAmount: amount,
+  //       currency,
+  //       plan,
+  //       status: "PENDING",
+  //       gateway: "stripe",
+  //       paymentIntentId: session.id,
+  //       gatewayResponse: {
+  //         sessionId: session.id,
+  //         checkoutUrl: session.url,
+  //       },
+  //       source: source,
+  //     });
+  //     // console.log("this is payment:- ", payment);
+
+  //     return {
+  //       checkoutUrl: session.url || "",
+  //       sessionId: session.id,
+  //       reference: session.id,
+  //     };
+  //   } catch (error) {
+  //     console.error("❌ Error creating checkout session:", error);
+  //     throw error;
+  //   }
+  // }
+
+  /**
+ * Create checkout session with automatic currency conversion
+ * @param userId - User ID
+ * @param amount - Amount in USD (base currency)
+ * @param currency - Original currency (usually USD)
+ * @param plan - Subscription plan
+ * @param userAmount - Original amount before conversion
+ * @param source - Source of payment (web/app)
+ */
   static async createCheckoutSession(
     userId: string,
     amount: number,
@@ -84,10 +192,48 @@ export class StripeService {
     checkoutUrl: string;
     sessionId: string;
     reference: string;
+    amount: number;          // ✅ NEW: Return converted amount
+    currency: string;        // ✅ NEW: Return local currency
+    originalAmount: number;  // ✅ NEW: Return original amount
+    originalCurrency: string; // ✅ NEW: Return original currency
   }> {
     try {
       const user = await User.findById(userId);
       if (!user) throw new Error("User not found");
+
+      // ✅ NEW: Get user's country and determine local currency
+      const countryCode = user.countryCode || user.country || "US";
+      const currencyMapping = getCurrencyForCountry(countryCode);
+      const localCurrency = currencyMapping.stripeCurrency; // e.g., 'inr', 'aud', 'eur'
+      const localCurrencyCode = currencyMapping.currency; // e.g., 'INR', 'AUD', 'EUR'
+
+      console.log(`💰 Processing payment for ${countryCode}:`, {
+        originalAmount: amount,
+        originalCurrency: currency,
+        targetCurrency: localCurrencyCode,
+        user: user.email,
+      });
+
+      // ✅ NEW: Convert amount from USD to local currency
+      // ✅ Convert amount from USD → local currency
+      let localAmount = amount;
+      let conversionRate = 1;
+
+      if (currency !== localCurrencyCode) {
+        const result = await convertUsingDB(
+          amount,
+          currency,
+          localCurrencyCode,
+        );
+
+        localAmount = result.convertedAmount;
+        conversionRate = result.rate;
+      }
+
+      // ✅ NEW: Format amount for Stripe (multiply by 100 for most currencies, except JPY)
+      const stripeAmount = formatAmountForStripe(localAmount, localCurrencyCode);
+
+      console.log(`💳 Stripe amount: ${stripeAmount} (smallest unit for ${localCurrencyCode})`);
 
       const orderRef = `STR-${Date.now()}`;
       const billingInterval = this.getBillingInterval(billingType);
@@ -102,19 +248,19 @@ export class StripeService {
           ? "skybornedrop://payment-processing"
           : `${process.env.FRONTEND_URL}/payment-failed`;
 
-      // Create checkout session
+      // Create checkout session with LOCAL CURRENCY
       const session = await this.stripe.checkout.sessions.create({
         payment_method_types: ["card"],
         mode: "subscription",
         line_items: [
           {
             price_data: {
-              currency: currency.toLowerCase(),
+              currency: localCurrency, // ✅ CHANGED: Use local currency instead of original
               product_data: {
                 name: `${plan.charAt(0).toUpperCase() + plan.slice(1)} Plan`,
                 description: `${plan} - ${billingType === "yearly" ? "Annual" : "Monthly"} Subscription`,
               },
-              unit_amount: Math.round(amount * 100), // cents
+              unit_amount: stripeAmount, // ✅ CHANGED: Use converted amount
               recurring: {
                 interval: billingInterval,
                 interval_count: billingType === "yearly" ? 1 : 1,
@@ -130,19 +276,28 @@ export class StripeService {
           orderRef,
           userAmount: userAmount.toString(),
           billingType,
+          localAmount: localAmount.toString(), // ✅ NEW: Store converted amount
+          currency: localCurrencyCode,         // ✅ NEW: Store local currency
+          originalCurrency: currency,          // ✅ NEW: Store original currency
+          conversionRate: conversionRate.toString(), // ✅ NEW: Store conversion rate
         },
         success_url: successUrl,
         cancel_url: cancelUrl,
       } as Stripe.Checkout.SessionCreateParams);
 
-      // Create payment record
+      console.log("🚀 STRIPE CHECKOUT SESSION CREATED");
+      console.log("➡️ Session ID:", session.id);
+      console.log("➡️ Checkout URL:", session.url);
+      console.log("➡️ Metadata:", session.metadata);
+
+      // Create payment record with both amounts
       const payment = await Payment.create({
         userId,
         orderRef,
         reference: session.id,
-        amount: userAmount,
-        localAmount: amount,
-        currency,
+        amount: userAmount,              // Original USD amount
+        localAmount: localAmount,        // ✅ NEW: Converted local amount
+        currency: localCurrencyCode,     // ✅ CHANGED: Store local currency
         plan,
         billingType,
         status: "PENDING",
@@ -153,19 +308,27 @@ export class StripeService {
           checkoutUrl: session.url,
         },
         source: source,
+        metadata: {                      // ✅ NEW: Store conversion metadata
+          countryCode,
+          conversionRate,
+          originalCurrency: currency,
+        },
       });
 
       return {
         checkoutUrl: session.url || "",
         sessionId: session.id,
         reference: session.id,
+        amount: localAmount,              // ✅ NEW: Return converted amount
+        currency: localCurrencyCode,      // ✅ NEW: Return local currency
+        originalAmount: userAmount,       // ✅ NEW: Return original amount
+        originalCurrency: currency,       // ✅ NEW: Return original currency
       };
     } catch (error) {
       console.error("❌ Error creating checkout session:", error);
       throw error;
     }
   }
-
   /**
    * Get checkout session details
    */
@@ -260,6 +423,70 @@ export class StripeService {
   /**
    * Create a payment intent for one-time payment
    */
+  // static async createPaymentIntent(
+  //   userId: string,
+  //   amount: number, // in cents
+  //   currency: string,
+  //   plan: string,
+  //   userAmount: number,
+  // ): Promise<{
+  //   clientSecret: string;
+  //   reference: string;
+  //   amount: number;
+  // }> {
+  //   try {
+  //     const user = await User.findById(userId);
+  //     if (!user) throw new Error("User not found");
+
+  //     const customerId = await this.getOrCreateCustomer(user);
+  //     const orderRef = `STR-${Date.now()}`;
+
+  //     // Create payment intent
+  //     const paymentIntent = await this.stripe.paymentIntents.create({
+  //       customer: customerId,
+  //       amount: stripeAmount, // Convert to cents
+  //       currency: localCurrency,
+  //       description: `Plan: ${plan} - Monthly Subscription`,
+  //       metadata: {
+  //         userId: userId,
+  //         plan,
+  //         orderRef,
+  //         isRecurring: "true",
+  //       },
+  //       // Enable off-session for recurring charges
+  //       off_session: false,
+  //       setup_future_usage: "off_session",
+  //     });
+
+  //     // Create payment record
+  //     const payment = await Payment.create({
+  //       userId,
+  //       orderRef,
+  //       reference: paymentIntent.id,
+  //       amount: userAmount,
+  //       localAmount: amount,
+  //       currency,
+  //       plan,
+  //       status: "PENDING",
+  //       gateway: "stripe",
+  //       paymentIntentId: paymentIntent.id,
+  //       gatewayResponse: {
+  //         paymentIntentId: paymentIntent.id,
+  //         clientSecret: paymentIntent.client_secret,
+  //       },
+  //     });
+
+  //     return {
+  //       clientSecret: paymentIntent.client_secret || "",
+  //       reference: paymentIntent.id,
+  //       amount: userAmount,
+  //     };
+  //   } catch (error) {
+  //     console.error("❌ Error creating payment intent:", error);
+  //     throw error;
+  //   }
+  // }
+
   static async createPaymentIntent(
     userId: string,
     amount: number, // in cents
@@ -279,11 +506,33 @@ export class StripeService {
       const customerId = await this.getOrCreateCustomer(user);
       const orderRef = `STR-${Date.now()}`;
 
+      // ✅ FIX: Add currency conversion logic
+      const countryCode = user.countryCode || user.country || "US";
+      const currencyMapping = getCurrencyForCountry(countryCode);
+      const localCurrency = currencyMapping.stripeCurrency;
+      const localCurrencyCode = currencyMapping.currency;
+
+      let localAmount = amount;
+      let conversionRate = 1;
+
+      if (currency !== localCurrencyCode) {
+        const result = await convertUsingDB(
+          amount,
+          currency,
+          localCurrencyCode,
+        );
+
+        localAmount = result.convertedAmount;
+        conversionRate = result.rate;
+      }
+
+      const stripeAmount = formatAmountForStripe(localAmount, localCurrencyCode);
+
       // Create payment intent
       const paymentIntent = await this.stripe.paymentIntents.create({
         customer: customerId,
-        amount: Math.round(amount * 100), // Convert to cents
-        currency: currency.toLowerCase(),
+        amount: stripeAmount, // ✅ FIXED: Now defined
+        currency: localCurrency, // ✅ FIXED: Now defined
         description: `Plan: ${plan} - ${billingType === "yearly" ? "Annual" : "Monthly"} Subscription`,
         metadata: {
           userId: userId,
@@ -292,19 +541,21 @@ export class StripeService {
           billingType,
           isRecurring: "true",
         },
-        // Enable off-session for recurring charges
         off_session: false,
         setup_future_usage: "off_session",
       });
-
+      console.log("🚀 STRIPE PAYMENT INTENT CREATED");
+      console.log("➡️ PaymentIntent ID:", paymentIntent.id);
+      console.log("➡️ Status:", paymentIntent.status);
+      console.log("➡️ Metadata:", paymentIntent.metadata);
       // Create payment record
       const payment = await Payment.create({
         userId,
         orderRef,
         reference: paymentIntent.id,
         amount: userAmount,
-        localAmount: amount,
-        currency,
+        localAmount: localAmount, // ✅ FIXED
+        currency: localCurrencyCode, // ✅ FIXED
         plan,
         billingType,
         status: "PENDING",

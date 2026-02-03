@@ -16,7 +16,7 @@ const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!;
  * Stripe Webhook (RAW BODY REQUIRED)
  */
 router.post(
-  "/stripe",
+  "/",
   express.raw({ type: "application/json" }),
   async (req, res) => {
 
@@ -30,6 +30,9 @@ router.post(
       return res.status(400).send(`Webhook Error: ${err.message}`);
     }
 
+    console.log("🔥 Stripe webhook HIT");
+    console.log("Event type:", event.type);
+
     try {
       switch (event.type) {
         /**
@@ -37,11 +40,12 @@ router.post(
          */
         case "checkout.session.completed": {
           const session = event.data.object as Stripe.Checkout.Session;
-
+          console.log("➡️ Checkout Session data:", session);
           const { orderRef } = session.metadata || {};
           if (!orderRef) break;
 
           const payment = await Payment.findOne({ orderRef });
+          console.log("➡️ Found payment record:", payment);
           if (!payment) break;
 
           // 🔒 STRONG IDEMPOTENCY
@@ -57,7 +61,7 @@ router.post(
           payment.verifiedAt = new Date();
 
           await payment.save();
-
+          console.log("✅ Payment record updated for orderRef:", payment);
           // if (payment?.source == "web" || !payment?.source) break;
 
           // 🔥 SINGLE SOURCE OF BUSINESS LOGIC

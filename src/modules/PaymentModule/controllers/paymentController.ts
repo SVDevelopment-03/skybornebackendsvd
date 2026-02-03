@@ -36,6 +36,90 @@ export default class PaymentController {
    * For nGenius: Returns paymentLink for redirect
    * Supports both monthly and yearly billing
    */
+  // static async createPaymentOrder(req: Request, res: Response) {
+  //   try {
+  //     let { amount, currency = "USD", userId, plan, source } = req.body;
+  //     //    amount = 0.011
+  //     const paymentSource = source === "app" ? "app" : "web";
+  //     const userAmount = amount;
+
+  //     // Validation
+  //     if (!userId || !plan) {
+  //       return res.status(400).json({
+  //         success: false,
+  //         message: "userId and plan are required",
+  //       });
+  //     }
+
+  //     const user = await User.findById(userId);
+  //     if (!user) {
+  //       return res.status(404).json({
+  //         success: false,
+  //         message: "User not found",
+  //       });
+  //     }
+
+  //     // Determine preferred gateway based on country
+  //     const countryCode = user.country || user.countryCode;
+  //     const preferredGateway =
+  //       paymentSource == "app" ? "stripe" : getPreferredGateway(countryCode);
+  //     // const preferredGateway: PreferedType = "stripe";
+
+  //     if (preferredGateway === "ngenius" && currency === "USD") {
+  //       const rate = await getUsdToAedRate();
+  //       amount = Number((amount * rate).toFixed(2));
+  //       currency = "AED";
+  //     }
+
+  //     let paymentData: any;
+
+  //     if (preferredGateway === "ngenius") {
+  //       paymentData = await NgeniusService.createOrder(
+  //         amount,
+  //         currency,
+  //         userId,
+  //         plan,
+  //         userAmount,
+  //       );
+  //     } else if (preferredGateway === "stripe") {
+  //       // For Stripe: Create checkout session (redirect method)
+  //       paymentData = await StripeService.createCheckoutSession(
+  //         userId,
+  //         amount,
+  //         currency,
+  //         plan,
+  //         userAmount,
+  //         paymentSource,
+  //       );
+  //       // Return paymentLink for compatibility with frontend
+  //       paymentData.paymentLink = paymentData.checkoutUrl;
+  //     } else {
+  //       return res.status(400).json({
+  //         success: false,
+  //         message: "No suitable payment gateway found for your country",
+  //       });
+  //     }
+
+  //     // Update user with gateway preference
+  //     user.gateway = preferredGateway;
+  //     user.lastPaymentGateway = preferredGateway;
+  //     await user.save();
+
+  //     return res.status(200).json({
+  //       success: true,
+  //       gateway: preferredGateway,
+  //       ...paymentData,
+  //       message: "Payment order created successfully",
+  //     });
+  //   } catch (err) {
+  //     console.error("❌ Payment order error:", err);
+  //     return res.status(500).json({
+  //       success: false,
+  //       message: "Failed to create payment order",
+  //     });
+  //   }
+  // }
+
   static async createPaymentOrder(req: Request, res: Response) {
     try {
       let { amount, currency = "USD", userId, plan, source, billingType = "monthly" } = req.body;
@@ -82,6 +166,13 @@ export default class PaymentController {
       let paymentData: any;
 
       if (preferredGateway === "ngenius") {
+        // For nGenius, convert USD to AED if needed
+        if (currency === "USD") {
+          const rate = await getUsdToAedRate();
+          amount = Number((amount * rate).toFixed(2));
+          currency = "AED";
+        }
+
         paymentData = await NgeniusService.createOrder(
           amount,
           currency,
@@ -102,8 +193,15 @@ export default class PaymentController {
           paymentSource,
           billingType, // Pass billing type
         );
-        // Return paymentLink for compatibility with frontend
+
+        // Add paymentLink for frontend compatibility
         paymentData.paymentLink = paymentData.checkoutUrl;
+
+        console.log("✅ Stripe payment created:", {
+          orderRef: paymentData.orderRef,
+          originalAmount: `${userAmount} ${currency}`,
+          localAmount: `${paymentData.amount} ${paymentData.currency}`,
+        });
       } else {
         return res.status(400).json({
           success: false,
@@ -129,6 +227,7 @@ export default class PaymentController {
       return res.status(500).json({
         success: false,
         message: "Failed to create payment order",
+        error: err instanceof Error ? err.message : "Unknown error",
       });
     }
   }
