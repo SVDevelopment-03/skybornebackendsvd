@@ -280,7 +280,9 @@ export default class MeetingController {
       }
 
       const now = new Date();
-      const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+      //const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+      const oneHourAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+
 
       let serviceTitles: string[] = [];
 
