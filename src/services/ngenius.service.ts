@@ -42,14 +42,10 @@ export class NgeniusService {
    * Runs daily at 2 AM to process monthly billing
    */
   static initRecurringPaymentCron() {
-    console.log("🔄 Initializing recurring payment cron job...");
 
     cron.schedule("0 2 * * *", async () => {
-      console.log("⏰ Running recurring payment check...");
       await this.processRecurringPayments();
     });
-
-    console.log("✅ Recurring payment cron job initialized");
   }
 
   /**
@@ -61,10 +57,7 @@ export class NgeniusService {
       const billingDay = config.billingCycleDay || 1;
       const today = new Date().getDate();
 
-      console.log(`📅 Billing day: ${billingDay}, Today: ${today}`);
-
       if (today !== billingDay) {
-        console.log(`⏭️ Not billing day yet. Next billing on: ${billingDay}`);
         return;
       }
 
@@ -74,8 +67,6 @@ export class NgeniusService {
         "subscription.endDate": { $gt: new Date() },
       });
 
-      console.log(`📊 Found ${activeUsers.length} active subscriptions`);
-
       for (const user of activeUsers) {
         try {
           await this.chargeRecurringPayment(user?.id.toString(), user?.plan as string);
@@ -83,8 +74,6 @@ export class NgeniusService {
           console.error(`❌ Error charging user ${user.id}:`, err);
         }
       }
-
-      console.log("✅ Recurring payment processing completed");
     } catch (error) {
       console.error("❌ Error in processRecurringPayments:", error);
     }
@@ -108,8 +97,6 @@ export class NgeniusService {
 
       const amount = this.getPlanAmount(plan);
 
-      console.log(`💳 Charging user ${userId} for plan ${plan}: ${amount} AED`);
-
       // Create recurring order
       const { orderRef, reference } = await this.createOrder(
         amount,
@@ -120,8 +107,6 @@ export class NgeniusService {
         "app" // Mark as app source for webhook verification
       );
 
-      console.log(`📝 Recurring payment created: ${orderRef}`);
-
       // Verify payment after short delay
       setTimeout(() => {
         this.verifyRecurringPayment(reference, userId, plan);
@@ -131,10 +116,6 @@ export class NgeniusService {
       console.error(`❌ Recurring payment charge failed (Attempt ${retryAttempt + 1}):`, error);
 
       if (retryAttempt < (config.maxRetries || 3)) {
-        console.log(
-          `🔄 Retrying in ${config.retryDelayMs}ms... (Attempt ${retryAttempt + 2}/${(config.maxRetries || 3) + 1})`
-        );
-
         setTimeout(() => {
           this.chargeRecurringPayment(userId, plan, retryAttempt + 1, config);
         }, config.retryDelayMs || 5000);
@@ -191,8 +172,6 @@ export class NgeniusService {
       payment.verifiedAt = new Date();
       await payment.save();
 
-      console.log(`✅ Recurring payment verified - Status: ${paymentStatus}`);
-
       // If successful, update next billing date
       if (paymentStatus === "COMPLETED") {
         const user = await User.findById(userId);
@@ -201,7 +180,6 @@ export class NgeniusService {
             Date.now() + 30 * 24 * 60 * 60 * 1000
           );
           await user.save();
-          console.log(`🎉 Subscription renewed for user ${userId}`);
         }
       } else {
         await this.notifyPaymentFailure(userId, plan);
@@ -221,8 +199,6 @@ export class NgeniusService {
         user.subscription.status = "suspended";
         user.subscription.suspendedAt = new Date();
         await user.save();
-
-        console.log(`⛔ Subscription suspended for user ${userId}`);
         await this.notifySubscriptionSuspended(userId);
       }
     } catch (error) {
@@ -300,13 +276,6 @@ export class NgeniusService {
         console.error(`❌ User not found: ${userId}`);
         return;
       }
-
-      console.log(`📧 Sending payment success notification to ${user.email}`);
-      // TODO: Implement email notification
-      // await sendPaymentSuccessEmail({...});
-      
-      // TODO: Implement push notification for app
-      // await sendPushNotification(userId, {...});
     } catch (error) {
       console.error(`❌ Error notifying payment success:`, error);
     }
@@ -329,7 +298,6 @@ export class NgeniusService {
         await user.save();
       }
 
-      console.log(`✅ Recurring subscription cancelled for user ${userId}`);
     } catch (error) {
       console.error(`❌ Error cancelling subscription:`, error);
       throw error;
@@ -469,8 +437,6 @@ export class NgeniusService {
         billingAttempt: 1,
         gatewayResponse: data,
       });
-
-      console.log(`✅ Order created: ${orderRef}, Reference: ${data.reference}`);
 
       return {
         orderRef,

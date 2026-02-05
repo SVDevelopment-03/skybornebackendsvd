@@ -8,10 +8,6 @@ import sgMail from "@sendgrid/mail";
 
 sgMail.setApiKey(process.env.SENDGRID_API_KEY!);
 
-console.log("sendgrid");
-
-
-
 const getWelcomeEmailHTML = (firstName: string, plan: string): string => {
   return `
 <!DOCTYPE html>
@@ -236,12 +232,6 @@ emailQueue.process(async (job) => {
       subject: `Welcome to SKYBORNE, ${firstName}!`,
       html: htmlContent,
     };
-
-    console.log("📨 SendGrid Payload:", {
-      to: msg.to,
-      from: msg.from,
-      subject: msg.subject,
-    });
 
     const response = await sgMail.send(msg);
 

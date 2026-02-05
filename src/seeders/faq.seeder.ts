@@ -28,14 +28,8 @@ export const contentData = [
 const start = async () => {
   try {
     await mongoose.connect(process.env.MONGO_URI!);
-
-    console.log("🌿 Database Connected");
-
     await FAQModel.deleteMany();
-    console.log("🗑️ Old FAQ data removed");
-
     await FAQModel.insertMany(contentData);
-    console.log("✅ New FAQ data inserted");
 
     process.exit();
   } catch (error) {

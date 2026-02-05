@@ -10,26 +10,21 @@ const seedAdmin = async () => {
     // Connect to MongoDB
     const mongoUri =
       process.env.MONGO_URI || "mongodb://localhost:27017/skyborne-production";
-    console.log("Connecting to MongoDB:", mongoUri.split("@")[1]); // Log without password
 
     await mongoose.connect(mongoUri);
-
-    console.log("Connected to MongoDB");
 
     // Force a direct database query with lean() to bypass Mongoose cache
     const existingAdmin = await User.findOne({
       email: "info@skybornedrop.com",
     }).lean();
 
-    console.log(
-      "Checking for existing admin with email: info@skybornedrop.com"
-    );
-    console.log("Existing admin found:", existingAdmin ? "Yes" : "No");
+    // console.log(
+    //   "Checking for existing admin with email: info@skybornedrop.com"
+    // );
+    // console.log("Existing admin found:", existingAdmin ? "Yes" : "No");
 
     if (existingAdmin) {
-      console.log("Deleting existing admin...");
       await User.deleteOne({ _id: existingAdmin._id });
-      console.log("Deleted existing admin");
     }
 
     // Create admin user
@@ -72,18 +67,17 @@ const seedAdmin = async () => {
 
     // Save the admin user
     const savedAdmin = await adminUser.save();
-    console.log("✓ Admin user created successfully!");
-    console.log("  Email: info@skybornedrop.com");
-    console.log("  Password: Admin123@$#k");
-    console.log("  User ID:", savedAdmin._id);
+    // console.log("  Email: info@skybornedrop.com");
+    // console.log("  Password: Admin123@$#k");
+    // console.log("  User ID:", savedAdmin._id);
     // Verify it was saved
     const verifyAdmin = await User.findOne({
       email: "info@skybornedrop.com",
     }).lean();
-    console.log(
-      "✓ Verification - Admin found in database:",
-      verifyAdmin ? "Yes" : "No"
-    );
+    // console.log(
+    //   "✓ Verification - Admin found in database:",
+    //   verifyAdmin ? "Yes" : "No"
+    // );
 
     await mongoose.disconnect();
     process.exit(0);

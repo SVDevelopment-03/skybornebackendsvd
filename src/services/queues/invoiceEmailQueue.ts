@@ -64,8 +64,6 @@ export const addInvoiceEmailJob = async (
   invoicePDFBase64: string
 ) => {
   console.log("➡️ addInvoiceEmailJob called");
-  console.log("➡️ Redis URL being used:", process.env.REDIS_URL);
-  console.log("➡️ Invoice ID:", jobData.invoiceId);
 
   try {
     const job = await invoiceEmailQueue.add(
@@ -85,7 +83,6 @@ export const addInvoiceEmailJob = async (
       }
     );
 
-    console.log(`📬 Invoice job successfully queued: ID = ${job.id}`);
     return job;
   } catch (error) {
     console.error("❌ Error adding invoice job to queue:", error);

@@ -87,6 +87,5 @@ const plans = [
   await Plan.deleteMany({});
   await Plan.insertMany(plans);
 
-  console.log("Plans seeded successfully!");
   process.exit(0);
 })();

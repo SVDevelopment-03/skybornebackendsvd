@@ -98,10 +98,7 @@ export default class TrainerController {
    */
   async create(req: Request, res: Response) {
     try {
-      console.log("🚀 [TrainerController] Creating trainer:", {
-        name: req.body.name,
-        email: req.body.email,
-      });
+     
       const { dialingCode, localNumber, countryCode, country } =
         extractPhoneDetails(req.body.phoneNumber);
       const {
@@ -155,13 +152,11 @@ export default class TrainerController {
       };
 
       const trainer = await Trainer.create(trainerData);
-      console.log("✅ [TrainerController] Trainer created:", trainer._id);
 
       let user = null;
 
       // Register trainer as a user if password is provided
       if (password) {
-        console.log("🔐 [TrainerController] Creating user account for trainer");
 
         // Create user account with trainer reference
         user = await User.create({
@@ -183,7 +178,6 @@ export default class TrainerController {
         trainer.userId = user._id;
         await trainer.save();
 
-        console.log("✅ [TrainerController] User account created:", user._id);
       }
 
       return res.status(201).json({
@@ -242,8 +236,6 @@ export default class TrainerController {
         status,
       } = req.body;
 
-      console.log("🔄 [TrainerController] Updating trainer:", id);
-
       // Find and update trainer
       const trainer = await Trainer.findByIdAndUpdate(
         id,
@@ -273,10 +265,7 @@ export default class TrainerController {
           lastName: name?.split(" ").slice(1).join(" ") || undefined,
           phoneNumber,
         });
-        console.log("✅ [TrainerController] Associated user updated");
       }
-
-      console.log("✅ [TrainerController] Trainer updated successfully");
 
       return res.json({
         success: true,
@@ -327,7 +316,6 @@ export default class TrainerController {
   static async GetTrainerStats(req: Request, res: Response) {
     try {
       const userId = req.user?.id;
-      console.log("user id", userId);
 
       if (!userId) {
         return res.status(401).json({
@@ -338,7 +326,6 @@ export default class TrainerController {
 
       // Get trainer ID
       const trainerId = await TrainerController.getTrainerIdFromUser(userId);
-      console.log("trainer id", trainerId);
 
       const now = new Date();
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);

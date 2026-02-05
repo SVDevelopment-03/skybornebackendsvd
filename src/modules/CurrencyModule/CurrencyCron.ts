@@ -40,7 +40,6 @@ const fetchCurrencyRatesFromAPI = async (): Promise<ExchangeRateApiResponse> => 
  * Runs once per day at fixed time (IST)
  */
 export const startCurrencyCron = () => {
-  console.log("🕒 Currency cron scheduled (daily)");
 
   /**
    * ┌──────── minute (0 - 59)
@@ -56,7 +55,6 @@ export const startCurrencyCron = () => {
   cron.schedule(
     "5 0 * * *",
     async () => {
-      console.log("💱 Currency cron started...");
 
       try {
         /** 1. Fetch latest rates from API */
@@ -74,9 +72,6 @@ export const startCurrencyCron = () => {
 
         await currencyDoc.save();
 
-        console.log(
-          `✅ Currency rates updated (${Object.keys(rates).length} currencies)`
-        );
       } catch (error) {
         console.error(
           "❌ Currency cron failed:",
@@ -93,8 +88,6 @@ export const startCurrencyCron = () => {
 
 // 👇 TEMPORARY MANUAL RUN (ONLY FOR LOCAL / ONE-TIME USE)
 export const runCurrencyOnceNow = async () => {
-  console.log("🚀 Running currency job manually...");
-
   const { base_code, rates } = await fetchCurrencyRatesFromAPI();
 
   const currencyDoc = await CurrencyRates.getSingleton();
@@ -104,5 +97,4 @@ export const runCurrencyOnceNow = async () => {
 
   await currencyDoc.save();
 
-  console.log(`✅ Currency data inserted (${Object.keys(rates).length} currencies)`);
 };

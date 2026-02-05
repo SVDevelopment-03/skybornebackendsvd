@@ -17,11 +17,7 @@ const seedTrainer4Attendance = async () => {
       process.env.MONGO_URI || "mongodb://localhost:27017/skyborne-production";
 
     await mongoose.connect(mongoUri);
-    console.log("✅ MongoDB connected");
-
-    // Clean old data (optional but recommended)
     await Meeting.deleteMany({ trainer: TRAINER_ID });
-    console.log("🧹 Old meetings deleted");
 
     const meetings: any[] = [];
     const now = new Date();
@@ -60,8 +56,6 @@ const seedTrainer4Attendance = async () => {
       meetings.push(meeting);
     }
 
-    console.log(`📅 ${meetings.length} meetings created`);
-
     // 👥 Attendance
     for (const meeting of meetings) {
       // 10 registered users
@@ -80,7 +74,6 @@ const seedTrainer4Attendance = async () => {
       }
     }
 
-    console.log("📊 Attendance seeded successfully");
     await mongoose.disconnect();
     process.exit(0);
   } catch (err) {

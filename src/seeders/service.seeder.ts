@@ -36,14 +36,8 @@ async function seedServices() {
       process.env.MONGO_URI || "mongodb://127.0.0.1:27017/your-db-name";
 
     await mongoose.connect(mongoUri);
-    console.log("Connected to MongoDB");
-
     await ServiceModel.deleteMany({});
-    console.log("Old services removed");
-
     await ServiceModel.insertMany(services);
-    console.log("Services seeded successfully");
-
     process.exit(0);
   } catch (error) {
     console.error("Error seeding services:", error);

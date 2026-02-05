@@ -180,9 +180,7 @@ export const sendInvoiceEmail = async (
   };
 
   try {
-    console.log(`📧 Sending invoice email to: ${invoiceData.userEmail}`);
     await sgMail.send(msg as any);
-    console.log(`✅ Invoice email sent successfully - Invoice ID: ${invoiceData.invoiceId}`);
   } catch (error) {
     console.error("❌ Failed to send invoice email:", error);
     throw error;

@@ -9,8 +9,6 @@ import sgMail from "@sendgrid/mail";
 
 sgMail.setApiKey(process.env.SENDGRID_API_KEY!);
 
-console.log("🚀 Invoice Email Worker Started");
-
 invoiceEmailQueue.process(async (job:any) => {;
 
   const { invoiceId, email, userName, plan, amount, currency, date, subscriptionEndDate, orderRef, invoicePDF } = job.data;

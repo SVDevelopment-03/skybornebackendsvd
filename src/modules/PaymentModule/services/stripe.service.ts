@@ -207,12 +207,12 @@ export class StripeService {
       const localCurrency = currencyMapping.stripeCurrency; // e.g., 'inr', 'aud', 'eur'
       const localCurrencyCode = currencyMapping.currency; // e.g., 'INR', 'AUD', 'EUR'
 
-      console.log(`💰 Processing payment for ${countryCode}:`, {
-        originalAmount: amount,
-        originalCurrency: currency,
-        targetCurrency: localCurrencyCode,
-        user: user.email,
-      });
+      // console.log(`💰 Processing payment for ${countryCode}:`, {
+      //   originalAmount: amount,
+      //   originalCurrency: currency,
+      //   targetCurrency: localCurrencyCode,
+      //   user: user.email,
+      // });
 
       // ✅ NEW: Convert amount from USD to local currency
       // ✅ Convert amount from USD → local currency
@@ -232,8 +232,6 @@ export class StripeService {
 
       // ✅ NEW: Format amount for Stripe (multiply by 100 for most currencies, except JPY)
       const stripeAmount = formatAmountForStripe(localAmount, localCurrencyCode);
-
-      console.log(`💳 Stripe amount: ${stripeAmount} (smallest unit for ${localCurrencyCode})`);
 
       const orderRef = `STR-${Date.now()}`;
       const billingInterval = this.getBillingInterval(billingType);
@@ -284,11 +282,6 @@ export class StripeService {
         success_url: successUrl,
         cancel_url: cancelUrl,
       } as Stripe.Checkout.SessionCreateParams);
-
-      console.log("🚀 STRIPE CHECKOUT SESSION CREATED");
-      console.log("➡️ Session ID:", session.id);
-      console.log("➡️ Checkout URL:", session.url);
-      console.log("➡️ Metadata:", session.metadata);
 
       // Create payment record with both amounts
       const payment = await Payment.create({
@@ -544,10 +537,7 @@ export class StripeService {
         off_session: false,
         setup_future_usage: "off_session",
       });
-      console.log("🚀 STRIPE PAYMENT INTENT CREATED");
-      console.log("➡️ PaymentIntent ID:", paymentIntent.id);
-      console.log("➡️ Status:", paymentIntent.status);
-      console.log("➡️ Metadata:", paymentIntent.metadata);
+
       // Create payment record
       const payment = await Payment.create({
         userId,

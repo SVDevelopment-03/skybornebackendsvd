@@ -197,11 +197,11 @@ export default class PaymentController {
         // Add paymentLink for frontend compatibility
         paymentData.paymentLink = paymentData.checkoutUrl;
 
-        console.log("✅ Stripe payment created:", {
-          orderRef: paymentData.orderRef,
-          originalAmount: `${userAmount} ${currency}`,
-          localAmount: `${paymentData.amount} ${paymentData.currency}`,
-        });
+        // console.log("✅ Stripe payment created:", {
+        //   orderRef: paymentData.orderRef,
+        //   originalAmount: `${userAmount} ${currency}`,
+        //   localAmount: `${paymentData.amount} ${paymentData.currency}`,
+        // });
       } else {
         return res.status(400).json({
           success: false,

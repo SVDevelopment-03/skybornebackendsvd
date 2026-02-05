@@ -659,9 +659,6 @@ getRevenueByCountry = async (req: Request, res: Response): Promise<void> => {
       },
     ]);
 
-  console.log("revenue", revenueByCountry);
-  
-
     // Calculate grand total
     const grandTotal = revenueByCountry.reduce(
       (sum, item) => sum + item.totalAmount,

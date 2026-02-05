@@ -208,7 +208,6 @@ const seedCountries = async () => {
       process.env.MONGO_URI || "mongodb://localhost:27017/skyborne-production";
 
     await mongoose.connect(mongoUri);
-    console.log("✅ Connected to MongoDB");
 
     let insertedCount = 0;
     let skippedCount = 0;
@@ -234,10 +233,6 @@ const seedCountries = async () => {
 
       insertedCount++;
     }
-
-    console.log("🌍 Country seeding completed");
-    console.log(`✅ Inserted: ${insertedCount}`);
-    console.log(`⏭️ Skipped (already existed): ${skippedCount}`);
 
     process.exit(0);
   } catch (error) {

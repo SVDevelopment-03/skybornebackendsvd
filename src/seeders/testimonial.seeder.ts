@@ -41,12 +41,8 @@ const testimonials = [
 (async () => {
   try {
     await mongoose.connect(process.env.MONGO_URI!);
-    console.log("Connected to DB");
-
     await Testimonials.deleteMany({});
     await Testimonials.insertMany(testimonials);
-
-    console.log("Testimonials seeded successfully!");
     process.exit(0);
   } catch (err) {
     console.error("Seeder Error:", err);

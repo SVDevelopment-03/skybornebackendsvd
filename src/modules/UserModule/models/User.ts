@@ -282,7 +282,6 @@ userSchema.methods.comparePassword = async function (
   candidatePassword: string,
 ): Promise<boolean> {
   if (!this.password) return false;
-  console.log("Comparing password:", candidatePassword, this.password);
 
   return bcrypt.compare(candidatePassword, this.password);
 };

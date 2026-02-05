@@ -52,10 +52,6 @@ emailQueue.on("failed", (job, err) => {
 // ==========================
 
 export const addWelcomeEmailJob = async (jobData: WelcomeEmailJob) => {
-  console.log("➡️ addWelcomeEmailJob called");
-  console.log("➡️ Redis URL being used:", process.env.REDIS_URL);
-  console.log("➡️ Job Data:", jobData);
-
   try {
     const job = await emailQueue.add(jobData, {
       attempts: 3,
@@ -64,7 +60,6 @@ export const addWelcomeEmailJob = async (jobData: WelcomeEmailJob) => {
       removeOnFail: false,
     });
 
-    console.log(`📬 Job successfully queued: ID = ${job.id}`);
     return job;
   } catch (error) {
     console.error("❌ Error adding job to queue:", error);

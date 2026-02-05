@@ -12,25 +12,20 @@ const seedFeedback = async () => {
       process.env.MONGO_URI || "mongodb://localhost:27017/skyborne-production";
 
     await mongoose.connect(mongoUri);
-    console.log("✅ Connected to MongoDB");
 
-    // ✅ DO NOT use lean() here
+    // DO NOT use lean() here
     const user = await User.findOne();
     const trainer = await Trainer.findOne();
 
     if (!user || !trainer) {
       console.error(
-        "❌ Please ensure at least one User and one Trainer exist before seeding feedback"
+        "Please ensure at least one User and one Trainer exist before seeding feedback"
       );
       process.exit(1);
     }
 
-    console.log("👤 User ID:", user._id.toString());
-    console.log("🧑‍🏫 Trainer ID:", trainer._id.toString());
-
     // Clear old feedback
     await Feedback.deleteMany({});
-    console.log("🗑️ Old feedback removed");
 
     const feedbacks = [
       {
@@ -142,7 +137,6 @@ const seedFeedback = async () => {
 
     await Feedback.insertMany(feedbacks);
 
-    console.log("⭐ 15 Feedback records seeded successfully!");
     process.exit(0);
   } catch (error) {
     console.error("❌ Feedback seeder error:", error);

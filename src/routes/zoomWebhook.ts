@@ -50,20 +50,15 @@ router.post("/zoom-webhook", async (req, res) => {
   if (event === "recording.completed") {
     try {
       const files = payload?.object?.recording_files || [];
-      console.log("files", files);
 
       const mp4File = files.find((f: any) => f.file_type === "MP4");
       if (!mp4File?.download_url) return res.status(200).send("OK");
-console.log("aaaa", mp4File.download_url);
 
       await Meeting.findByIdAndUpdate(meetingDoc._id, {
         recordingUrl: mp4File.download_url,
         status: "completed",
         isLive: false,
       });
-
-      console.log("success", meetingDoc);
-      
 
       return res.status(200).send("OK");
     } catch {

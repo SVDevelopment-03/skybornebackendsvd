@@ -7,7 +7,6 @@ dotenv.config();
 async function seedCoaches() {
   try {
     await mongoose.connect(process.env.MONGO_URI!);
-    console.log("MongoDB connected ✔️");
 
     const coaches = [
       {
@@ -44,13 +43,8 @@ async function seedCoaches() {
       },
     ];
 
-    // Clear existing data
     await Coach.deleteMany({});
-    console.log("Old coach records removed");
-
-    // Insert fresh data
     await Coach.insertMany(coaches);
-    console.log("Coaches seeded successfully ✔️");
 
     process.exit(0);
   } catch (error) {
