@@ -205,6 +205,7 @@ export class UserController {
   static async GetDashboardStats(req: Request, res: Response) {
     try {
       const userId = req.user?.id;
+      const {region} = req?.query;
 
       if (!userId) {
         return res.status(401).json({
@@ -250,6 +251,7 @@ export class UserController {
       const upcomingSessions = await Meeting.countDocuments({
         localTime: { $gte: oneHourAgo },
         service: { $in: serviceIds },
+        ...(region ? { liveRegion: region } : {}),
       });
 
       // 2. Get Total Credits
