@@ -98,7 +98,8 @@ export default class MeetingController {
         "https://api.zoom.us/v2/users/me/meetings",
         {
           topic,
-          type: 8,
+          type:2,
+          // type: 8,
           start_time: localTime,
           duration,
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -257,7 +258,6 @@ export default class MeetingController {
       const skipNum = parseInt(skip as string) || 0;
       const limitNum = parseInt(limit as string) || 10;
 
-      console.log("aaaaakkk", req?.query);
 
       // console.log("search:", search, "skip:", skipNum, "limit:", limitNum);
 
@@ -310,9 +310,9 @@ export default class MeetingController {
       };
 
       // ✅ add region filter only if provided
-      if (region) {
-        filter.liveRegion = region;
-      }
+      // if (region) {
+      //   filter.liveRegion = region;
+      // }
 
       // Get total count
       const totalCount = await Meeting.countDocuments(filter);
@@ -399,9 +399,9 @@ export default class MeetingController {
     };
 
     // ✅ Add region filter only if provided
-    if (region) {
-      filter.liveRegion = region;
-    }
+    // if (region) {
+    //   filter.liveRegion = region;
+    // }
     
 
       // Get total count - no time filter, includes all meetings

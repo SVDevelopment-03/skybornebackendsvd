@@ -290,7 +290,7 @@ export class StripeService {
         reference: session.id,
         amount: userAmount,              // Original USD amount
         localAmount: localAmount,        // ✅ NEW: Converted local amount
-        currency: localCurrencyCode,     // ✅ CHANGED: Store local currency
+        currency: "USD",     // ✅ CHANGED: Store local currency
         plan,
         billingType,
         status: "PENDING",
