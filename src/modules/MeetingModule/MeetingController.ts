@@ -923,7 +923,7 @@ export default class MeetingController {
       // Determine the URL based on region mode
       let accessUrl: string;
       const recordUrl = `${process.env.API_BASE_URL}/meetings/${meeting?._id}/recording`;
-      const isLiveMode = regionEntry.mode === "live";
+      const isLiveMode = "live";
 
       if (isLiveMode) {
         // For live mode, use the joinUrl (meeting is currently happening)
@@ -965,13 +965,13 @@ export default class MeetingController {
           user: userId,
           region, // Store which region user is accessing from
           joinedAt: new Date(),
-          sessions: [{ joinTime: new Date(), mode: regionEntry.mode }],
+          sessions: [{ joinTime: new Date(), mode: isLiveMode }],
         });
       } else {
         // Add new session entry with mode info
         attendance.sessions.push({
           joinTime: new Date(),
-          mode: regionEntry.mode,
+          mode: isLiveMode,
         });
         await attendance.save();
       }
@@ -980,15 +980,16 @@ export default class MeetingController {
         success: true,
         data: {
           accessUrl, // Returns joinUrl for live, recordingUrl for replay
-          mode: regionEntry.mode,
+          // mode: regionEntry.mode,
+          mode: isLiveMode,
           recordUrl,
           attendanceId: attendance._id,
           role: isTrainerOrAdmin ? 1 : 0,
           meetingDetails: {
             meetingId: meeting._id,
-            region: regionEntry.region,
-            timezone: regionEntry.timezone,
-            localTime: regionEntry.localTime,
+            // region: regionEntry.region,
+            // timezone: regionEntry.timezone,
+            // localTime: regionEntry.localTime,
             service: meeting.service,
             trainer: meeting.trainer,
             liveRegion: meeting.liveRegion,
