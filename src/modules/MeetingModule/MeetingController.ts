@@ -437,42 +437,40 @@ export default class MeetingController {
     }
   }
 
-  static async GetMeetingRecording(req: Request, res: Response) {
-    try {
-      const meeting = await Meeting.findById(req.params.id);
-      if (!meeting) return res.status(404).send("Meeting not found");
+static async GetMeetingRecording(req: Request, res: Response) {
+  try {
+    const meeting = await Meeting.findById(req.params.id);
+    if (!meeting) return res.status(404).send("Meeting not found");
 
-      const token = await getZoomAccessToken();
+    const token = await getZoomAccessToken();
+    const { data } = await axios.get(
+      `https://api.zoom.us/v2/meetings/${meeting.zoomMeetingId}/recordings`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    );
 
-      // STEP 1: Ask Zoom for real recording files
-      const { data } = await axios.get(
-        `https://api.zoom.us/v2/meetings/${meeting.zoomMeetingId}/recordings`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        },
-      );
+    const file = data.recording_files.find((f: any) => f.file_type === "MP4");
+    if (!file) return res.status(404).send("Recording file not found");
 
-      const file = data.recording_files.find((f: any) => f.file_type === "MP4");
+    // ADD CORS AND CACHE HEADERS
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Range");
+    res.setHeader("Content-Type", "video/mp4");
+    res.setHeader("Accept-Ranges", "bytes"); // Enable seeking
 
-      if (!file) return res.status(404).send("Recording file not found");
+    const videoStream = await axios.get(file.download_url, {
+      responseType: "stream",
+      headers: { Authorization: `Bearer ${token}` },
+    });
 
-      // STEP 2: This URL works with header
-      const videoStream = await axios.get(file.download_url, {
-        responseType: "stream",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      res.setHeader("Content-Type", "video/mp4");
-      videoStream.data.pipe(res);
-    } catch (e) {
-      console.log("Recording error", e);
-      res.status(500).send("Error streaming recording");
-    }
+    videoStream.data.pipe(res);
+  } catch (e) {
+    console.log("Recording error", e);
+    res.status(500).send("Error streaming recording");
   }
+}
 
   static async GetTodaysMeetings(req: Request, res: Response) {
     try {
