@@ -437,42 +437,6 @@ export default class MeetingController {
     }
   }
 
-// static async GetMeetingRecording(req: Request, res: Response) {
-//   try {
-//     const meeting = await Meeting.findById(req.params.id);
-//     if (!meeting) return res.status(404).send("Meeting not found");
-
-//     const token = await getZoomAccessToken();
-//     const { data } = await axios.get(
-//       `https://api.zoom.us/v2/meetings/${meeting.zoomMeetingId}/recordings`,
-//       {
-//         headers: { Authorization: `Bearer ${token}` },
-//       },
-//     );
-
-//     const file = data.recording_files.find((f: any) => f.file_type === "MP4");
-//     if (!file) return res.status(404).send("Recording file not found");
-
-//     // ADD CORS AND CACHE HEADERS
-//     res.setHeader("Access-Control-Allow-Origin", "*");
-//     res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-//     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Range");
-//     res.setHeader("Content-Type", "video/mp4");
-//     res.setHeader("Accept-Ranges", "bytes");
-//     const videoStream = await axios.get(file.download_url, {
-//       responseType: "stream",
-//       headers: { Authorization: `Bearer ${token}` },
-//     });
-
-//     videoStream.data.pipe(res);
-//   } catch (e) {
-//     console.log("Recording error", e);
-//     res.status(500).send("Error streaming recording");
-//   }
-// }
-
-
-// ✅ IMPROVED BACKEND: Better mobile support with proper streaming
 static async GetMeetingRecording(req: Request, res: Response) {
   try {
     const meeting = await Meeting.findById(req.params.id);
@@ -489,53 +453,18 @@ static async GetMeetingRecording(req: Request, res: Response) {
     const file = data.recording_files.find((f: any) => f.file_type === "MP4");
     if (!file) return res.status(404).send("Recording file not found");
 
-    // ✅ CRITICAL: Mobile browsers need these headers
+    // ADD CORS AND CACHE HEADERS
     res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+    res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Range");
-    res.setHeader("Access-Control-Expose-Headers", "Content-Length, Content-Range");
-    
-    // ✅ Essential video headers
     res.setHeader("Content-Type", "video/mp4");
     res.setHeader("Accept-Ranges", "bytes");
-    res.setHeader("Cache-Control", "public, max-age=3600");
-    
-    // ✅ Crucial for mobile: Disable streaming chunking issues
-    res.setHeader("Transfer-Encoding", "chunked");
-    res.setHeader("Connection", "keep-alive");
+    const videoStream = await axios.get(file.download_url, {
+      responseType: "stream",
+      headers: { Authorization: `Bearer ${token}` },
+    });
 
-    // ✅ Handle Range requests (byte-range) - ESSENTIAL for mobile
-    const rangeHeader = req.headers.range;
-    const videoSize = file.file_size;
-
-    if (rangeHeader) {
-      const ranges = rangeHeader.replace(/bytes=/, "").split("-");
-      const start = parseInt(ranges[0], 10);
-      const end = ranges[1] ? parseInt(ranges[1], 10) : videoSize - 1;
-
-      res.status(206).setHeader("Content-Range", `bytes ${start}-${end}/${videoSize}`);
-      res.setHeader("Content-Length", end - start + 1);
-
-      const videoStream = await axios.get(file.download_url, {
-        responseType: "stream",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Range: `bytes=${start}-${end}`, // ✅ Pass range to Zoom API
-        },
-      });
-
-      videoStream.data.pipe(res);
-    } else {
-      // ✅ Full file request
-      res.setHeader("Content-Length", videoSize);
-
-      const videoStream = await axios.get(file.download_url, {
-        responseType: "stream",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      videoStream.data.pipe(res);
-    }
+    videoStream.data.pipe(res);
   } catch (e) {
     console.log("Recording error", e);
     res.status(500).send("Error streaming recording");
