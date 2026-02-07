@@ -896,16 +896,16 @@ export default class MeetingController {
       }
 
       // Find the region entry for this specific region
-      const regionEntry = meeting.regions.find(
-        (r) => r.region.toLowerCase() === region.toLowerCase(),
-      );
+      // const regionEntry = meeting.regions.find(
+      //   (r) => r.region.toLowerCase() === region.toLowerCase(),
+      // );
 
-      if (!regionEntry) {
-        return res.status(404).json({
-          success: false,
-          message: `Region "${region}" not found in this meeting`,
-        });
-      }
+      // if (!regionEntry) {
+      //   return res.status(404).json({
+      //     success: false,
+      //     message: `Region "${region}" not found in this meeting`,
+      //   });
+      // }
 
       // Check if meeting has ended
       const meetingEndTime =
