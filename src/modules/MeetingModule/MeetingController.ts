@@ -11,6 +11,7 @@ import { ServiceType } from "../UserModule/interface/userInterface";
 import CountryRepository from "../CountryModule/country.repository";
 import { ICountry } from "../CountryModule/country.model";
 import TrainerModel from "../TrainerModule/TrainerModel";
+import { channel } from "diagnostics_channel";
 
 const _countryRepository = new CountryRepository();
 
@@ -980,6 +981,7 @@ export default class MeetingController {
         success: true,
         data: {
           accessUrl, // Returns joinUrl for live, recordingUrl for replay
+          // need to change
           // mode: regionEntry.mode,
           mode: isLiveMode,
           recordUrl,
@@ -1536,212 +1538,215 @@ export default class MeetingController {
     }
   }
 
-  static async GetAllTrainerMeetings(req: Request, res: Response) {
-    try {
-      const {
-        search = "",
-        page = 1,
-        limit = 10,
-        sortBy = "localTime",
-        sortOrder = "asc",
-        service,
-        isLive,
-        isRecurring,
-        startDate,
-        endDate,
-      } = req?.query;
+static async GetAllTrainerMeetings(req: Request, res: Response) {
+  try {
+    const {
+      search = "",
+      page = 1,
+      limit = 10,
+      sortBy = "localTime",
+      sortOrder = "asc",
+      service,
+      isLive,
+      isRecurring,
+      startDate,
+      endDate,
+    } = req?.query;
 
-      const userId = req.user?.id;
+    const userId = req.user?.id;
 
-      if (!userId) {
-        console.warn("⚠️ [GetAllMeetings] User not authenticated");
-        return res.status(401).json({
-          success: false,
-          message: "User not authenticated",
-        });
-      }
-
-      // Fetch user to get their trainer reference
-      const user = await User.findById(userId).select("_id name email trainer");
-
-      if (!user) {
-        console.warn("⚠️ [GetAllMeetings] User not found:", userId);
-        return res.status(404).json({
-          success: false,
-          message: "User not found",
-        });
-      }
-
-      // console.log("✅ [GetAllMeetings] User fetched:", {
-      //   id: user._id,
-      //   name: user.firstName,
-      // });
-
-      // Get trainer ID from user's trainer reference
-      const trainerId = user.trainer;
-
-      if (!trainerId) {
-        console.warn(
-          "⚠️ [GetAllMeetings] No trainer assigned to user:",
-          userId,
-        );
-        return res.status(400).json({
-          success: false,
-          message: "No trainer assigned to this user",
-        });
-      }
-
-      // Fetch trainer details
-      const trainer = await TrainerModel.findById(trainerId).select(
-        "_id name email profileImage",
-      );
-
-      if (!trainer) {
-        console.warn("⚠️ [GetAllMeetings] Trainer not found:", trainerId);
-        return res.status(404).json({
-          success: false,
-          message: "Assigned trainer not found",
-        });
-      }
-
-      // console.log("✅ [GetAllMeetings] Trainer fetched:", {
-      //   id: trainer._id,
-      //   name: trainer.firstName,
-      // });
-
-      // Build filter object
-      const filter: any = {};
-
-      // Filter by trainer (get only assigned trainer's meetings)
-      filter.trainer = trainerId;
-
-      // Search by title
-      if (search) {
-        filter.title = { $regex: search, $options: "i" };
-      }
-
-      // Filter by service if provided
-      if (service) {
-        filter.service = service;
-      }
-
-      // Filter by isLive status
-      if (isLive !== undefined) {
-        filter.isLive = isLive === "true";
-      }
-
-      // Filter by isRecurring status
-      if (isRecurring !== undefined) {
-        filter.isRecurring = isRecurring === "true";
-      }
-
-      // Filter by date range
-      if (startDate || endDate) {
-        filter.localTime = {};
-        if (startDate) {
-          filter.localTime.$gte = new Date(startDate as string);
-        }
-        if (endDate) {
-          filter.localTime.$lte = new Date(endDate as string);
-        }
-      }
-
-      // Parse pagination
-      const pageNum = parseInt(page as string) || 1;
-      const limitNum = Math.min(parseInt(limit as string) || 10, 100); // Max 100 per page
-      const skip = (pageNum - 1) * limitNum;
-
-      // console.log("📄 [GetAllMeetings] Pagination:", {
-      //   page: pageNum,
-      //   limit: limitNum,
-      //   skip,
-      // });
-
-      // Build sort object
-      const sortObj: any = {};
-      const sortField = sortBy || "localTime";
-      const sortDir = sortOrder === "desc" ? -1 : 1;
-      sortObj[sortField as string] = sortDir;
-
-      // console.log(
-      //   "📊 [GetAllMeetings] Final filter object:",
-      //   JSON.stringify(filter, null, 2)
-      // );
-
-      // Execute query with pagination
-      const [meetings, totalCount] = await Promise.all([
-        Meeting.find(filter)
-          .sort(sortObj)
-          .skip(skip)
-          .limit(limitNum)
-          .populate("service", "title name image _id description")
-          .populate("trainer", "name email profileImage _id")
-          .populate("createdBy", "firstName lastName email _id")
-          .lean(),
-        Meeting.countDocuments(filter),
-      ]);
-
-      // console.log("✅ [GetAllMeetings] Meetings fetched:", {
-      //   returned: meetings.length,
-      //   total: totalCount,
-      //   page: pageNum,
-      // });
-
-      // Calculate pagination metadata
-      const totalPages = Math.ceil(totalCount / limitNum);
-      const hasNextPage = pageNum < totalPages;
-      const hasPrevPage = pageNum > 1;
-
-      // console.log("📊 [GetAllMeetings] Pagination metadata:", {
-      //   totalPages,
-      //   hasNextPage,
-      //   hasPrevPage,
-      //   currentPage: pageNum,
-      // });
-
-      res.setHeader("Cache-Control", "no-store");
-
-      return res.json({
-        success: true,
-        data: {
-          meetings,
-          pagination: {
-            currentPage: pageNum,
-            totalPages,
-            limit: limitNum,
-            total: totalCount,
-            hasNextPage,
-            hasPrevPage,
-          },
-          user: {
-            id: user._id,
-            name: user.firstName + " " + user.lastName,
-          },
-          trainer: {
-            id: trainer._id,
-            name: trainer.firstName + " " + trainer.lastName,
-            email: trainer.email,
-          },
-          filters: {
-            search: search || null,
-            service: service || null,
-            isLive: isLive || null,
-            isRecurring: isRecurring || null,
-            dateRange: startDate || endDate ? { startDate, endDate } : null,
-          },
-        },
-      });
-    } catch (error: any) {
-      console.error("❌ [GetAllMeetings] ERROR CAUGHT");
-      console.error("📝 [GetAllMeetings] Error message:", error.message);
-      console.error("📊 [GetAllMeetings] Full error object:", error);
-
-      return res.status(500).json({
+    if (!userId) {
+      console.warn("⚠️ [GetAllTrainerMeetings] User not authenticated");
+      return res.status(401).json({
         success: false,
-        message: error.message || "Error fetching meetings",
+        message: "User not authenticated",
       });
     }
+
+    // Fetch user to get their trainer reference
+    const user = await User.findById(userId).select("_id firstName lastName email trainer");
+
+    if (!user) {
+      console.warn("⚠️ [GetAllTrainerMeetings] User not found:", userId);
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    // Get trainer ID from user's trainer reference
+    const trainerId = user.trainer;
+
+    if (!trainerId) {
+      console.warn(
+        "⚠️ [GetAllTrainerMeetings] No trainer assigned to user:",
+        userId,
+      );
+      return res.status(400).json({
+        success: false,
+        message: "No trainer assigned to this user",
+      });
+    }
+
+    // Fetch trainer details
+    const trainer = await TrainerModel.findById(trainerId).select(
+      "_id firstName lastName email profileImage",
+    );
+
+    if (!trainer) {
+      console.warn("⚠️ [GetAllTrainerMeetings] Trainer not found:", trainerId);
+      return res.status(404).json({
+        success: false,
+        message: "Assigned trainer not found",
+      });
+    }
+
+    // Build filter object
+    const filter: any = {};
+
+    // Filter by trainer (get only assigned trainer's meetings)
+    filter.trainer = trainerId;
+
+    // Search by title
+    if (search) {
+      filter.title = { $regex: search, $options: "i" };
+    }
+
+    // Filter by service if provided
+    if (service) {
+      filter.service = service;
+    }
+
+    // Filter by isLive status
+    if (isLive !== undefined) {
+      filter.isLive = isLive === "true";
+    }
+
+    // Filter by isRecurring status
+    if (isRecurring !== undefined) {
+      filter.isRecurring = isRecurring === "true";
+    }
+
+    // Filter by date range
+    if (startDate || endDate) {
+      filter.localTime = {};
+      if (startDate) {
+        filter.localTime.$gte = new Date(startDate as string);
+      }
+      if (endDate) {
+        filter.localTime.$lte = new Date(endDate as string);
+      }
+    }
+
+    // Parse pagination
+    const pageNum = parseInt(page as string) || 1;
+    const limitNum = Math.min(parseInt(limit as string) || 10, 100); // Max 100 per page
+    const skip = (pageNum - 1) * limitNum;
+
+    // Build sort object
+    const sortObj: any = {};
+    const sortField = sortBy || "localTime";
+    const sortDir = sortOrder === "desc" ? -1 : 1;
+    sortObj[sortField as string] = sortDir;
+
+    // Execute query with pagination
+    const [meetings, totalCount] = await Promise.all([
+      Meeting.find(filter)
+        .sort(sortObj)
+        .skip(skip)
+        .limit(limitNum)
+        .populate("service", "title name image _id description")
+        .populate("trainer", "firstName lastName email profileImage _id")
+        .populate("createdBy", "firstName lastName email _id")
+        .lean(),
+      Meeting.countDocuments(filter),
+    ]);
+
+    // ✅ FIXED: Determine status based on both meeting.status and localTime
+    const now = new Date();
+    // Add one hour extra to current time
+    now.setHours(now.getHours() + 1);
+    
+    const enrichedMeetings = meetings.map((meeting: any) => {
+      let status: "upcoming" | "completed" | "failed" = "upcoming";
+
+      // First check if meeting has explicit status from Zoom
+      if (meeting.status === "completed") {
+        status = "completed";
+      } else if (meeting.status === "failed") {
+        status = "failed";
+      } else if (meeting.status === "pending") {
+        // For pending meetings, check if the scheduled time has passed
+        const meetingTime = new Date(meeting.localTime);
+        if (meetingTime < now) {
+          // If past scheduled time but status is still "pending", it's likely completed
+          status = "completed";
+        } else {
+          status = "upcoming";
+        }
+      }
+
+      return {
+        ...meeting,
+        status, // Add computed status to response
+        trainer: {
+          _id: meeting.trainer?._id,
+          name: `${meeting.trainer?.firstName || ""} ${meeting.trainer?.lastName || ""}`.trim(),
+          email: meeting.trainer?.email,
+          profileImage: meeting.trainer?.profileImage,
+        },
+      };
+    });
+
+    // Calculate pagination metadata
+    const totalPages = Math.ceil(totalCount / limitNum);
+    const hasNextPage = pageNum < totalPages;
+    const hasPrevPage = pageNum > 1;
+
+    res.setHeader("Cache-Control", "no-store");
+
+    return res.json({
+      success: true,
+      data: {
+        meetings: enrichedMeetings,
+        pagination: {
+          currentPage: pageNum,
+          totalPages,
+          limit: limitNum,
+          total: totalCount,
+          hasNextPage,
+          hasPrevPage,
+        },
+        user: {
+          id: user._id,
+          name: `${user.firstName || ""} ${user.lastName || ""}`.trim(),
+        },
+        trainer: {
+          id: trainer._id,
+          name: `${trainer.firstName || ""} ${trainer.lastName || ""}`.trim(),
+          email: trainer.email,
+          profileImage: trainer.profileImage,
+        },
+        filters: {
+          search: search || null,
+          service: service || null,
+          isLive: isLive || null,
+          isRecurring: isRecurring || null,
+          dateRange: startDate || endDate ? { startDate, endDate } : null,
+        },
+      },
+    });
+  } catch (error: any) {
+    console.error("❌ [GetAllTrainerMeetings] ERROR CAUGHT");
+    console.error("📝 [GetAllTrainerMeetings] Error message:", error.message);
+    console.error("📊 [GetAllTrainerMeetings] Full error object:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Error fetching meetings",
+    });
   }
+}
 
   /**
    * Get weekly meetings for all 7 days
