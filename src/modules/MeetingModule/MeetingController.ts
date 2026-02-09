@@ -438,37 +438,214 @@ export default class MeetingController {
   }
 
 static async GetMeetingRecording(req: Request, res: Response) {
-  try {
-    const meeting = await Meeting.findById(req.params.id);
-    if (!meeting) return res.status(404).send("Meeting not found");
+  let videoStream: any = null;
+  const requestId = Math.random().toString(36).substring(7);
+  const startTime = Date.now();
 
+  try {
+    // Step 1: Find meeting
+    console.log(`[${requestId}] 📋 Step 1: Finding meeting ${req.params.id}...`);
+    const meeting = await Meeting.findById(req.params.id);
+    if (!meeting) {
+      console.log(`[${requestId}] ❌ Meeting not found`);
+      return res.status(404).json({ error: "Meeting not found" });
+    }
+    console.log(`[${requestId}] ✅ Meeting found: ${meeting.zoomMeetingId}`);
+
+    // Step 2: Get access token
+    console.log(`[${requestId}] 🔑 Step 2: Getting Zoom access token...`);
     const token = await getZoomAccessToken();
-    const { data } = await axios.get(
+    console.log(`[${requestId}] ✅ Token obtained (length: ${token.length})`);
+
+    // Step 3: Get recordings list
+    console.log(`[${requestId}] 📹 Step 3: Fetching recordings from Zoom API...`);
+    const { data: recordingsData } = await axios.get(
       `https://api.zoom.us/v2/meetings/${meeting.zoomMeetingId}/recordings`,
       {
         headers: { Authorization: `Bearer ${token}` },
       },
     );
+    console.log(`[${requestId}] ✅ Recordings API response received`);
+    console.log(`[${requestId}] Total recording files: ${recordingsData.recording_files?.length || 0}`);
+    recordingsData.recording_files?.forEach((f: any, idx: number) => {
+      console.log(`[${requestId}]   [${idx}] Type: ${f.file_type}, Size: ${f.file_size}, Name: ${f.file_name}`);
+    });
 
-    const file = data.recording_files.find((f: any) => f.file_type === "MP4");
-    if (!file) return res.status(404).send("Recording file not found");
+    // Step 4: Find MP4 file
+    console.log(`[${requestId}] 🎯 Step 4: Finding MP4 file...`);
+    const file = recordingsData.recording_files?.find((f: any) => f.file_type === "MP4");
+    if (!file) {
+      console.log(`[${requestId}] ❌ No MP4 file found`);
+      return res.status(404).json({ error: "Recording file not found" });
+    }
+    console.log(`[${requestId}] ✅ MP4 file found`);
+    console.log(`[${requestId}]   File name: ${file.file_name}`);
+    console.log(`[${requestId}]   File size: ${file.file_size} bytes`);
+    console.log(`[${requestId}]   Download URL: ${file.download_url.substring(0, 80)}...`);
 
-    // ADD CORS AND CACHE HEADERS
+    // Step 5: Prepare download URL
+    console.log(`[${requestId}] 🔗 Step 5: Preparing download URL with access token...`);
+    const downloadUrl = `${file.download_url}?access_token=${token}`;
+    console.log(`[${requestId}] ✅ Download URL prepared`);
+
+    // Step 6: Test HEAD request
+    console.log(`[${requestId}] 📊 Step 6: Testing HEAD request...`);
+    let fileSize = 0;
+    try {
+      const headResponse = await axios.head(downloadUrl, {
+        timeout: 10000,
+        maxRedirects: 5,
+      });
+      fileSize = parseInt(headResponse.headers["content-length"] || "0", 10);
+      console.log(`[${requestId}] ✅ HEAD request successful`);
+      console.log(`[${requestId}]   Status: ${headResponse.status}`);
+      console.log(`[${requestId}]   Content-Type: ${headResponse.headers["content-type"]}`);
+      console.log(`[${requestId}]   Content-Length: ${fileSize}`);
+      console.log(`[${requestId}]   Accept-Ranges: ${headResponse.headers["accept-ranges"]}`);
+    } catch (headErr: any) {
+      console.warn(`[${requestId}] ⚠️  HEAD request failed: ${headErr.message}`);
+      console.log(`[${requestId}] Continuing without file size...`);
+    }
+
+    // Step 7: Set response headers
+    console.log(`[${requestId}] 📤 Step 7: Setting response headers...`);
     res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+    res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Range");
     res.setHeader("Content-Type", "video/mp4");
     res.setHeader("Accept-Ranges", "bytes");
-    const videoStream = await axios.get(file.download_url, {
-      responseType: "stream",
-      headers: { Authorization: `Bearer ${token}` },
+    res.setHeader("Content-Disposition", 'inline; filename="recording.mp4"');
+    res.setHeader("Cache-Control", "public, max-age=604800");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    
+
+    // Step 8: Handle Range requests
+    const range = req.headers.range as string | undefined;
+    console.log(`[${requestId}] 📍 Step 8: Range request handling...`);
+    
+    if (range && fileSize > 0) {
+      console.log(`[${requestId}] ✅ Range request detected: ${range}`);
+      const parts = range.replace(/bytes=/, "").split("-");
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+      const chunkSize = end - start + 1;
+
+      res.statusCode = 206;
+      res.setHeader("Content-Range", `bytes ${start}-${end}/${fileSize}`);
+      res.setHeader("Content-Length", chunkSize);
+
+      console.log(`[${requestId}]   Sending 206 Partial Content`);
+      console.log(`[${requestId}]   Range: ${start}-${end}/${fileSize}`);
+      console.log(`[${requestId}]   Chunk size: ${chunkSize}`);
+
+      videoStream = await axios.get(downloadUrl, {
+        responseType: "stream",
+        headers: {
+          Range: `bytes=${start}-${end}`,
+        },
+        timeout: 30000,
+        maxRedirects: 5,
+      });
+    } else {
+      console.log(`[${requestId}] ℹ️  Full file request (no Range header)`);
+      res.statusCode = 200;
+      
+      if (fileSize > 0) {
+        res.setHeader("Content-Length", fileSize);
+        console.log(`[${requestId}]   Content-Length: ${fileSize}`);
+      }
+
+      videoStream = await axios.get(downloadUrl, {
+        responseType: "stream",
+        timeout: 30000,
+        maxRedirects: 5,
+      });
+    }
+
+    console.log(`[${requestId}] ✅ Stream obtained from Zoom`);
+    
+    // Step 9: Set up stream error handlers
+    console.log(`[${requestId}] 🛡️  Step 9: Setting up error handlers...`);
+
+    videoStream.data.on("error", (error: Error) => {
+      console.error(`[${requestId}] ❌ STREAM ERROR:`, error.message);
+      if (!res.headersSent) {
+        console.log(`[${requestId}] Sending 500 error response`);
+        res.status(500).json({ error: "Stream error", details: error.message });
+      } else {
+        console.log(`[${requestId}] Headers already sent, destroying response`);
+        res.destroy();
+      }
     });
 
-    videoStream.data.pipe(res);
-  } catch (e) {
-    console.log("Recording error", e);
-    res.status(500).send("Error streaming recording");
+    res.on("error", (error: Error) => {
+      console.error(`[${requestId}] ❌ RESPONSE ERROR:`, error.message);
+      if (videoStream?.data?.destroy) {
+        console.log(`[${requestId}] Destroying video stream`);
+        videoStream.data.destroy();
+      }
+    });
+
+    req.on("close", () => {
+      console.log(`[${requestId}] 🔌 Client disconnected`);
+      if (videoStream?.data?.destroy) {
+        console.log(`[${requestId}] Cleaning up stream resources`);
+        videoStream.data.destroy();
+      }
+    });
+
+    // Step 10: Pipe stream to response
+    console.log(`[${requestId}] 🚀 Step 10: Starting stream pipe...`);
+    let bytesSent = 0;
+    
+    videoStream.data.on("data", (chunk: Buffer) => {
+      bytesSent += chunk.length;
+      if (bytesSent % (1024 * 1024) === 0) { // Log every 1MB
+        console.log(`[${requestId}] 📊 Streamed: ${(bytesSent / 1024 / 1024).toFixed(2)} MB`);
+      }
+    });
+
+    videoStream.data.on("end", () => {
+      console.log(`[${requestId}] ✅ Stream ended`);
+      console.log(`[${requestId}] Total bytes sent: ${bytesSent}`);
+    });
+
+    videoStream.data.pipe(res).on("error", (error: Error) => {
+      console.error(`[${requestId}] ❌ PIPE ERROR:`, error.message);
+      if (videoStream?.data?.destroy) {
+        console.log(`[${requestId}] Destroying stream due to pipe error`);
+        videoStream.data.destroy();
+      }
+    });
+
+    console.log(`[${requestId}] ✅ Stream pipe established\n`);
+
+  } catch (error: any) {
+    const elapsed = Date.now() - startTime;
+    console.error(`\n[${requestId}] ❌ CRITICAL ERROR (${elapsed}ms elapsed)`);
+    console.error(`[${requestId}] Error message: ${error.message}`);
+    console.error(`[${requestId}] Error stack:`, error.stack);
+    
+    if (videoStream?.data?.destroy) {
+      console.log(`[${requestId}] Cleaning up stream`);
+      videoStream.data.destroy();
+    }
+
+    if (!res.headersSent) {
+      console.log(`[${requestId}] Sending error response`);
+      res.status(500).json({ 
+        error: "Error streaming recording",
+        details: error.message,
+        requestId
+      });
+    } else {
+      console.log(`[${requestId}] Headers already sent, cannot respond`);
+      res.destroy();
+    }
   }
+
+  // Log completion
+  const elapsed = Date.now() - startTime;
 }
 
   static async GetTodaysMeetings(req: Request, res: Response) {
