@@ -16,74 +16,118 @@ import { channel } from "diagnostics_channel";
 const _countryRepository = new CountryRepository();
 
 export default class MeetingController {
-  static async CreateMeeting(req: Request, res: Response) {
-    try {
-      const token = await getZoomAccessToken();
-      const {
-        service,
-        title,
-        liveRegion,
-        liveTime,
-        trainer,
-        duration,
-        autoRecording = true,
-        rotationEnabled,
-        startDate,
-        localTime,
-        regions,
-        adminId,
-        weeklyEndDate,
-      } = req.body;
+static async CreateMeeting(req: Request, res: Response) {
+  try {
+    const token = await getZoomAccessToken();
+    const {
+      service,
+      title,
+      liveRegion,
+      liveTime,
+      trainer,
+      duration,
+      recurringClass = false,
+      recurrenceType = "weekly",
+      customDays = [],
+      rotationEnabled,
+      startDate,
+      localTime,
+      regions,
+      adminId,
+      weeklyEndDate,
+    } = req.body;
 
-      // Validate required fields
-      if (
-        !service ||
-        !title ||
-        !liveRegion ||
-        !liveTime ||
-        !trainer ||
-        !duration ||
-        !startDate ||
-        !localTime ||
-        !regions ||
-        !adminId
-      ) {
-        console.warn(
-          "⚠️ [CreateMeeting] Validation failed - Missing required fields",
-        );
+    // Validate required fields
+    if (
+      !service ||
+      !title ||
+      !liveRegion ||
+      !liveTime ||
+      !trainer ||
+      !duration ||
+      !startDate ||
+      !localTime ||
+      !regions ||
+      !adminId
+    ) {
+      console.warn(
+        "⚠️ [CreateMeeting] Validation failed - Missing required fields",
+      );
+      return res.status(400).json({
+        success: false,
+        message: "Missing required fields",
+      });
+    }
+
+    // Validate recurrence settings if recurring class is enabled
+    if (recurringClass) {
+      if (!recurrenceType || !["weekly", "monthly", "custom"].includes(recurrenceType)) {
         return res.status(400).json({
           success: false,
-          message: "Missing required fields",
+          message: "Invalid recurrence type. Must be 'weekly', 'monthly', or 'custom'",
         });
       }
 
-      // Generate meeting topic
-      const topic = `${title} - Live Class`;
+      if (recurrenceType === "custom" && (!customDays || customDays.length === 0)) {
+        return res.status(400).json({
+          success: false,
+          message: "Custom days are required when recurrence type is 'custom'",
+        });
+      }
+    }
 
-      const startDateTime = new Date(localTime);
+    // Generate meeting topic
+    const topic = `${title} - Live Class`;
 
-      // Get weekday for Zoom (1–7, where 1 = Monday, 7 = Sunday)
-      const jsWeekDay = startDateTime.getUTCDay();
-      const zoomWeekDay = jsWeekDay === 0 ? 7 : jsWeekDay;
+    const startDateTime = new Date(localTime);
 
-      // Format time as HH:MM for Zoom API
-      const hours = String(startDateTime.getUTCHours()).padStart(2, "0");
-      const minutes = String(startDateTime.getUTCMinutes()).padStart(2, "0");
-      const startTimeForZoom = `${hours}:${minutes}`;
+    // Get weekday for Zoom (1–7, where 1 = Monday, 7 = Sunday)
+    const jsWeekDay = startDateTime.getUTCDay();
+    const zoomWeekDay = jsWeekDay === 0 ? 7 : jsWeekDay;
 
-      // console.log("⏰ [CreateMeeting] Recurrence settings:", {
-      //   zoomWeekDay,
-      //   startTimeForZoom,
-      //   weeklyEndDate: weeklyEndDate || "No end date (unlimited)",
-      // });
+    // Format time as HH:MM for Zoom API
+    const hours = String(startDateTime.getUTCHours()).padStart(2, "0");
+    const minutes = String(startDateTime.getUTCMinutes()).padStart(2, "0");
+    const startTimeForZoom = `${hours}:${minutes}`;
 
-      // Build recurrence object
-      const recurrenceSettings: any = {
-        type: 2,
-        repeat_interval: 1,
-        weekly_days: zoomWeekDay,
-      };
+    console.log("⏰ [CreateMeeting] Meeting configuration:", {
+      recurringClass,
+      recurrenceType,
+      customDays,
+      zoomWeekDay,
+      startTimeForZoom,
+      weeklyEndDate: weeklyEndDate || "No end date (unlimited)",
+    });
 
+    // Build recurrence object based on settings
+    let recurrenceSettings: any = null;
+
+    if (recurringClass) {
+      if (recurrenceType === "weekly") {
+        // Weekly recurrence - every week on the same day
+        recurrenceSettings = {
+          type: 2, // Weekly
+          repeat_interval: 1,
+          weekly_days: zoomWeekDay,
+        };
+      } else if (recurrenceType === "monthly") {
+        // Monthly recurrence
+        const dayOfMonth = startDateTime.getUTCDate();
+        recurrenceSettings = {
+          type: 3, // Monthly
+          repeat_interval: 1,
+          monthly_day: dayOfMonth,
+        };
+      } else if (recurrenceType === "custom") {
+        // Custom days - weekly but on specific days
+        recurrenceSettings = {
+          type: 2, // Weekly
+          repeat_interval: 1,
+          weekly_days: customDays.join(","), // e.g., "1,3,5" for Mon, Wed, Fri
+        };
+      }
+
+      // Add end date
       if (weeklyEndDate) {
         const endDate = new Date(weeklyEndDate);
         const endDateString = endDate.toISOString().split("T")[0];
@@ -94,164 +138,193 @@ export default class MeetingController {
         const endDateString = defaultEndDate.toISOString().split("T")[0];
         recurrenceSettings.end_date_time = endDateString;
       }
+    }
 
-      const zoomResponse = await axios.post(
-        "https://api.zoom.us/v2/users/me/meetings",
-        {
-          topic,
-          type:2,
-          // type: 8,
-          start_time: localTime,
-          duration,
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-          recurrence: recurrenceSettings,
-          settings: {
-            mute_upon_entry: true,
-            allow_multiple_audio_unmute: false,
-            allow_participants_to_unmute_themselves: false,
-            allow_participants_to_unmute: false,
-            auto_recording: "cloud",
-            host_video: true,
-            participant_video: true,
-            waiting_room: true,
-          },
+    // Determine meeting type
+    const meetingType = recurringClass ? 8 : 2; // 8 = recurring, 2 = scheduled
+
+    console.log("📋 [CreateMeeting] Zoom API payload:", {
+      topic,
+      type: meetingType,
+      start_time: localTime,
+      duration,
+      recurrence: recurrenceSettings,
+    });
+
+    const zoomPayload: any = {
+      topic,
+      type: meetingType,
+      start_time: localTime,
+      duration,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      settings: {
+        mute_upon_entry: true,
+        allow_multiple_audio_unmute: false,
+        allow_participants_to_unmute_themselves: false,
+        allow_participants_to_unmute: false,
+        auto_recording: "cloud",
+        host_video: true,
+        participant_video: true,
+        waiting_room: true,
+      },
+    };
+
+    // Only add recurrence if it's a recurring meeting
+    if (recurringClass && recurrenceSettings) {
+      zoomPayload.recurrence = recurrenceSettings;
+    }
+
+    const zoomResponse = await axios.post(
+      "https://api.zoom.us/v2/users/me/meetings",
+      zoomPayload,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
         },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-        },
-      );
+      },
+    );
 
-      const meetingId = zoomResponse.data.id;
-      const password = zoomResponse.data.password;
-      const occurrences = zoomResponse.data.occurrences;
+    const meetingId = zoomResponse.data.id;
+    const password = zoomResponse.data.password;
+    const occurrences = zoomResponse.data.occurrences;
 
-      // Web client URLs
-      const webJoinUrl = `https://app.zoom.us/wc/${meetingId}/join?pwd=${password}&browser=1`;
-      const webStartUrl = `https://app.zoom.us/wc/${meetingId}/start?pwd=${password}&browser=1`;
+    // Web client URLs
+    const webJoinUrl = `https://app.zoom.us/wc/${meetingId}/join?pwd=${password}&browser=1`;
+    const webStartUrl = `https://app.zoom.us/wc/${meetingId}/start?pwd=${password}&browser=1`;
 
-      const meetingRecord = await Meeting.create({
-        zoomMeetingId: meetingId,
+    const meetingRecord = await Meeting.create({
+      zoomMeetingId: meetingId,
+      service,
+      title,
+      regions,
+      liveRegion,
+      liveTime,
+      trainer,
+      duration,
+      recurringClass,
+      recurrenceType: recurringClass ? recurrenceType : null,
+      customDays: recurringClass && recurrenceType === "custom" ? customDays : [],
+      rotationEnabled: false,
+      isRecurring: recurringClass,
+      isLive: true,
+      startDate: new Date(startDate),
+      localTime: new Date(localTime),
+      joinUrl: webJoinUrl,
+      startUrl: webStartUrl,
+      recordingUrl: "",
+      createdBy: adminId,
+      weeklyEndDate: weeklyEndDate ? new Date(weeklyEndDate) : null,
+    });
 
-        service,
-        title,
-        regions,
-        liveRegion,
-        liveTime,
-        trainer,
-        duration,
-        autoRecording,
-        rotationEnabled: false,
-        isRecurring: true,
-        isLive: true,
-        startDate: new Date(startDate),
-        localTime: new Date(localTime),
-        joinUrl: webJoinUrl,
-        startUrl: webStartUrl,
-        recordingUrl: "",
-        createdBy: adminId,
-        weeklyEndDate: weeklyEndDate ? new Date(weeklyEndDate) : null,
-      });
+    console.log("✅ [CreateMeeting] Parent meeting saved to DB:", {
+      id: meetingRecord._id,
+      zoomMeetingId: meetingRecord.zoomMeetingId,
+      isLive: meetingRecord.isLive,
+      recurringClass: meetingRecord.recurringClass,
+      recurrenceType: meetingRecord.recurrenceType,
+      regionsCount: meetingRecord.regions.length,
+      title: meetingRecord.title,
+    });
 
-      // console.log("✅ [CreateMeeting] Parent meeting saved to DB:", {
-      //   id: meetingRecord._id,
-      //   zoomMeetingId: meetingRecord.zoomMeetingId,
-      //   isLive: meetingRecord.isLive,
-      //   regionsCount: meetingRecord.regions.length,
-      //   title: meetingRecord.title,
-      // });
+    // Store all recurring instances in database
+    const storedInstances: any[] = [];
 
-      // Store all recurring instances in database
-      // console.log("📦 [CreateMeeting] Storing recurring instances...");
-      const storedInstances: any[] = [];
+    if (recurringClass && occurrences && occurrences.length > 0) {
+      console.log(`📦 [CreateMeeting] Storing ${occurrences.length} recurring instances...`);
+      
+      for (const occurrence of occurrences) {
+        try {
+          const instanceRecord = await Meeting.create({
+            zoomMeetingId: meetingId,
+            occurrenceId: occurrence.occurrence_id,
+            service,
+            title,
+            regions,
+            liveRegion,
+            liveTime,
+            trainer,
+            duration,
+            recurringClass: false,
+            recurrenceType: null,
+            customDays: [],
+            rotationEnabled: false,
+            isRecurring: false, // Individual instances are not recurring
+            isLive: true,
+            startDate: new Date(occurrence.start_time),
+            localTime: new Date(occurrence.start_time),
+            joinUrl: webJoinUrl,
+            startUrl: webStartUrl,
+            recordingUrl: "",
+            createdBy: adminId,
+            parentMeetingId: meetingRecord._id,
+          });
 
-      if (occurrences && occurrences.length > 0) {
-        for (const occurrence of occurrences) {
-          try {
-            const instanceRecord = await Meeting.create({
-              zoomMeetingId: meetingId,
-              occurrenceId: occurrence.occurrence_id,
-              service,
-              title,
-              regions,
-              liveRegion,
-              liveTime,
-              trainer,
-              duration,
-              autoRecording,
-              rotationEnabled: false,
-              isRecurring: false, // Individual instances are not recurring
-              isLive: true,
-              startDate: new Date(occurrence.start_time),
-              localTime: new Date(occurrence.start_time),
-              joinUrl: webJoinUrl,
-              startUrl: webStartUrl,
-              recordingUrl: "",
-              createdBy: adminId,
-              parentMeetingId: meetingRecord._id,
-            });
+          storedInstances.push({
+            _id: instanceRecord._id,
+            occurrenceId: occurrence.occurrence_id,
+            startTime: occurrence.start_time,
+          });
 
-            storedInstances.push({
-              _id: instanceRecord._id,
-              occurrenceId: occurrence.occurrence_id,
-              startTime: occurrence.start_time,
-            });
-
-            // console.log(`  ✅ Instance saved: ${occurrence.occurrence_id} - ${occurrence.start_time}`);
-          } catch (error: any) {
-            console.error(
-              `  ❌ Error saving instance ${occurrence.occurrence_id}:`,
-              error.message,
-            );
-          }
+          console.log(`  ✅ Instance saved: ${occurrence.occurrence_id} - ${occurrence.start_time}`);
+        } catch (error: any) {
+          console.error(
+            `  ❌ Error saving instance ${occurrence.occurrence_id}:`,
+            error.message,
+          );
         }
       }
-
-      // meetingRecord.regions.forEach((region) => {
-      //   console.log(`  - ${region.region}: ${region.mode}`);
-      // });
-
-      const responseMessage = `Weekly recurring meeting "${title}" created successfully. Live session for ${liveRegion}. Recording available for other regions.`;
-
-      // console.log("📊 [CreateMeeting] Response summary:", {
-      //   meetingId: meetingRecord._id,
-      //   title: meetingRecord.title,
-      //   regionsCount: meetingRecord.regions.length,
-      //   isRecurring: true,
-      //   nextOccurrences: occurrences?.length || 0,
-      //   storedInstances: storedInstances.length,
-      //   message: responseMessage,
-      // });
-
-      return res.json({
-        success: true,
-        data: {
-          meeting: meetingRecord,
-          message: responseMessage,
-          occurrences: occurrences,
-          storedInstances: storedInstances,
-          totalInstancesStored: storedInstances.length,
-        },
-      });
-    } catch (error: any) {
-      console.error("❌ [CreateMeeting] ERROR CAUGHT");
-      console.error("📍 [CreateMeeting] Error type:", error.constructor.name);
-      console.error("📝 [CreateMeeting] Error message:", error.message);
-      console.error(
-        "🔍 [CreateMeeting] Zoom API error data:",
-        error.response?.data,
-      );
-      console.error("📊 [CreateMeeting] Full error object:", error);
-
-      return res.status(500).json({
-        success: false,
-        message: error.message || "Error creating meeting",
-        error: error.response?.data,
-      });
     }
+
+    let responseMessage = "";
+    if (recurringClass) {
+      const recurrenceInfo = recurrenceType === "custom" 
+        ? `custom schedule (${customDays.join(", ")})`
+        : recurrenceType;
+      responseMessage = `${recurrenceInfo.charAt(0).toUpperCase() + recurrenceInfo.slice(1)} recurring meeting "${title}" created successfully. Live session for ${liveRegion}. Recording available for other regions.`;
+    } else {
+      responseMessage = `Meeting "${title}" created successfully. Live session for ${liveRegion}. Recording available for other regions.`;
+    }
+
+    console.log("📊 [CreateMeeting] Response summary:", {
+      meetingId: meetingRecord._id,
+      title: meetingRecord.title,
+      recurringClass: meetingRecord.recurringClass,
+      recurrenceType: meetingRecord.recurrenceType,
+      regionsCount: meetingRecord.regions.length,
+      isRecurring: recurringClass,
+      nextOccurrences: occurrences?.length || 0,
+      storedInstances: storedInstances.length,
+      message: responseMessage,
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        meeting: meetingRecord,
+        message: responseMessage,
+        occurrences: occurrences,
+        storedInstances: storedInstances,
+        totalInstancesStored: storedInstances.length,
+      },
+    });
+  } catch (error: any) {
+    console.error("❌ [CreateMeeting] ERROR CAUGHT");
+    console.error("📍 [CreateMeeting] Error type:", error.constructor.name);
+    console.error("📝 [CreateMeeting] Error message:", error.message);
+    console.error(
+      "🔍 [CreateMeeting] Zoom API error data:",
+      error.response?.data,
+    );
+    console.error("📊 [CreateMeeting] Full error object:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Error creating meeting",
+      error: error.response?.data,
+    });
   }
+}
 
 static async GetUpcomingMeetings(req: Request, res: Response) {
   try {
@@ -1516,157 +1589,248 @@ static async GetMeetingRecording(req: Request, res: Response) {
     }
   }
 
-  static async UpdateMeeting(req: Request, res: Response) {
-    try {
-      const { id } = req.params;
+static async UpdateMeeting(req: Request, res: Response) {
+  try {
+    const { id } = req.params;
 
-      // Validate MongoDB ID
-      if (!mongoose.Types.ObjectId.isValid(id)) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid meeting ID",
-        });
-      }
-
-      const {
-        service,
-        title,
-        liveRegion,
-        liveTime,
-        trainer,
-        duration,
-        autoRecording,
-        rotationEnabled = false,
-        startDate,
-        localTime,
-        regions,
-      } = req.body;
-
-      // console.log("📋 [UpdateMeeting] Extracted parameters:", {
-      //   service,
-      //   title,
-      //   liveRegion,
-      //   liveTime,
-      //   trainer,
-      //   duration,
-      //   autoRecording,
-      //   rotationEnabled,
-      //   startDate,
-      //   localTime,
-      // });
-
-      // Validate required fields
-      if (
-        !service ||
-        !title ||
-        !liveRegion ||
-        !liveTime ||
-        !trainer ||
-        !duration ||
-        !startDate ||
-        !localTime ||
-        !regions
-      ) {
-        console.warn(
-          "⚠️ [UpdateMeeting] Validation failed - Missing required fields",
-        );
-        return res.status(400).json({
-          success: false,
-          message: "Missing required fields",
-        });
-      }
-
-      // Find the meeting
-      const meeting = await Meeting.findById(id);
-
-      if (!meeting) {
-        return res.status(404).json({
-          success: false,
-          message: "Meeting not found",
-        });
-      }
-
-      // console.log("✅ [UpdateMeeting] Meeting found, updating fields...");
-
-      // Update meeting fields
-      meeting.service = service;
-      meeting.title = title;
-      meeting.liveRegion = liveRegion;
-      meeting.liveTime = liveTime;
-      meeting.trainer = trainer;
-      meeting.duration = duration;
-      meeting.autoRecording = autoRecording;
-      meeting.rotationEnabled = rotationEnabled;
-      meeting.startDate = new Date(startDate);
-      meeting.localTime = new Date(localTime);
-      meeting.regions = regions; // Update all regions
-
-      // Update Zoom meeting settings if needed
-      try {
-        const token = await getZoomAccessToken();
-        const meetingTopic = `${title} - Live Class`;
-
-        await axios.patch(
-          `https://api.zoom.us/v2/meetings/${meeting.zoomMeetingId}`,
-          {
-            topic: meetingTopic,
-            start_time: localTime,
-            duration,
-            settings: {
-              mute_upon_entry: true,
-              allow_multiple_audio_unmute: false,
-              allow_participants_to_unmute_themselves: false,
-              allow_participants_to_unmute: false,
-              auto_recording: autoRecording ? "cloud" : "none",
-              host_video: true,
-              participant_video: true,
-              waiting_room: true,
-            },
-          },
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "application/json",
-            },
-          },
-        );
-      } catch (zoomError: any) {
-        console.error(
-          "⚠️ [UpdateMeeting] Error updating Zoom meeting:",
-          zoomError.message,
-        );
-        // Don't fail the entire request if Zoom update fails
-      }
-
-      // Save the meeting
-      await meeting.save();
-
-      // console.log(
-      //   "📊 [UpdateMeeting] Updated regions count:",
-      //   meeting.regions.length
-      // );
-
-      const responseMessage = `Meeting "${title}" updated successfully. Live session for ${liveRegion}.`;
-
-      return res.json({
-        success: true,
-        data: {
-          meeting,
-          message: responseMessage,
-        },
-      });
-    } catch (error: any) {
-      console.error("❌ [UpdateMeeting] ERROR CAUGHT");
-      console.error("📝 [UpdateMeeting] Error message:", error.message);
-      console.error("🔍 [UpdateMeeting] Error details:", error);
-
-      return res.status(500).json({
+    // Validate MongoDB ID
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
         success: false,
-        message: error.message || "Error updating meeting",
-        error: error.response?.data,
+        message: "Invalid meeting ID",
       });
     }
+
+    const {
+      service,
+      title,
+      liveRegion,
+      liveTime,
+      trainer,
+      duration,
+      autoRecording,
+      rotationEnabled = false,
+      startDate,
+      localTime,
+      regions,
+      recurringClass = false,
+      recurrenceType = null,
+      customDays = [],
+      weeklyEndDate = null,
+    } = req.body;
+
+    // Validate required fields
+    if (
+      !service ||
+      !title ||
+      !liveRegion ||
+      !liveTime ||
+      !trainer ||
+      !duration ||
+      !startDate ||
+      !localTime ||
+      !regions
+    ) {
+      console.warn(
+        "⚠️ [UpdateMeeting] Validation failed - Missing required fields",
+      );
+      return res.status(400).json({
+        success: false,
+        message: "Missing required fields",
+      });
+    }
+
+    // Validate recurrence settings if recurring class is enabled
+    if (recurringClass) {
+      if (!recurrenceType || !["weekly", "monthly", "custom"].includes(recurrenceType)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid recurrence type. Must be 'weekly', 'monthly', or 'custom'",
+        });
+      }
+
+      if (recurrenceType === "custom" && (!customDays || customDays.length === 0)) {
+        return res.status(400).json({
+          success: false,
+          message: "Custom days are required when recurrence type is 'custom'",
+        });
+      }
+    }
+
+    // Find the meeting
+    const meeting = await Meeting.findById(id);
+
+    if (!meeting) {
+      return res.status(404).json({
+        success: false,
+        message: "Meeting not found",
+      });
+    }
+
+    console.log("✅ [UpdateMeeting] Meeting found, updating fields...");
+
+    // Update meeting fields
+    meeting.service = service;
+    meeting.title = title;
+    meeting.liveRegion = liveRegion;
+    meeting.liveTime = liveTime;
+    meeting.trainer = trainer;
+    meeting.duration = duration;
+    meeting.autoRecording = autoRecording;
+    meeting.rotationEnabled = rotationEnabled;
+    meeting.startDate = new Date(startDate);
+    meeting.localTime = new Date(localTime);
+    meeting.regions = regions;
+
+    // Update recurring class fields
+    meeting.recurringClass = recurringClass;
+    meeting.recurrenceType = recurringClass ? recurrenceType : null;
+    meeting.customDays = recurringClass && recurrenceType === "custom" ? customDays : [];
+    meeting.weeklyEndDate = weeklyEndDate ? new Date(weeklyEndDate) : null;
+    meeting.isRecurring = recurringClass;
+
+    // Update Zoom meeting settings
+    try {
+      const token = await getZoomAccessToken();
+      const meetingTopic = `${title} - Live Class`;
+
+      const startDateTime = new Date(localTime);
+
+      // Get weekday for Zoom (1–7, where 1 = Monday, 7 = Sunday)
+      const jsWeekDay = startDateTime.getUTCDay();
+      const zoomWeekDay = jsWeekDay === 0 ? 7 : jsWeekDay;
+
+      // Format time as HH:MM for Zoom API
+      const hours = String(startDateTime.getUTCHours()).padStart(2, "0");
+      const minutes = String(startDateTime.getUTCMinutes()).padStart(2, "0");
+      const startTimeForZoom = `${hours}:${minutes}`;
+
+      // Build recurrence object based on settings
+      let recurrenceSettings: any = null;
+
+      if (recurringClass) {
+        if (recurrenceType === "weekly") {
+          recurrenceSettings = {
+            type: 2, // Weekly
+            repeat_interval: 1,
+            weekly_days: zoomWeekDay,
+          };
+        } else if (recurrenceType === "monthly") {
+          const dayOfMonth = startDateTime.getUTCDate();
+          recurrenceSettings = {
+            type: 3, // Monthly
+            repeat_interval: 1,
+            monthly_day: dayOfMonth,
+          };
+        } else if (recurrenceType === "custom") {
+          recurrenceSettings = {
+            type: 2, // Weekly
+            repeat_interval: 1,
+            weekly_days: customDays.join(","), // e.g., "1,3,5"
+          };
+        }
+
+        // Add end date
+        if (weeklyEndDate) {
+          const endDate = new Date(weeklyEndDate);
+          const endDateString = endDate.toISOString().split("T")[0];
+          recurrenceSettings.end_date_time = endDateString;
+        }
+      }
+
+      // Determine meeting type
+      const meetingType = recurringClass ? 8 : 2; // 8 = recurring, 2 = scheduled
+
+      const zoomPayload: any = {
+        topic: meetingTopic,
+        type: meetingType,
+        start_time: localTime,
+        duration,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        settings: {
+          mute_upon_entry: true,
+          allow_multiple_audio_unmute: false,
+          allow_participants_to_unmute_themselves: false,
+          allow_participants_to_unmute: false,
+          auto_recording: autoRecording ? "cloud" : "none",
+          host_video: true,
+          participant_video: true,
+          waiting_room: true,
+        },
+      };
+
+      // Only add recurrence if it's a recurring meeting
+      if (recurringClass && recurrenceSettings) {
+        zoomPayload.recurrence = recurrenceSettings;
+      }
+
+      console.log("📋 [UpdateMeeting] Zoom API payload:", {
+        topic: meetingTopic,
+        type: meetingType,
+        start_time: localTime,
+        duration,
+        recurrence: recurrenceSettings,
+      });
+
+      await axios.patch(
+        `https://api.zoom.us/v2/meetings/${meeting.zoomMeetingId}`,
+        zoomPayload,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        },
+      );
+
+      console.log("✅ [UpdateMeeting] Zoom meeting updated successfully");
+    } catch (zoomError: any) {
+      console.error(
+        "⚠️ [UpdateMeeting] Error updating Zoom meeting:",
+        zoomError.message,
+      );
+      // Don't fail the entire request if Zoom update fails
+    }
+
+    // Save the meeting
+    await meeting.save();
+
+    console.log("✅ [UpdateMeeting] Meeting saved to database");
+    console.log("📊 [UpdateMeeting] Updated meeting:", {
+      id: meeting._id,
+      title: meeting.title,
+      recurringClass: meeting.recurringClass,
+      recurrenceType: meeting.recurrenceType,
+      regionsCount: meeting.regions.length,
+      weeklyEndDate: meeting.weeklyEndDate,
+    });
+
+    const responseMessage = `Meeting "${title}" updated successfully. ${
+      recurringClass 
+        ? `${recurrenceType} recurring class with live session for ${liveRegion}.` 
+        : `Live session for ${liveRegion}.`
+    }`;
+
+    return res.json({
+      success: true,
+      data: {
+        meeting,
+        message: responseMessage,
+      },
+    });
+  } catch (error: any) {
+    console.error("❌ [UpdateMeeting] ERROR CAUGHT");
+    console.error("📍 [UpdateMeeting] Error type:", error.constructor.name);
+    console.error("📝 [UpdateMeeting] Error message:", error.message);
+    console.error("🔍 [UpdateMeeting] Error details:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Error updating meeting",
+      error: error.response?.data,
+    });
   }
+}
 
   static async DeleteMeeting(req: Request, res: Response) {
     try {
