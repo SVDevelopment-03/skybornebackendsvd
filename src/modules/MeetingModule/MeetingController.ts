@@ -253,189 +253,201 @@ export default class MeetingController {
     }
   }
 
-  static async GetUpcomingMeetings(req: Request, res: Response) {
-    try {
-      const { search = "", skip = 0, limit = 10, region } = req?.query;
-      const skipNum = parseInt(skip as string) || 0;
-      const limitNum = parseInt(limit as string) || 10;
+static async GetUpcomingMeetings(req: Request, res: Response) {
+  try {
+    const { search = "", skip = 0, limit = 10, region } = req?.query;
+    const skipNum = parseInt(skip as string) || 0;
+    const limitNum = parseInt(limit as string) || 10;
 
+    const userId = req.user?.id;
 
-      // console.log("search:", search, "skip:", skipNum, "limit:", limitNum);
-
-      const userId = req.user?.id;
-
-      if (!userId) {
-        return res.status(401).json({
-          success: false,
-          message: "User not authenticated",
-        });
-      }
-
-      const user = await User.findById(userId).select(
-        "plan country countryCode",
-      );
-
-      if (!user) {
-        return res.status(404).json({
-          success: false,
-          message: "User not found",
-        });
-      }
-
-      const now = new Date();
-      //const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-      const oneHourAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
-
-      let serviceTitles: string[] = [];
-
-      if (user.plan === "gold-yoga") {
-        serviceTitles = ["Yoga"];
-      } else if (user.plan === "gold-zumba") {
-        serviceTitles = ["Zumba Dance"];
-      } else if (user.plan === "gold-mixed") {
-        serviceTitles = ["Yoga", "Zumba Dance"];
-      } else if (user.plan === "diamond" || user.plan === "platinum") {
-        serviceTitles = ["Yoga", "Zumba Dance", "Diet & Nutrition"];
-      }
-
-      const services = await Service.find({
-        title: { $in: serviceTitles },
-      }).select("_id");
-
-      const serviceIds = services.map((service) => service._id);
-
-      const filter: any = {
-        localTime: { $gte: oneHourAgo },
-        title: { $regex: search, $options: "i" },
-        service: { $in: serviceIds },
-      };
-
-      // ✅ add region filter only if provided
-      // if (region) {
-      //   filter.liveRegion = region;
-      // }
-
-      // Get total count
-      const totalCount = await Meeting.countDocuments(filter);
-
-      // Fetch paginated meetings
-      const meetings = await Meeting.find(filter)
-        .sort({ localTime: 1 })
-        .skip(skipNum)
-        .limit(limitNum)
-        .populate("service", "title name _id")
-        .populate("trainer", "name email _id")
-        .populate("createdBy", "firstName lastName email _id")
-        .lean();
-
-      res.setHeader("Cache-Control", "no-store");
-
-      return res.json({
-        success: true,
-        count: meetings?.length,
-        totalCount,
-        hasMore: skipNum + limitNum < totalCount,
-        meetings,
-        userPlan: user.plan,
-      });
-    } catch (error: any) {
-      console.error("Error fetching upcoming meetings:", error.message);
-      return res.status(500).json({
+    if (!userId) {
+      return res.status(401).json({
         success: false,
-        message: error.message || "Error fetching upcoming meetings",
+        message: "User not authenticated",
       });
     }
+
+    const user = await User.findById(userId).select(
+      "plan country countryCode",
+    );
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    // ✅ If region is not provided or invalid, return empty result
+    if (!region || typeof region !== 'string' || region.trim() === '' || region === '+' || region === ' ') {
+      return res.json({
+        success: true,
+        count: 0,
+        totalCount: 0,
+        hasMore: false,
+        meetings: [],
+        userPlan: user.plan,
+        message: "Region not specified or invalid",
+      });
+    }
+
+    const now = new Date();
+    const oneHourAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+
+    let serviceTitles: string[] = [];
+
+    if (user.plan === "gold-yoga") {
+      serviceTitles = ["Yoga"];
+    } else if (user.plan === "gold-zumba") {
+      serviceTitles = ["Zumba Dance"];
+    } else if (user.plan === "gold-mixed") {
+      serviceTitles = ["Yoga", "Zumba Dance"];
+    } else if (user.plan === "diamond" || user.plan === "platinum") {
+      serviceTitles = ["Yoga", "Zumba Dance", "Diet & Nutrition"];
+    }
+
+    const services = await Service.find({
+      title: { $in: serviceTitles },
+    }).select("_id");
+
+    const serviceIds = services.map((service) => service._id);
+
+    // ✅ ALWAYS apply region filter - region is now required
+    const filter: any = {
+      localTime: { $gte: oneHourAgo },
+      title: { $regex: search, $options: "i" },
+      service: { $in: serviceIds },
+      liveRegion: region.trim(), // ✅ Region filter is now mandatory
+    };
+
+    // Get total count
+    const totalCount = await Meeting.countDocuments(filter);
+
+    // Fetch paginated meetings
+    const meetings = await Meeting.find(filter)
+      .sort({ localTime: 1 })
+      .skip(skipNum)
+      .limit(limitNum)
+      .populate("service", "title name _id")
+      .populate("trainer", "name email _id")
+      .populate("createdBy", "firstName lastName email _id")
+      .lean();
+
+    res.setHeader("Cache-Control", "no-store");
+
+    return res.json({
+      success: true,
+      count: meetings?.length,
+      totalCount,
+      hasMore: skipNum + limitNum < totalCount,
+      meetings,
+      userPlan: user.plan,
+    });
+  } catch (error: any) {
+    console.error("Error fetching upcoming meetings:", error.message);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Error fetching upcoming meetings",
+    });
   }
+}
 
-  static async GetAllMeetings(req: Request, res: Response) {
-    try {
-      const { search = "", skip = 0, limit = 10, region } = req?.query;
-      const skipNum = parseInt(skip as string) || 0;
-      const limitNum = parseInt(limit as string) || 10;
+static async GetAllMeetings(req: Request, res: Response) {
+  try {
+    const { search = "", skip = 0, limit = 10, region } = req?.query;
+    const skipNum = parseInt(skip as string) || 0;
+    const limitNum = parseInt(limit as string) || 10;
 
-      const userId = req.user?.id;
+    const userId = req.user?.id;
 
-      if (!userId) {
-        return res.status(401).json({
-          success: false,
-          message: "User not authenticated",
-        });
-      }
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "User not authenticated",
+      });
+    }
 
-      const user = await User.findById(userId).select(
-        "plan country countryCode",
-      );
+    const user = await User.findById(userId).select(
+      "plan country countryCode",
+    );
 
-      if (!user) {
-        return res.status(404).json({
-          success: false,
-          message: "User not found",
-        });
-      }
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
 
-      let serviceTitles: string[] = [];
+    // ✅ If region is not provided or invalid, return empty result
+    if (!region || typeof region !== 'string' || region.trim() === '' || region === '+' || region === ' ') {
+      return res.json({
+        success: true,
+        count: 0,
+        totalCount: 0,
+        hasMore: false,
+        meetings: [],
+        userPlan: user.plan,
+        message: "Region not specified or invalid",
+      });
+    }
 
-      if (user.plan === "gold-yoga") {
-        serviceTitles = ["Yoga"];
-      } else if (user.plan === "gold-zumba") {
-        serviceTitles = ["Zumba Dance"];
-      } else if (user.plan === "gold-mixed") {
-        serviceTitles = ["Yoga", "Zumba Dance"];
-      } else if (user.plan === "diamond" || user.plan === "platinum") {
-        serviceTitles = ["Yoga", "Zumba Dance", "Diet & Nutrition"];
-      }
+    let serviceTitles: string[] = [];
 
-      
+    if (user.plan === "gold-yoga") {
+      serviceTitles = ["Yoga"];
+    } else if (user.plan === "gold-zumba") {
+      serviceTitles = ["Zumba Dance"];
+    } else if (user.plan === "gold-mixed") {
+      serviceTitles = ["Yoga", "Zumba Dance"];
+    } else if (user.plan === "diamond" || user.plan === "platinum") {
+      serviceTitles = ["Yoga", "Zumba Dance", "Diet & Nutrition"];
+    }
 
-      const services = await Service.find({
-        title: { $in: serviceTitles },
-      }).select("_id");
+    const services = await Service.find({
+      title: { $in: serviceTitles },
+    }).select("_id");
 
-      const serviceIds = services.map((service) => service._id);
+    const serviceIds = services.map((service) => service._id);
 
-      // ✅ Common Mongo filter
+    // ✅ ALWAYS apply region filter - region is now required
     const filter: any = {
       title: { $regex: search, $options: "i" },
       service: { $in: serviceIds },
+      liveRegion: region.trim(), // ✅ Region filter is now mandatory
     };
 
-    // ✅ Add region filter only if provided
-    // if (region) {
-    //   filter.liveRegion = region;
-    // }
-    
+    // Get total count - no time filter, includes all meetings
+    const totalCount = await Meeting.countDocuments(filter);
 
-      // Get total count - no time filter, includes all meetings
-      const totalCount = await Meeting.countDocuments(filter);
+    // Fetch paginated meetings - no time filter, includes all meetings
+    const meetings = await Meeting.find(filter)
+      .sort({ localTime: -1 }) // Sort by most recent first
+      .skip(skipNum)
+      .limit(limitNum)
+      .populate("service", "title name _id")
+      .populate("trainer", "name email _id")
+      .populate("createdBy", "firstName lastName email _id")
+      .lean();
 
-      // Fetch paginated meetings - no time filter, includes all meetings
-      const meetings = await Meeting.find(filter)
-        .sort({ localTime: -1 }) // Sort by most recent first
-        .skip(skipNum)
-        .limit(limitNum)
-        .populate("service", "title name _id")
-        .populate("trainer", "name email _id")
-        .populate("createdBy", "firstName lastName email _id")
-        .lean();
+    res.setHeader("Cache-Control", "no-store");
 
-      res.setHeader("Cache-Control", "no-store");
-
-      return res.json({
-        success: true,
-        count: meetings?.length,
-        totalCount,
-        hasMore: skipNum + limitNum < totalCount,
-        meetings,
-        userPlan: user.plan,
-      });
-    } catch (error: any) {
-      console.error("Error fetching all meetings:", error.message);
-      return res.status(500).json({
-        success: false,
-        message: error.message || "Error fetching all meetings",
-      });
-    }
+    return res.json({
+      success: true,
+      count: meetings?.length,
+      totalCount,
+      hasMore: skipNum + limitNum < totalCount,
+      meetings,
+      userPlan: user.plan,
+    });
+  } catch (error: any) {
+    console.error("Error fetching all meetings:", error.message);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Error fetching all meetings",
+    });
   }
+}
 
 static async GetMeetingRecording(req: Request, res: Response) {
   let videoStream: any = null;

@@ -1,13 +1,11 @@
 import { Request, Response, NextFunction } from "express";
 import CountryRepository from "./country.repository";
 import { ICountry } from "./country.model"; 
+
 const countryRepository = new CountryRepository();
 
-
 export class CountryController {
-
-
-// Get all countries with pagination
+  // Get all countries with pagination
   async getAllCountries(req: Request, res: Response, next: NextFunction) {
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;
@@ -16,12 +14,14 @@ export class CountryController {
     // Calculate skip
     const skip = (page - 1) * limit;
 
-    // Fetch countries with search, pagination, and sorting
-    const countries = await countryRepository.searchModels({
-      search,
-      skip,
-      limit,
-    });
+    // Fetch countries with search, pagination, sorting, and populate region
+  // In controller
+const countries = await countryRepository.searchCountriesWithRegion({
+  search,
+  skip,
+  limit,
+});
+
 
     // Get total count for pagination info
     const totalCount = await countryRepository.countDocuments(
@@ -55,7 +55,7 @@ export class CountryController {
 
   // Create new country with duplicate prevention
   async createCountry(req: Request, res: Response, next: NextFunction) {
-    const { name, code, status = "active" } = req.body;
+    const { name, code, region = null, status = "active" } = req.body;
 
     if (!name || !code) {
       return res.status(400).json({
@@ -67,7 +67,7 @@ export class CountryController {
     // Check if country already exists by name
     const existingByName = await countryRepository.searchModel({
       name: { $regex: `^${name}$`, $options: "i" },
-    } );
+    });
 
     if (existingByName) {
       return res.status(409).json({
@@ -91,6 +91,7 @@ export class CountryController {
     const countryData: Partial<ICountry> = {
       name,
       code: code.toUpperCase(),
+      region: region || null,
       status: status as "active" | "inactive",
     };
 
@@ -118,13 +119,13 @@ export class CountryController {
   // Update country (full update with duplicate prevention)
   async updateCountry(req: Request, res: Response, next: NextFunction) {
     const { countryId } = req.params;
-    const { name, code, status } = req.body;
+    const { name, code, region, status } = req.body;
 
     // Validate input
-    if (!name && !code && !status) {
+    if (!name && !code && region === undefined && !status) {
       return res.status(400).json({
         success: false,
-        message: "At least one field (name, code, or status) is required",
+        message: "At least one field (name, code, region, or status) is required",
       });
     }
 
@@ -137,7 +138,14 @@ export class CountryController {
     }
 
     // Get current country
-    const currentCountry :any= await countryRepository.getOneModel(countryId);
+    const currentCountry: any = await countryRepository.getOneModel(countryId);
+
+    if (!currentCountry) {
+      return res.status(404).json({
+        success: false,
+        message: "Country not found",
+      });
+    }
 
     // Check for duplicate name if being updated
     if (name && name !== currentCountry.name) {
@@ -173,6 +181,7 @@ export class CountryController {
     const updateData: Partial<ICountry> = {};
     if (name) updateData.name = name;
     if (code) updateData.code = code.toUpperCase();
+    if (region !== undefined) updateData.region = region || null;
     if (status) updateData.status = status as "active" | "inactive";
 
     const updatedCountry = await countryRepository.updateModel(
@@ -228,5 +237,4 @@ export class CountryController {
       message: "Country deleted successfully",
     });
   }
-
 }
