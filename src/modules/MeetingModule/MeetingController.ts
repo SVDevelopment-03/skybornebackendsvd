@@ -1676,7 +1676,6 @@ static async UpdateMeeting(req: Request, res: Response) {
     meeting.liveTime = liveTime;
     meeting.trainer = trainer;
     meeting.duration = duration;
-    meeting.autoRecording = autoRecording;
     meeting.rotationEnabled = rotationEnabled;
     meeting.startDate = new Date(startDate);
     meeting.localTime = new Date(localTime);
