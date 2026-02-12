@@ -1,5 +1,6 @@
 import { Schema, model, Document, Types } from "mongoose";
 import autopopulate from "mongoose-autopopulate";
+import { boolean } from "yup";
 
 // -----------------------------
 // Meeting Interface
@@ -24,6 +25,7 @@ export interface IMeeting extends Document {
   zoomMeetingId: number;
   service: Types.ObjectId | IService;
   title: string;
+  reminderSent?: boolean; // Track if reminder email has been sent
   occurrenceId?: string;
 
   // Dynamic region grid
@@ -60,14 +62,30 @@ export interface IMeeting extends Document {
   parentMeetingId?: Types.ObjectId; // Reference to parent recurring meeting
 }
 
+export interface IPopulatedMeeting extends IMeeting {
+  trainer: {
+    name: string;
+    _id?: any;
+  } | any;
+  service: {
+    title: string;
+    _id?: any;
+  } | any;
+}
+
 // -----------------------------
 // Meeting Schema
 // -----------------------------
-const MeetingSchema = new Schema<IMeeting>(
+const MeetingSchema = new Schema<IPopulatedMeeting>(
   {
     zoomMeetingId: {
       type: Number,
       required: true,
+    },
+    reminderSent: {
+      type: Boolean,
+      required: false,
+      default: false,
     },
     occurrenceId: {
       type: String,
@@ -226,4 +244,4 @@ MeetingSchema.plugin(autopopulate);
 // -----------------------------
 // Export Model
 // -----------------------------
-export default model<IMeeting>("Meeting", MeetingSchema);
+export default model<IPopulatedMeeting>("Meeting", MeetingSchema);

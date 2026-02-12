@@ -1,0 +1,346 @@
+// src/services/email/classReminderEmail.ts
+import dotenv from "dotenv";
+dotenv.config();
+
+import { classReminderEmailQueue } from "./queues/classReminderEmailQueue";
+import sgMail from "@sendgrid/mail";
+
+sgMail.setApiKey(process.env.SENDGRID_API_KEY!);
+
+const getClassReminderEmailHTML = (
+  firstName: string,
+  meetingTitle: string,
+  region: string,
+  liveTime: string,
+  trainerName: string,
+  startDate: Date,
+  duration: number,
+): string => {
+  const timeUntilClass = "10 minutes"; // or calculate dynamically
+
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f5f5f5;
+            line-height: 1.6;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #c94a7f 0%, #d97fa0 100%);
+            padding: 30px;
+            text-align: center;
+            color: #ffffff;
+        }
+        
+        .header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 10px;
+            letter-spacing: 0.5px;
+        }
+        
+        .header p {
+            font-size: 16px;
+            opacity: 0.95;
+        }
+        
+        .content {
+            padding: 40px 30px;
+        }
+        
+        .greeting {
+            font-size: 16px;
+            color: #333;
+            margin-bottom: 20px;
+            line-height: 1.8;
+        }
+        
+        .class-details {
+            background-color: #f9f9f9;
+            border-left: 4px solid #c94a7f;
+            padding: 20px;
+            margin: 25px 0;
+            border-radius: 4px;
+        }
+        
+        .detail-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 12px 0;
+            font-size: 15px;
+        }
+        
+        .detail-label {
+            color: #777;
+            font-weight: 500;
+        }
+        
+        .detail-value {
+            color: #000;
+            margin-left: 4px;
+            font-weight: 600;
+        }
+        
+        .divider {
+            height: 1px;
+            background-color: #e0e0e0;
+            margin: 20px 0;
+        }
+        
+        .cta-section {
+            text-align: center;
+            margin: 30px 0;
+        }
+        
+        .cta-button {
+            display: inline-block;
+            padding: 14px 40px;
+            background-color: #c94a7f;
+            color: #ffffff;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 16px;
+            transition: all 0.3s ease;
+        }
+        
+        .cta-button:hover {
+            background-color: #b03a6f;
+            text-decoration: none;
+        }
+        
+        .reminder-box {
+            background-color: #fff8e6;
+            border: 2px solid #ffc107;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 20px 0;
+            text-align: center;
+            font-weight: 600;
+            color: #ff9800;
+            font-size: 16px;
+        }
+        
+        .footer {
+            background-color: #fafafa;
+            padding: 25px 30px;
+            border-top: 1px solid #e0e0e0;
+            text-align: center;
+            font-size: 13px;
+            color: #999;
+        }
+        
+        .footer a {
+            color: #c94a7f;
+            text-decoration: none;
+        }
+        
+        .footer p {
+            margin: 5px 0;
+        }
+        
+        @media (max-width: 600px) {
+            .content {
+                padding: 30px 20px;
+            }
+            
+            .header h1 {
+                font-size: 24px;
+            }
+            
+            .detail-row {
+                flex-direction: column;
+            }
+            
+            .detail-label {
+                margin-bottom: 5px;
+            }
+            
+            .cta-button {
+                padding: 12px 30px;
+                font-size: 15px;
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header Section -->
+        <div class="header">
+            <h1>⏰ CLASS REMINDER</h1>
+            <p>Your class is starting soon!</p>
+        </div>
+        
+        <!-- Main Content Section -->
+        <div class="content">
+            <p class="greeting">
+                Hi <strong>${firstName}</strong>,
+            </p>
+            
+            <p class="greeting">
+                Your fitness class is starting in approximately <strong>${timeUntilClass}</strong>. Don't miss it!
+            </p>
+            
+            <!-- Class Details -->
+            <div class="class-details">
+                <div class="detail-row">
+                    <span class="detail-label">🧘 Class Title</span>
+                    <span class="detail-value">${meetingTitle}</span>
+                </div>
+                
+                <div class="divider"></div>
+                
+                <div class="detail-row">
+                    <span class="detail-label">👨‍🏫 Trainer</span>
+                    <span class="detail-value">${trainerName}</span>
+                </div>
+                
+                <div class="detail-row">
+                    <span class="detail-label">🌍 Region</span>
+                    <span class="detail-value">${region.toUpperCase()}</span>
+                </div>
+                
+                <div class="divider"></div>
+                
+                <div class="detail-row">
+                    <span class="detail-label">🕐 Time</span>
+                    <span class="detail-value">${liveTime}</span>
+                </div>
+                
+                <div class="detail-row">
+                    <span class="detail-label">⏱️ Duration</span>
+                    <span class="detail-value">${duration} minutes</span>
+                </div>
+                
+                <div class="detail-row">
+                    <span class="detail-label">📅 Date</span>
+                    <span class="detail-value">${new Date(
+                      startDate,
+                    ).toLocaleDateString("en-US", {
+                      year: "numeric",
+                      month: "short",
+                      day: "numeric",
+                    })}</span>
+                </div>
+            </div>
+            
+            <div class="reminder-box">
+                ⚠️ Make sure to join 5 minutes before the class starts!
+            </div>
+            
+            <!-- Call to Action Button -->
+            <div class="cta-section">
+                <a href="${process.env.DASHBOARD_URL}/class" class="cta-button">
+                    Join Class Now
+                </a>
+            </div>
+            
+            <p class="greeting" style="font-size: 14px; color: #777; text-align: center;">
+                If you have any questions, feel free to contact our support team.
+            </p>
+        </div>
+        
+        <!-- Footer Section -->
+        <div class="footer">
+            <p>© 2025 SKYBORNE. All rights reserved.</p>
+            <p style="margin-top: 10px; color: #ccc; font-size: 12px;">
+                You received this email because you're registered for this class on SKYBORNE.
+            </p>
+        </div>
+    </div>
+</body>
+</html>
+  `;
+};
+
+// Process the queue
+classReminderEmailQueue.process(async (job: any) => {
+  const {
+    userEmails,
+    meetingTitle,
+    region,
+    liveTime,
+    startDate,
+    duration,
+    trainerName,
+  } = job.data;
+
+  try {
+    // Send email to all users in the region
+    const emailPromises = userEmails.map((user: any) => {
+      const htmlContent = getClassReminderEmailHTML(
+        user.firstName,
+        meetingTitle,
+        region,
+        liveTime,
+        trainerName,
+        startDate,
+        duration,
+      );
+
+      const msg = {
+        to: user.email,
+        from: process.env.SENDGRID_FROM_EMAIL as string,
+        subject: `⏰ Reminder: ${meetingTitle} starts in 10 minutes!`,
+        html: htmlContent,
+      };
+
+      return sgMail.send(msg);
+    });
+
+    // Wait for all emails to be sent
+    await Promise.all(emailPromises);
+
+    console.log(
+      `✅ Class reminder emails sent to ${userEmails.length} users for class: ${meetingTitle}`,
+    );
+
+    return { success: true, emailsSent: userEmails.length };
+  } catch (err: any) {
+    console.error(`❌ Email send failed for class reminder`);
+    console.error("Error Message:", err.message);
+
+    if (err.response?.body) {
+      console.error(
+        "🔍 SendGrid Error Body:",
+        JSON.stringify(err.response.body, null, 2),
+      );
+    }
+
+    const errors = err.response?.body?.errors;
+    if (errors && errors.length > 0) {
+      console.error("🔥 EXACT SENDGRID ERROR:", errors[0].message);
+    }
+
+    throw err;
+  }
+});
+
+classReminderEmailQueue.on("completed", (job: any) =>
+  console.log(`🎉 Class reminder email job ${job.id} completed`),
+);
+
+classReminderEmailQueue.on("failed", (job: any, err: any) =>
+  console.error(`🔥 Class reminder email job ${job.id} failed: ${err.message}`),
+);

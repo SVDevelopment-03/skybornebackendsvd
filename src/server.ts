@@ -11,6 +11,8 @@ import { connectRedis } from "./config/redis"; // Your Redis connection file
 import app from "./app"; // Imported Express app
 import { initializeSocket, setIOInstance } from "./config/socket";
 import { startCurrencyCron } from "./modules/CurrencyModule/CurrencyCron";
+import { initializeEmailServices } from "./services/initializeEmailService"; 
+
 
 const PORT = process.env.PORT || 8000;
 
@@ -23,6 +25,7 @@ const startServer = async () => {
 
     /** 2. Connect Redis */
     await connectRedis();
+    initializeEmailServices();
 
     /** 3. Create HTTP server */
     const server = http.createServer(app);

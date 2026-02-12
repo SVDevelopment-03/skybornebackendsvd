@@ -25,7 +25,6 @@ import { StripeService } from "./modules/PaymentModule/services/stripe.service";
 import stripeWebhook from "./modules/PaymentModule/controllers/stripeWebhook";
 import ngeniusWebhook from "./modules/PaymentModule/controllers/ngeniusWebhook";
 
-
 const app: Application = express();
 
 
