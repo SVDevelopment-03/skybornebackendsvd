@@ -125,17 +125,17 @@ static async getCountriesByRegion(regionName: string) {
       // Get trainer name
       const trainerName = (meeting.trainer as any)?.name || "Your Trainer";
 
-      // Add job to email queue
-      await addClassReminderEmailJob({
-        meetingId: (meeting._id as string).toString(),
-        meetingTitle: meeting.title,
-        region: region,
-        liveTime: meeting.liveTime,
-        startDate: meeting.startDate,
-        duration: meeting.duration,
-        trainerName: trainerName,
-        userEmails: userEmails,
-      });
+      // Need to uncomment
+      // await addClassReminderEmailJob({
+      //   meetingId: (meeting._id as string).toString(),
+      //   meetingTitle: meeting.title,
+      //   region: region,
+      //   liveTime: meeting.liveTime,
+      //   startDate: meeting.startDate,
+      //   duration: meeting.duration,
+      //   trainerName: trainerName,
+      //   userEmails: userEmails,
+      // });
 
       console.log(
         `✅ Class reminder job queued for ${userEmails.length} users. Meeting: ${meeting.title}`
