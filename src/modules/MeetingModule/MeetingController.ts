@@ -327,13 +327,14 @@ static async CreateMeeting(req: Request, res: Response) {
 }
 
 static async GetUpcomingMeetings(req: Request, res: Response) {
-  console.log("📍 [GetUpcomingMeetings] Fetching upcoming meetings with query:", req.query) ;
+  console.log("📍 [GetUpcomingMeetings] Fetching upcoming meetings with query:", req.query);
   try {
     const { search = "", skip = 0, limit = 10, region } = req?.query;
     const skipNum = parseInt(skip as string) || 0;
     const limitNum = parseInt(limit as string) || 10;
 
     const userId = req.user?.id;
+    const userRole = (req as any).user?.role;
 
     if (!userId) {
       return res.status(401).json({
@@ -343,7 +344,7 @@ static async GetUpcomingMeetings(req: Request, res: Response) {
     }
 
     const user = await User.findById(userId).select(
-      "plan country countryCode",
+      "plan country countryCode role"
     );
 
     if (!user) {
@@ -353,17 +354,22 @@ static async GetUpcomingMeetings(req: Request, res: Response) {
       });
     }
 
-    // ✅ If region is not provided or invalid, return empty result
-    if (!region || typeof region !== 'string' || region.trim() === '' || region === '+' || region === ' ') {
-      return res.json({
-        success: true,
-        count: 0,
-        totalCount: 0,
-        hasMore: false,
-        meetings: [],
-        userPlan: user.plan,
-        message: "Region not specified or invalid",
-      });
+    // ✅ Check if user is admin or trainer
+    const isAdminOrTrainer = userRole === "admin" || userRole === "trainer";
+
+    // ✅ Region validation - only required for regular users
+    if (!isAdminOrTrainer) {
+      if (!region || typeof region !== 'string' || region.trim() === '' || region === '+' || region === ' ') {
+        return res.json({
+          success: true,
+          count: 0,
+          totalCount: 0,
+          hasMore: false,
+          meetings: [],
+          userPlan: user.plan,
+          message: "Region not specified or invalid",
+        });
+      }
     }
 
     const now = new Date();
@@ -371,44 +377,48 @@ static async GetUpcomingMeetings(req: Request, res: Response) {
 
     let serviceTitles: string[] = [];
 
-    if (user.plan === "gold-yoga") {
-      serviceTitles = ["Yoga"];
-    } else if (user.plan === "gold-zumba") {
-      serviceTitles = ["Zumba Dance"];
-    } else if (user.plan === "gold-mixed") {
-      serviceTitles = ["Yoga", "Zumba Dance"];
-    } else if (user.plan === "diamond" || user.plan === "platinum") {
-      serviceTitles = ["Yoga", "Zumba Dance", "Diet & Nutrition"];
+    // ✅ Service filtering - only for regular users
+    if (!isAdminOrTrainer) {
+      if (user.plan === "gold-yoga") {
+        serviceTitles = ["Yoga"];
+      } else if (user.plan === "gold-zumba") {
+        serviceTitles = ["Zumba Dance"];
+      } else if (user.plan === "gold-mixed") {
+        serviceTitles = ["Yoga", "Zumba Dance"];
+      } else if (user.plan === "diamond" || user.plan === "platinum") {
+        serviceTitles = ["Yoga", "Zumba Dance", "Diet & Nutrition"];
+      }
     }
 
-    const services = await Service.find({
-      title: { $in: serviceTitles },
-    }).select("_id");
+    // Build filter
+    const filter: any = {
+      localTime: { $gte: oneHourAgo },
+      title: { $regex: search, $options: "i" },
+    };
 
-    const serviceIds = services.map((service) => service._id);
+    // ✅ Service filter - only add for regular users
+    if (!isAdminOrTrainer && serviceTitles.length > 0) {
+      const services = await Service.find({
+        title: { $in: serviceTitles },
+      }).select("_id");
 
-    const role = (req as any).user?.role;
+      const serviceIds = services.map((service) => service._id);
+      filter.service = { $in: serviceIds };
+    }
 
-    console.log("📍 [GetUpcomingMeetings] User role:", role);
+    // ✅ Region filter - only add for regular users
+    if (!isAdminOrTrainer) {
+      if (!region) {
+        return res.status(400).json({
+          success: false,
+          message: "Region is required for users",
+        });
+      }
+      filter.liveRegion = (region as string).trim();
+    }
 
-const filter: any = {
-  localTime: { $gte: oneHourAgo },
-  title: { $regex: search, $options: "i" },
-  service: { $in: serviceIds },
-};
-
-// 👉 Apply region filter ONLY for users
-if (role === "user") {
-  if (!region) {
-    return res.status(400).json({
-      success: false,
-      message: "Region is required for users",
-    });
-  }
-
-  filter.liveRegion = region.trim();
-}
-
+    console.log("📍 [GetUpcomingMeetings] User role:", userRole, "Is Admin/Trainer:", isAdminOrTrainer);
+    console.log("📍 [GetUpcomingMeetings] Filter:", filter);
 
     // Get total count
     const totalCount = await Meeting.countDocuments(filter);
@@ -449,6 +459,7 @@ static async GetAllMeetings(req: Request, res: Response) {
     const limitNum = parseInt(limit as string) || 10;
 
     const userId = req.user?.id;
+    const userRole = (req as any).user?.role;
 
     if (!userId) {
       return res.status(401).json({
@@ -458,7 +469,7 @@ static async GetAllMeetings(req: Request, res: Response) {
     }
 
     const user = await User.findById(userId).select(
-      "plan country countryCode",
+      "plan country countryCode role"
     );
 
     if (!user) {
@@ -468,56 +479,67 @@ static async GetAllMeetings(req: Request, res: Response) {
       });
     }
 
-    // ✅ If region is not provided or invalid, return empty result
-    if (!region || typeof region !== 'string' || region.trim() === '' || region === '+' || region === ' ') {
-      return res.json({
-        success: true,
-        count: 0,
-        totalCount: 0,
-        hasMore: false,
-        meetings: [],
-        userPlan: user.plan,
-        message: "Region not specified or invalid",
-      });
+    // ✅ Check if user is admin or trainer
+    const isAdminOrTrainer = userRole === "admin" || userRole === "trainer";
+
+    // ✅ Region validation - only required for regular users
+    if (!isAdminOrTrainer) {
+      if (!region || typeof region !== 'string' || region.trim() === '' || region === '+' || region === ' ') {
+        return res.json({
+          success: true,
+          count: 0,
+          totalCount: 0,
+          hasMore: false,
+          meetings: [],
+          userPlan: user.plan,
+          message: "Region not specified or invalid",
+        });
+      }
     }
 
     let serviceTitles: string[] = [];
 
-    if (user.plan === "gold-yoga") {
-      serviceTitles = ["Yoga"];
-    } else if (user.plan === "gold-zumba") {
-      serviceTitles = ["Zumba Dance"];
-    } else if (user.plan === "gold-mixed") {
-      serviceTitles = ["Yoga", "Zumba Dance"];
-    } else if (user.plan === "diamond" || user.plan === "platinum") {
-      serviceTitles = ["Yoga", "Zumba Dance", "Diet & Nutrition"];
+    // ✅ Service filtering - only for regular users
+    if (!isAdminOrTrainer) {
+      if (user.plan === "gold-yoga") {
+        serviceTitles = ["Yoga"];
+      } else if (user.plan === "gold-zumba") {
+        serviceTitles = ["Zumba Dance"];
+      } else if (user.plan === "gold-mixed") {
+        serviceTitles = ["Yoga", "Zumba Dance"];
+      } else if (user.plan === "diamond" || user.plan === "platinum") {
+        serviceTitles = ["Yoga", "Zumba Dance", "Diet & Nutrition"];
+      }
     }
 
-    const services = await Service.find({
-      title: { $in: serviceTitles },
-    }).select("_id");
+    // Build filter
+    const filter: any = {
+      title: { $regex: search, $options: "i" },
+    };
 
-    const serviceIds = services.map((service) => service._id);
+    // ✅ Service filter - only add for regular users
+    if (!isAdminOrTrainer && serviceTitles.length > 0) {
+      const services = await Service.find({
+        title: { $in: serviceTitles },
+      }).select("_id");
 
-const role = (req as any).user?.role;
+      const serviceIds = services.map((service) => service._id);
+      filter.service = { $in: serviceIds };
+    }
 
-const filter: any = {
-  title: { $regex: search, $options: "i" },
-  service: { $in: serviceIds },
-};
+    // ✅ Region filter - only add for regular users
+    if (!isAdminOrTrainer) {
+      if (!region) {
+        return res.status(400).json({
+          success: false,
+          message: "Region is required for users",
+        });
+      }
+      filter.liveRegion = (region as string).trim();
+    }
 
-// 👉 Only normal users must be restricted by region
-if (role === "user") {
-  if (!region) {
-    return res.status(400).json({
-      success: false,
-      message: "Region is required for users",
-    });
-  }
-
-  filter.liveRegion = region.trim();
-}
-
+    console.log("📍 [GetAllMeetings] User role:", userRole, "Is Admin/Trainer:", isAdminOrTrainer);
+    console.log("📍 [GetAllMeetings] Filter:", filter);
 
     // Get total count - no time filter, includes all meetings
     const totalCount = await Meeting.countDocuments(filter);
