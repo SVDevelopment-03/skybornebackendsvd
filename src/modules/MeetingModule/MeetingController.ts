@@ -386,13 +386,27 @@ static async GetUpcomingMeetings(req: Request, res: Response) {
 
     const serviceIds = services.map((service) => service._id);
 
-    // ✅ ALWAYS apply region filter - region is now required
-    const filter: any = {
-      localTime: { $gte: oneHourAgo },
-      title: { $regex: search, $options: "i" },
-      service: { $in: serviceIds },
-      liveRegion: region.trim(), // ✅ Region filter is now mandatory
-    };
+    const role = (req as any).user?.role;
+
+
+const filter: any = {
+  localTime: { $gte: oneHourAgo },
+  title: { $regex: search, $options: "i" },
+  service: { $in: serviceIds },
+};
+
+// 👉 Apply region filter ONLY for users
+if (role === "user") {
+  if (!region) {
+    return res.status(400).json({
+      success: false,
+      message: "Region is required for users",
+    });
+  }
+
+  filter.liveRegion = region.trim();
+}
+
 
     // Get total count
     const totalCount = await Meeting.countDocuments(filter);
@@ -483,12 +497,25 @@ static async GetAllMeetings(req: Request, res: Response) {
 
     const serviceIds = services.map((service) => service._id);
 
-    // ✅ ALWAYS apply region filter - region is now required
-    const filter: any = {
-      title: { $regex: search, $options: "i" },
-      service: { $in: serviceIds },
-      liveRegion: region.trim(), // ✅ Region filter is now mandatory
-    };
+const role = (req as any).user?.role;
+
+const filter: any = {
+  title: { $regex: search, $options: "i" },
+  service: { $in: serviceIds },
+};
+
+// 👉 Only normal users must be restricted by region
+if (role === "user") {
+  if (!region) {
+    return res.status(400).json({
+      success: false,
+      message: "Region is required for users",
+    });
+  }
+
+  filter.liveRegion = region.trim();
+}
+
 
     // Get total count - no time filter, includes all meetings
     const totalCount = await Meeting.countDocuments(filter);
@@ -1904,6 +1931,8 @@ static async GetAllTrainerMeetings(req: Request, res: Response) {
 
     const userId = req.user?.id;
 
+    console.log("📍 [GetAllTrainerMeetings] Fetching meetings for user:") ;
+
     if (!userId) {
       console.warn("⚠️ [GetAllTrainerMeetings] User not authenticated");
       return res.status(401).json({
@@ -2012,9 +2041,8 @@ static async GetAllTrainerMeetings(req: Request, res: Response) {
     ]);
 
     // ✅ FIXED: Determine status based on both meeting.status and localTime
+    // Meetings show as "completed" 1 hour AFTER they end
     const now = new Date();
-    // Add one hour extra to current time
-    now.setHours(now.getHours() + 1);
     
     const enrichedMeetings = meetings.map((meeting: any) => {
       let status: "upcoming" | "completed" | "failed" = "upcoming";
@@ -2025,10 +2053,17 @@ static async GetAllTrainerMeetings(req: Request, res: Response) {
       } else if (meeting.status === "failed") {
         status = "failed";
       } else if (meeting.status === "pending") {
-        // For pending meetings, check if the scheduled time has passed
+        // For pending meetings, check if meeting end time (start time + duration + 1 hour buffer) has passed
         const meetingTime = new Date(meeting.localTime);
-        if (meetingTime < now) {
-          // If past scheduled time but status is still "pending", it's likely completed
+        const meetingDurationMs = (meeting.duration || 0) * 60 * 1000; // Convert minutes to milliseconds
+        const oneHourMs = 60 * 60 * 1000; // 1 hour in milliseconds
+        
+        // Calculate when meeting should be marked as completed
+        // = meeting start time + duration + 1 hour buffer
+        const meetingCompletionTime = new Date(meetingTime.getTime() + meetingDurationMs + oneHourMs);
+        
+        if (now >= meetingCompletionTime) {
+          // Current time has passed meeting end time + 1 hour buffer
           status = "completed";
         } else {
           status = "upcoming";
