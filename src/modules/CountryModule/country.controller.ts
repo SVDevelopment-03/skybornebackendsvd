@@ -122,12 +122,12 @@ const countries = await countryRepository.searchCountriesWithRegion({
     const { name, code, region, status } = req.body;
 
     // Validate input
-    if (!name && !code && region === undefined && !status) {
-      return res.status(400).json({
-        success: false,
-        message: "At least one field (name, code, region, or status) is required",
-      });
-    }
+    // if (!name && !code && region === undefined && !status) {
+    //   return res.status(400).json({
+    //     success: false,
+    //     message: "At least one field (name, code, region, or status) is required",
+    //   });
+    // }
 
     // Validate status if provided
     if (status && !["active", "inactive"].includes(status)) {
