@@ -327,6 +327,7 @@ static async CreateMeeting(req: Request, res: Response) {
 }
 
 static async GetUpcomingMeetings(req: Request, res: Response) {
+  console.log("📍 [GetUpcomingMeetings] Fetching upcoming meetings with query:", req.query) ;
   try {
     const { search = "", skip = 0, limit = 10, region } = req?.query;
     const skipNum = parseInt(skip as string) || 0;
@@ -388,6 +389,7 @@ static async GetUpcomingMeetings(req: Request, res: Response) {
 
     const role = (req as any).user?.role;
 
+    console.log("📍 [GetUpcomingMeetings] User role:", role);
 
 const filter: any = {
   localTime: { $gte: oneHourAgo },
