@@ -27,7 +27,7 @@ export default class PaymentController {
   static initPaymentSystems() {
     NgeniusService.initRecurringPaymentCron();
     StripeService.initialize();
-    StripeService.initRecurringPaymentCron();
+    // StripeService.initRecurringPaymentCron();
   }
 
 /**

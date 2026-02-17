@@ -646,101 +646,101 @@ export class StripeService {
    * Charge recurring payment using saved payment method
    * Supports both monthly and yearly billing cycles
    */
-  static async chargeRecurringPayment(
-    userId: string,
-    plan: string,
-    amount: number, // in cents
-    currency: string,
-    billingType: "monthly" | "yearly" = "monthly",
-    retryAttempt = 0,
-    config = this.DEFAULT_RECURRING_CONFIG,
-  ): Promise<void> {
-    try {
-      const user = await User.findById(userId);
-      if (!user || !user.plan) {
-        throw new Error(`User ${userId} not found or has no plan`);
-      }
+  // static async chargeRecurringPayment(
+  //   userId: string,
+  //   plan: string,
+  //   amount: number, // in cents
+  //   currency: string,
+  //   billingType: "monthly" | "yearly" = "monthly",
+  //   retryAttempt = 0,
+  //   config = this.DEFAULT_RECURRING_CONFIG,
+  // ): Promise<void> {
+  //   try {
+  //     const user = await User.findById(userId);
+  //     if (!user || !user.plan) {
+  //       throw new Error(`User ${userId} not found or has no plan`);
+  //     }
 
-      const customerId = await this.getOrCreateCustomer(user);
-      const orderRef = `STR-REC-${Date.now()}`;
+  //     const customerId = await this.getOrCreateCustomer(user);
+  //     const orderRef = `STR-REC-${Date.now()}`;
 
-      // Get default payment method
-      const paymentMethods = await this.stripe.paymentMethods.list({
-        customer: customerId,
-        type: "card",
-      });
+  //     // Get default payment method
+  //     const paymentMethods = await this.stripe.paymentMethods.list({
+  //       customer: customerId,
+  //       type: "card",
+  //     });
 
-      if (paymentMethods.data.length === 0) {
-        throw new Error("No payment method on file");
-      }
+  //     if (paymentMethods.data.length === 0) {
+  //       throw new Error("No payment method on file");
+  //     }
 
-      const defaultPaymentMethod = paymentMethods.data[0];
+  //     const defaultPaymentMethod = paymentMethods.data[0];
 
-      // Create invoice for recurring charge
-      const paymentIntent = await this.stripe.paymentIntents.create({
-        customer: customerId,
-        amount: Math.round(amount * 100),
-        currency: currency.toLowerCase(),
-        payment_method: defaultPaymentMethod.id,
-        off_session: true,
-        confirm: true,
-        description: `Recurring charge for ${plan} (${billingType})`,
-        metadata: {
-          userId: userId,
-          plan,
-          billingType,
-          orderRef,
-          isRecurring: "true",
-        },
-      });
+  //     // Create invoice for recurring charge
+  //     const paymentIntent = await this.stripe.paymentIntents.create({
+  //       customer: customerId,
+  //       amount: Math.round(amount * 100),
+  //       currency: currency.toLowerCase(),
+  //       payment_method: defaultPaymentMethod.id,
+  //       off_session: true,
+  //       confirm: true,
+  //       description: `Recurring charge for ${plan} (${billingType})`,
+  //       metadata: {
+  //         userId: userId,
+  //         plan,
+  //         billingType,
+  //         orderRef,
+  //         isRecurring: "true",
+  //       },
+  //     });
 
-      // Create payment record
-      const payment = await Payment.create({
-        userId,
-        orderRef,
-        reference: paymentIntent.id,
-        amount: amount / 100,
-        localAmount: amount / 100,
-        currency,
-        plan,
-        billingType,
-        status: "PENDING",
-        gateway: "stripe",
-        paymentIntentId: paymentIntent.id,
-        isRecurring: true,
-        recurringCycle: this.getMonthlyRecurringCycle(),
-        billingAttempt: retryAttempt + 1,
-        gatewayResponse: { paymentIntentId: paymentIntent.id },
-      });
+  //     // Create payment record
+  //     const payment = await Payment.create({
+  //       userId,
+  //       orderRef,
+  //       reference: paymentIntent.id,
+  //       amount: amount / 100,
+  //       localAmount: amount / 100,
+  //       currency,
+  //       plan,
+  //       billingType,
+  //       status: "PENDING",
+  //       gateway: "stripe",
+  //       paymentIntentId: paymentIntent.id,
+  //       isRecurring: true,
+  //       recurringCycle: this.getMonthlyRecurringCycle(),
+  //       billingAttempt: retryAttempt + 1,
+  //       gatewayResponse: { paymentIntentId: paymentIntent.id },
+  //     });
 
-      // Verify payment after delay
-      setTimeout(() => {
-        this.verifyRecurringPayment(paymentIntent.id, userId, plan, billingType);
-      }, 3000);
-    } catch (error) {
-      console.error(
-        `❌ Recurring payment charge failed (Attempt ${retryAttempt + 1}):`,
-        error,
-      );
+  //     // Verify payment after delay
+  //     setTimeout(() => {
+  //       this.verifyRecurringPayment(paymentIntent.id, userId, plan, billingType);
+  //     }, 3000);
+  //   } catch (error) {
+  //     console.error(
+  //       `❌ Recurring payment charge failed (Attempt ${retryAttempt + 1}):`,
+  //       error,
+  //     );
 
-      if (retryAttempt < (config.maxRetries || 3)) {
-        setTimeout(() => {
-          this.chargeRecurringPayment(
-            userId,
-            plan,
-            amount,
-            currency,
-            billingType,
-            retryAttempt + 1,
-            config,
-          );
-        }, config.retryDelayMs || 5000);
-      } else {
-        await this.suspendSubscription(userId);
-        throw error;
-      }
-    }
-  }
+  //     if (retryAttempt < (config.maxRetries || 3)) {
+  //       setTimeout(() => {
+  //         this.chargeRecurringPayment(
+  //           userId,
+  //           plan,
+  //           amount,
+  //           currency,
+  //           billingType,
+  //           retryAttempt + 1,
+  //           config,
+  //         );
+  //       }, config.retryDelayMs || 5000);
+  //     } else {
+  //       await this.suspendSubscription(userId);
+  //       throw error;
+  //     }
+  //   }
+  // }
 
   /**
    * Verify recurring payment result
@@ -800,12 +800,11 @@ export class StripeService {
   /**
    * Initialize recurring payment cron job
    */
-  static initRecurringPaymentCron() {
-    // Run daily at 2 AM
-    cron.schedule("0 2 * * *", async () => {
-      await this.processRecurringPayments();
-    });
-  }
+  // static initRecurringPaymentCron() {
+  //   cron.schedule("0 2 * * *", async () => {
+  //     await this.processRecurringPayments();
+  //   });
+  // }
 
   /**
    * Process all Stripe recurring payments
@@ -824,13 +823,13 @@ export class StripeService {
           const billingType = user.billingType || "monthly";
           const planAmount = this.getPlanAmount(user.plan as string);
           
-          await this.chargeRecurringPayment(
-            user._id.toString(),
-            user.plan as string,
-            planAmount,
-            "USD",
-            billingType as any,
-          );
+          // await this.chargeRecurringPayment(
+          //   user._id.toString(),
+          //   user.plan as string,
+          //   planAmount,
+          //   "USD",
+          //   billingType as any,
+          // );
         } catch (err) {
           console.error(`❌ Error charging user ${user._id}:`, err);
         }
