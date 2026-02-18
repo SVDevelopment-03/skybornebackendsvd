@@ -54,11 +54,6 @@ export const UpdateProductSchema = yup.object({
   body: yup.object({
     name: yup.string().trim().optional(),
 
-    sku: yup
-      .string()
-      .test("is-objectid", "Invalid SKU ID", (value) =>
-        value ? mongoose.Types.ObjectId.isValid(value) : true
-      ),
 
     // category: yup
     //   .string()
@@ -72,13 +67,9 @@ export const UpdateProductSchema = yup.object({
       .min(0, "Price cannot be negative")
       .optional(),
 
-    stock: yup
-      .number()
-      .integer("Stock must be an integer")
-      .min(0, "Stock cannot be negative")
-      .optional(),
+   
 
-    status: yup.string().oneOf(["Published", "Draft"]).optional(),
+    status: yup.string().oneOf(["inactive", "active"]).optional(),
 
     image: yup.string().trim().optional(),
 
@@ -97,7 +88,7 @@ export const UpdateProductStatusSchema = yup.object({
   body: yup.object({
     status: yup
       .string()
-      .oneOf(["Published", "Draft"])
+      .oneOf(["active", "inactive"])
       .required("Status is required"),
   }),
 });

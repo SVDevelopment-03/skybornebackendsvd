@@ -1,5 +1,4 @@
 import { ProductController } from "./product.controller";
-
 import {
   CreateProductSchema,
   UpdateProductSchema,
@@ -28,13 +27,6 @@ export const ProductRoute = [
   },
 
   {
-    path: "/products/:productId",
-    request: null,
-    action: _productController.getProductById,
-    method: "get",
-  },
-
-  {
     path: "/products/category/:categoryId",
     request: null,
     action: _productController.getProductsByCategory,
@@ -42,16 +34,16 @@ export const ProductRoute = [
   },
 
   {
-    path: "/products/sku/:inventoryId",
+    path: "/products/status/:status",
     request: null,
-    action: _productController.getProductsBySku,
+    action: _productController.getProductsByStatus,
     method: "get",
   },
 
   {
-    path: "/products/status/:status",
+    path: "/products/:productId",
     request: null,
-    action: _productController.getProductsByStatus,
+    action: _productController.getProductById,
     method: "get",
   },
 
@@ -94,5 +86,4 @@ export const ProductRoute = [
     action: _productController.deleteProduct,
     method: "delete",
   },
-
 ];

@@ -6,8 +6,9 @@ interface SearchOptions {
   skip?: number;
   limit?: number;
   categoryId?: string;
-  inventoryId?: string;
+  status?: string; // ← add this
 }
+
 
 class ProductRepository {
   /**
@@ -21,54 +22,35 @@ class ProductRepository {
   /**
    * Get all products with pagination and search
    */
-  async searchModels(options: SearchOptions): Promise<IProduct[]> {
-    const { search = "", skip = 0, limit = 10, categoryId, inventoryId } = options;
+// In searchModels:
+async searchModels(options: SearchOptions): Promise<IProduct[]> {
+  const { search = "", skip = 0, limit = 10, categoryId, status } = options;
 
-    const query: any = {};
+  const query: any = {};
 
-    if (search) {
-      query.$or = [
-        { name: { $regex: search, $options: "i" } },
-        { description: { $regex: search, $options: "i" } },
-      ];
-    }
-
-    if (categoryId) {
-      query.category = new mongoose.Types.ObjectId(categoryId);
-    }
-
-    if (inventoryId) {
-      query.sku = new mongoose.Types.ObjectId(inventoryId);
-    }
-
-    return await ProductModel.find(query)
-      .skip(skip)
-      .limit(limit)
-      .sort({ createdAt: -1 })
-      .populate({
-        path: "category",
-        select: "name _id",
-      })
-      .populate({
-        path: "sku",
-        select: "sku code _id",
-      })
-      .exec();
+  if (search) {
+    query.$or = [
+      { name: { $regex: search, $options: "i" } },
+      { description: { $regex: search, $options: "i" } },
+    ];
   }
+  if (categoryId) query.category = new mongoose.Types.ObjectId(categoryId);
+  if (status) query.status = status; // ← add this
+
+  return await ProductModel.find(query)
+    .skip(skip)
+    .limit(limit)
+    .sort({ createdAt: -1 })
+    .populate({ path: "category", select: "name _id" })
+    .exec();
+}
 
   /**
    * Search for a single product
    */
   async searchModel(query: any): Promise<IProduct | null> {
     return await ProductModel.findOne(query)
-      .populate({
-        path: "category",
-        select: "name _id",
-      })
-      .populate({
-        path: "sku",
-        select: "sku code _id",
-      })
+      .populate({ path: "category", select: "name _id" })
       .exec();
   }
 
@@ -84,36 +66,19 @@ class ProductRepository {
    */
   async getOneModel(id: string): Promise<IProduct | null> {
     return await ProductModel.findById(id)
-      .populate({
-        path: "category",
-        select: "name _id",
-      })
-      .populate({
-        path: "sku",
-        select: "sku code _id",
-      })
+      .populate({ path: "category", select: "name _id" })
       .exec();
   }
 
   /**
    * Update product
    */
-  async updateModel(
-    id: string,
-    data: Partial<IProduct>
-  ): Promise<IProduct | null> {
+  async updateModel(id: string, data: Partial<IProduct>): Promise<IProduct | null> {
     return await ProductModel.findByIdAndUpdate(id, data, {
       new: true,
       runValidators: true,
     })
-      .populate({
-        path: "category",
-        select: "name _id",
-      })
-      .populate({
-        path: "sku",
-        select: "sku code _id",
-      })
+      .populate({ path: "category", select: "name _id" })
       .exec();
   }
 
@@ -127,17 +92,10 @@ class ProductRepository {
   /**
    * Get all products by status
    */
-  async getByStatus(status: "Published" | "Draft"): Promise<IProduct[]> {
+  async getByStatus(status: "active" | "inactive"): Promise<IProduct[]> {
     return await ProductModel.find({ status })
       .sort({ createdAt: -1 })
-      .populate({
-        path: "category",
-        select: "name _id",
-      })
-      .populate({
-        path: "sku",
-        select: "sku code _id",
-      })
+      .populate({ path: "category", select: "name _id" })
       .exec();
   }
 
@@ -149,65 +107,22 @@ class ProductRepository {
       category: new mongoose.Types.ObjectId(categoryId),
     })
       .sort({ createdAt: -1 })
-      .populate({
-        path: "category",
-        select: "name _id",
-      })
-      .populate({
-        path: "sku",
-        select: "sku code _id",
-      })
+      .populate({ path: "category", select: "name _id" })
       .exec();
   }
 
   /**
-   * Get products by inventory (SKU) ID
-   */
-  async getBySku(inventoryId: string): Promise<IProduct[]> {
-    return await ProductModel.find({
-      sku: new mongoose.Types.ObjectId(inventoryId),
-    })
-      .sort({ createdAt: -1 })
-      .populate({
-        path: "category",
-        select: "name _id",
-      })
-      .populate({
-        path: "sku",
-        select: "sku code _id",
-      })
-      .exec();
-  }
-
-  /**
-   * Get all published products (for storefront)
+   * Get all active products (for storefront)
    */
   async getAllPublished(): Promise<IProduct[]> {
-    return await ProductModel.find({ status: "Published" })
+    return await ProductModel.find({ status: "active" })
       .sort({ createdAt: -1 })
-      .populate({
-        path: "category",
-        select: "name _id",
-      })
-      .populate({
-        path: "sku",
-        select: "sku code _id",
-      })
+      .populate({ path: "category", select: "name _id" })
       .exec();
   }
 
   /**
-   * Check if SKU inventory exists
-   */
-  async skuExists(skuId: string): Promise<boolean> {
-    const count = await ProductModel.countDocuments({
-      sku: new mongoose.Types.ObjectId(skuId),
-    }).exec();
-    return count > 0;
-  }
-
-  /**
-   * Check if category exists
+   * Check if category has products
    */
   async categoryExists(categoryId: string): Promise<boolean> {
     const count = await ProductModel.countDocuments({
@@ -228,18 +143,11 @@ class ProductRepository {
   }
 
   /**
-   * Get product with populated references
+   * Get product with fully populated references
    */
   async getWithPopulate(id: string): Promise<IProduct | null> {
     return await ProductModel.findById(id)
-      .populate({
-        path: "category",
-        select: "name description _id",
-      })
-      .populate({
-        path: "sku",
-        select: "sku code status _id",
-      })
+      .populate({ path: "category", select: "name description _id" })
       .exec();
   }
 }
