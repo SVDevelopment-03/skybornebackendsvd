@@ -14,6 +14,7 @@ import { ServiceRoute } from "../modules/ServiceModule/routes/ServiceRoute";
 import { TestimonialRoute } from "../modules/TestimonialModule/routes/TestimonialRoute";
 import { TrainerRoute } from "../modules/TrainerModule/TrainerRoute";
 import { UserRoute } from "../modules/UserModule/UserRoute";
+import { ProductRoute } from "../modules/ProductModule/product.route";
 const appApiRoutes: any = [
   ...PaymentApiRoutes,
   ...ServiceRoute,
@@ -30,7 +31,8 @@ const appApiRoutes: any = [
   ...RegionRoute,
   ...FeedbackRoute,
   ...CancelSubscriptionRoute,
-  ...InvoiceRoutes
+  ...InvoiceRoutes,
+  ...ProductRoute
 ];
 
 export default appApiRoutes;

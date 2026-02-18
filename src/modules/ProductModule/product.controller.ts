@@ -2,6 +2,8 @@ import { Request, Response, NextFunction } from "express";
 import ProductRepository from "./product.repository";
 import { IProduct } from "./product.models";
 import mongoose from "mongoose";
+import { s3 } from "../../utils/s3";
+import { PutObjectCommand } from "@aws-sdk/client-s3";
 
 const productRepository = new ProductRepository();
 
@@ -151,93 +153,175 @@ export class ProductController {
   /**
    * Create new product
    */
-  async createProduct(req: Request, res: Response, next: NextFunction) {
-    try {
-      const { name, sku, category, price, stock = 0, status = "Draft", image, description = "" } = req.body;
+  // async createProduct(req: Request, res: Response, next: NextFunction) {
+  //   try {
+  //     const { name, sku, category, price, stock = 0, status = "Draft", image, description = "" } = req.body;
 
-      // Validate required fields
-      if (!name || !sku || !category || price === undefined || !image) {
-        return res.status(400).json({
-          success: false,
-          message: "Name, SKU ID, category ID, price, and image are required",
-        });
-      }
+  //     // Validate required fields
+  //     if (!name || !sku || !category || price === undefined || !image) {
+  //       return res.status(400).json({
+  //         success: false,
+  //         message: "Name, SKU ID, category ID, price, and image are required",
+  //       });
+  //     }
 
-      // Validate ObjectIds
-      if (!mongoose.Types.ObjectId.isValid(sku)) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid SKU (inventory) ID format",
-        });
-      }
+  //     // Validate ObjectIds
+  //     if (!mongoose.Types.ObjectId.isValid(sku)) {
+  //       return res.status(400).json({
+  //         success: false,
+  //         message: "Invalid SKU (inventory) ID format",
+  //       });
+  //     }
 
-      if (!mongoose.Types.ObjectId.isValid(category)) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid category ID format",
-        });
-      }
+  //     if (!mongoose.Types.ObjectId.isValid(category)) {
+  //       return res.status(400).json({
+  //         success: false,
+  //         message: "Invalid category ID format",
+  //       });
+  //     }
 
-      // Validate price
-      if (typeof price !== "number" || price < 0) {
-        return res.status(400).json({
-          success: false,
-          message: "Price must be a valid positive number",
-        });
-      }
+  //     // Validate price
+  //     if (typeof price !== "number" || price < 0) {
+  //       return res.status(400).json({
+  //         success: false,
+  //         message: "Price must be a valid positive number",
+  //       });
+  //     }
 
-      // Validate stock
-      if (stock !== undefined) {
-        if (!Number.isInteger(stock) || stock < 0) {
-          return res.status(400).json({
-            success: false,
-            message: "Stock must be a valid non-negative integer",
-          });
-        }
-      }
+  //     // Validate stock
+  //     if (stock !== undefined) {
+  //       if (!Number.isInteger(stock) || stock < 0) {
+  //         return res.status(400).json({
+  //           success: false,
+  //           message: "Stock must be a valid non-negative integer",
+  //         });
+  //       }
+  //     }
 
-      // Validate status
-      if (!["Published", "Draft"].includes(status)) {
-        return res.status(400).json({
-          success: false,
-          message: "Status must be 'Published' or 'Draft'",
-        });
-      }
+  //     // Validate status
+  //     if (!["Published", "Draft"].includes(status)) {
+  //       return res.status(400).json({
+  //         success: false,
+  //         message: "Status must be 'Published' or 'Draft'",
+  //       });
+  //     }
 
-      // Check if SKU (inventory) already exists
-      const existingSku = await productRepository.skuExists(sku);
-      if (existingSku) {
-        return res.status(409).json({
-          success: false,
-          message: "Product with this inventory/SKU already exists",
-        });
-      }
+  //     // Check if SKU (inventory) already exists
+  //     const existingSku = await productRepository.skuExists(sku);
+  //     if (existingSku) {
+  //       return res.status(409).json({
+  //         success: false,
+  //         message: "Product with this inventory/SKU already exists",
+  //       });
+  //     }
 
-      const productData: Partial<IProduct> = {
-        name: name.trim(),
-        sku: new mongoose.Types.ObjectId(sku),
-        category: new mongoose.Types.ObjectId(category),
-        price: price ,
-        stock: stock || 0,
-        status: status as "Published" | "Draft",
-        image: image.trim(),
-        description: description.trim(),
-      };
+  //     const productData: Partial<IProduct> = {
+  //       name: name.trim(),
+  //       sku: new mongoose.Types.ObjectId(sku),
+  //       category: new mongoose.Types.ObjectId(category),
+  //       price: price ,
+  //       stock: stock || 0,
+  //       status: status as "Published" | "Draft",
+  //       image: image.trim(),
+  //       description: description.trim(),
+  //     };
 
-      const product = await productRepository.createModel(productData);
+  //     const product = await productRepository.createModel(productData);
 
-      // Populate before returning
-      const populatedProduct = await productRepository.getOneModel(product._id.toString());
+  //     // Populate before returning
+  //     const populatedProduct = await productRepository.getOneModel(product._id.toString());
 
-      return res.status(201).json({
-        success: true,
-        message: "Product created successfully",
-        data: populatedProduct,
+  //     return res.status(201).json({
+  //       success: true,
+  //       message: "Product created successfully",
+  //       data: populatedProduct,
+  //     });
+  //   } catch (error) {
+  //     next(error);
+  //   }
+  // }
+
+ async createProduct(req: Request, res: Response, next: NextFunction) {
+  try {
+    console.log("REQ BODY:", req.body);
+
+    const {
+      name,
+      sku,
+      category,
+      price,
+      stock = 0,
+      status = "Draft",
+      description = "",
+      imageBase64
+    } = req.body;
+
+    // Validate required fields
+    if (!name || !sku || !category || price === undefined || !imageBase64) {
+      return res.status(400).json({
+        success: false,
+        message: "Name, SKU, category, price, and image are required",
       });
-    } catch (error) {
-      next(error);
     }
+
+    // Validate category ID
+    if (!mongoose.Types.ObjectId.isValid(category)) {
+      return res.status(400).json({ success: false, message: "Invalid category ID" });
+    }
+
+    // Convert Base64 string to buffer
+    const matches = imageBase64.match(/^data:(.+);base64,(.+)$/);
+    if (!matches) {
+      return res.status(400).json({ success: false, message: "Invalid imageBase64 format" });
+    }
+
+    const mimeType = matches[1];
+    const base64Data = matches[2];
+    const buffer = Buffer.from(base64Data, "base64");
+
+    // AWS S3 upload
+    const key = `products/${Date.now()}.${mimeType.split("/")[1]}`;
+    await s3.send(new PutObjectCommand({
+      Bucket: process.env.AWS_S3_BUCKET!,
+      Key: key,
+      Body: buffer,
+      ContentType: mimeType,
+    }));
+
+    const imageUrl = `https://${process.env.AWS_S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
+
+    // --- SKU conditional ObjectId ---
+    let skuId: mongoose.Types.ObjectId;
+    if (mongoose.Types.ObjectId.isValid(sku)) {
+      skuId = new mongoose.Types.ObjectId(sku);
+    } else {
+      skuId = new mongoose.Types.ObjectId(); // generate new ObjectId if string
+    }
+
+    const productData: Partial<IProduct> = {
+      name: name.trim(),
+      sku: skuId,
+      category: mongoose.Types.ObjectId.isValid(category) ? new mongoose.Types.ObjectId(category) : undefined,
+      price: Number(price),
+      stock: Number(stock),
+      status: status as "Published" | "Draft",
+      image: imageUrl,
+      description: description.trim(),
+    };
+
+    const product = await productRepository.createModel(productData);
+    const populatedProduct = await productRepository.getOneModel(product._id.toString());
+
+    return res.status(201).json({
+      success: true,
+      message: "Product created successfully",
+      data: populatedProduct,
+    });
+  } catch (error) {
+    next(error);
   }
+}
+
 
   /**
    * Update product
@@ -525,4 +609,25 @@ export class ProductController {
       next(error);
     }
   }
+
+    /**
+   * Get products image upload url 
+   */
+  // async getProductImageUploadUrl(req: Request, res: Response) {
+  //   const { fileName, fileType } = req.query;
+
+  //   if (!fileName || !fileType) {
+  //     return res.status(400).json({ message: "fileName & fileType required" });
+  //   }
+
+  //   // ✅ products folder + unique name
+  //   const key = `products/${Date.now()}-${fileName}`;
+
+  //   const uploadUrl = await getUploadUrl(
+  //     key,
+  //     fileType as string
+  //   );
+
+  //   return res.json({ uploadUrl });
+  // }
 }

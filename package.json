@@ -26,7 +26,9 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.991.0",
     "@aws-sdk/client-ses": "^3.940.0",
+    "@aws-sdk/s3-request-presigner": "^3.991.0",
     "@bull-board/express": "^6.15.0",
     "@bull-board/ui": "^6.15.0",
     "@sendgrid/mail": "^8.1.6",

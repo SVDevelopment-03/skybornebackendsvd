@@ -1,11 +1,11 @@
+// sku ke liye Inventory import kar lo agar available ho
 import mongoose from "mongoose";
 import { Query } from "mongoose";
-
 
 export interface IProduct {
   _id: mongoose.Types.ObjectId;
   name: string;
-  category: mongoose.Types.ObjectId; 
+  category?: mongoose.Types.ObjectId; 
   sku: mongoose.Types.ObjectId;
   price: number;
   stock: number;
@@ -27,16 +27,16 @@ const productSchema = new mongoose.Schema(
     // Reference to Inventory schema for SKU
     sku: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Inventory",
-      required: true,
+      // ref: "Inventory",
+      required: false,
       unique: true,
       index: true,
     },
     // Reference to Category schema
     category: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Category",
-      required: true,
+      // ref: "Category",
+      required: false,
       index: true,
     },
     price: {
@@ -75,22 +75,14 @@ const productSchema = new mongoose.Schema(
       default: "",
     },
   },
-  {
-    timestamps: true,
-  }
+  { timestamps: true }
 );
 
-productSchema.pre<Query<any, any>>(/^find/, function (next) {
-  this.populate({
-    path: "category",
-    select: "name _id",
-  }).populate({
-    path: "sku",
-    select: "sku code _id",
-  });
-
-  next();
-});
-
+// Populate ko temporarily hata do
+// productSchema.pre<Query<any, any>>(/^find/, function (next) {
+//   this.populate({ path: "category", select: "name _id" })
+//       .populate({ path: "sku", select: "sku code _id" });
+//   next();
+// });
 
 export default mongoose.model<IProduct>("Product", productSchema);
