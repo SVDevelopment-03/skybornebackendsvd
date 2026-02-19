@@ -39,7 +39,7 @@ export interface IOrder {
   discount: number;
   totalAmount: number;
 
-  paymentMethod: "COD" | "ONLINE";
+  paymentMethod: "stripe" | "ngenius";
   paymentStatus: PaymentStatus;
 
   orderStatus: OrderStatus;
@@ -163,7 +163,7 @@ const orderSchema = new mongoose.Schema(
 
     paymentMethod: {
       type: String,
-      enum: ["COD", "ONLINE"],
+      enum: ["stripe", "ngenius"],
       required: true,
     },
 

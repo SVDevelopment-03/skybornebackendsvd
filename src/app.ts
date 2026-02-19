@@ -24,6 +24,7 @@ import PaymentController from "./modules/PaymentModule/controllers/paymentContro
 import { StripeService } from "./modules/PaymentModule/services/stripe.service";
 import stripeWebhook from "./modules/PaymentModule/controllers/stripeWebhook";
 import ngeniusWebhook from "./modules/PaymentModule/controllers/ngeniusWebhook";
+import ecomStripeWebhook from "./routes/ecomstripe.webhook"
 
 const app: Application = express();
 
@@ -56,6 +57,12 @@ app.use(
   stripeWebhook
 );
 
+
+app.use(
+  "/webhooks/ecom-stripe",
+  express.raw({ type: "application/json" }),
+  ecomStripeWebhook
+);
 app.use(
   cors({
     origin: true,
