@@ -56,7 +56,7 @@ export interface IUser extends Document {
   firstGoal?: string;
 
   // Step 7: Plan Selection
-  plan?: "gold-yoga" | "gold-zumba" | "gold-mixed" | "diamond" | "platinum";
+  plan?: string;
 
   // Class Credits
   classCredits: {

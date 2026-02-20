@@ -35,7 +35,7 @@ export const PaymentApiRoutes = [
   },
   {
     path: "/payment/verify-payment",
-    action: PaymentController.me,
+    action: PaymentController.verifyPayment,
     request: null,
     method: "post",
   },

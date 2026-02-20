@@ -2,7 +2,6 @@ import { Request, Response, NextFunction } from "express";
 import UserService from "../services/userService";
 import User from "../models/User";
 import MeetingAttendance from "../../MeetingModule/MeetingModels/MeetingAttendance";
-import Service from "../../ServiceModule/models/Service";
 import Meeting from "../../MeetingModule/MeetingModels/Meeting";
 import extractPhoneDetails from "../../../utils/extractPhoneDetail";
 
@@ -205,7 +204,6 @@ export class UserController {
   static async GetDashboardStats(req: Request, res: Response) {
     try {
       const userId = req.user?.id;
-      const {region} = req?.query;
 
       if (!userId) {
         return res.status(401).json({
@@ -225,33 +223,10 @@ export class UserController {
       }
 
       const now = new Date();
-      const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-
-      // Determine which service titles to filter based on plan
-      let serviceTitles: string[] = [];
-
-      if (user.plan === "gold-yoga") {
-        serviceTitles = ["Yoga"];
-      } else if (user.plan === "gold-zumba") {
-        serviceTitles = ["Zumba Dance"];
-      } else if (user.plan === "gold-mixed") {
-        serviceTitles = ["Yoga", "Zumba Dance"];
-      } else if (user.plan === "diamond" || user.plan === "platinum") {
-        serviceTitles = ["Yoga", "Zumba Dance", "Diet & Nutrition"];
-      }
-
-      // Fetch service IDs based on titles
-      const services = await Service.find({
-        title: { $in: serviceTitles },
-      }).select("_id");
-
-      const serviceIds = services.map((service) => service._id);
 
       // 1. Count Upcoming Sessions
       const upcomingSessions = await Meeting.countDocuments({
-        localTime: { $gte: oneHourAgo },
-        service: { $in: serviceIds },
-        ...(region ? { liveRegion: region } : {}),
+        localTime: { $gte: now },
       });
 
       // 2. Get Total Credits

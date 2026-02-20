@@ -37,70 +37,63 @@ updatedAt: Date;
 }
 
 const PaymentSchema = new Schema<IPayment>(
-{
-  userId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true,
-    index: true,
-  },
-  orderRef: {
-    type: String,
-    required: true,
-    unique: true,
-    index: true,
-  },
-      // ✅ NEW FIELD: Prevents double subscription activation
-  subscriptionActivated: {
-    type: Boolean,
-    default: false,
-    index: true, // Add index for faster queries
-  },
-  reference: {
-    type: String,
-    unique: true,
-    sparse: true,
-    index: true,
-  },
-  amount: {
-    type: Number,
-    required: true,
-  },
-  localAmount: {
-    type: Number,
-  },
-  plan: {
-    type: String,
-    required: true,
-    enum: [
-      'gold-yoga',
-      'gold-zumba',
-      'gold-mixed',
-      'diamond',
-      'platinum',
-    ],
-  },
-  currency: {
-    type: String,
-    required: true,
-    uppercase: true,
-  },
-  status: {
-    type: String,
-    enum: ['PENDING', 'COMPLETED', 'FAILED', 'CANCELLED'],
-    default: 'PENDING',
-    index: true,
-  },
-  gateway: {
-    type: String,
-    enum: ['ngenius', 'stripe'],
-    required: false,
-    index: true,
-  },
-  source: {
-    type: String,
-    required: false,
-  },
+  {
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+      index: true,
+    },
+    orderRef: {
+      type: String,
+      required: true,
+      unique: true,
+      index: true,
+    },
+       // ✅ NEW FIELD: Prevents double subscription activation
+    subscriptionActivated: {
+      type: Boolean,
+      default: false,
+      index: true, // Add index for faster queries
+    },
+    reference: {
+      type: String,
+      unique: true,
+      sparse: true,
+      index: true,
+    },
+    amount: {
+      type: Number,
+      required: true,
+    },
+    localAmount: {
+      type: Number,
+    },
+    plan: {
+      type: String,
+      required: true,
+    },
+    currency: {
+      type: String,
+      required: true,
+      uppercase: true,
+    },
+    status: {
+      type: String,
+      enum: ['PENDING', 'COMPLETED', 'FAILED', 'CANCELLED'],
+      default: 'PENDING',
+      index: true,
+    },
+    gateway: {
+      type: String,
+      enum: ['ngenius', 'stripe'],
+      required: false,
+      index: true,
+    },
+    source: {
+      type: String,
+      required: false,
+    },
 
   // nGenius specific
   ngeniusStatus: {

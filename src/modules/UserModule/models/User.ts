@@ -131,7 +131,6 @@ const userSchema = new Schema<IUser>(
     // Step 7: Plan
     plan: {
       type: String,
-      enum: ["gold-yoga", "gold-zumba", "gold-mixed", "diamond", "platinum"],
     },
 
     classCredits: {

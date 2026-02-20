@@ -1,12 +1,14 @@
 // modules/PaymentModule/controllers/PaymentController.ts
 
 import { Request, Response } from "express";
+import mongoose from "mongoose";
 import { NgeniusService } from "../../../services/ngenius.service";
 import { StripeService } from "../services/stripe.service";
 import Payment from "../models/Payment";
 import User from "../../UserModule/models/User";
 import { PLAN_CONFIG } from "../../../config/planConfig";
 import { PlanType } from "../../UserModule/interface/userInterface";
+import PlanModel from "../../PlanModule/models/Plan";
 import { addWelcomeEmailJob } from "../../../services/queues/emailQueue";
 import { addInvoiceEmailJob } from "../../../services/queues/invoiceEmailQueue";
 import { generateInvoicePDF } from "../../../services/invoiceService";
@@ -179,7 +181,8 @@ export default class PaymentController {
           userId,
           plan,
           userAmount,
-          billingType, // Pass billing type to nGenius service
+          paymentSource,
+          billingType,
         );
       } else if (preferredGateway === "stripe") {
         // For Stripe: Create checkout session (redirect method)
@@ -440,18 +443,27 @@ export default class PaymentController {
         });
       }
 
-      // Check if already verified
-      if (payment.status === "COMPLETED" || payment.subscriptionActivated) {
+      // Already fully processed
+      if (payment.subscriptionActivated) {
+        const user = await User.findById(payment.userId).select(
+          "onboardingCompleted",
+        );
         return res.status(200).json({
           success: true,
-          message: "✅ Payment already verified",
-          status: "SUCCESS",
+          message: "✅ Payment already processed",
+          status: payment.status,
           orderRef: payment.orderRef,
           amount: payment.amount,
           currency: payment.currency,
           plan: payment.plan,
           gateway: "ngenius",
+          user,
         });
+      }
+
+      // Completed payment exists but activation did not happen yet
+      if (payment.status === "COMPLETED") {
+        return this.activateSubscription(payment, true, res, next);
       }
 
       // Fetch current status from nGenius
@@ -506,14 +518,13 @@ export default class PaymentController {
         { new: true },
       );
 
-      // For mobile, return immediately with status
-      // Subscription will be activated by a separate cron job or webhook
+      if (paymentStatus === "COMPLETED") {
+        return this.activateSubscription(payment, true, res, next);
+      }
+
       return res.status(200).json({
-        success: paymentStatus === "COMPLETED",
-        message:
-          paymentStatus === "COMPLETED"
-            ? "✅ Payment verified!"
-            : `Payment ${paymentStatus}`,
+        success: false,
+        message: `Payment ${paymentStatus}`,
         status: paymentStatus,
         orderRef: payment?.orderRef,
         amount: payment?.amount,
@@ -562,6 +573,12 @@ export default class PaymentController {
       // ✅ FIX: Check if subscription was already activated (subscription status field)
       // This prevents double activation even if payment is marked COMPLETED
       if (payment.subscriptionActivated) {
+        const user = await User.findById(payment.userId).select(
+          "onboardingCompleted",
+        );
+        if (payment.status === "COMPLETED" && !user?.onboardingCompleted) {
+          return this.activateSubscription(payment, true, res, next);
+        }
         return res.status(200).json({
           success: true,
           message: "✅ Payment already processed",
@@ -569,6 +586,7 @@ export default class PaymentController {
           orderRef: payment.orderRef,
           status: payment.status,
           plan: payment.plan,
+          user,
         });
       }
 
@@ -585,14 +603,12 @@ export default class PaymentController {
 
       const subscriptionId = session.subscription as string | null;
 
-      // ✅ FIX: Mark that subscription is about to be activated
-      // This flag prevents activateSubscription from being called twice
+      // Update payment state first; subscriptionActivated is marked only after successful activation
       payment = await Payment.findOneAndUpdate(
         { _id: payment._id },
         {
           subscriptionId: subscriptionId || payment.subscriptionId,
           status: paymentStatus,
-          subscriptionActivated: true, // ✅ NEW: Flag set BEFORE activation
           gatewayResponse: session,
           verifiedAt: new Date(),
         },
@@ -631,17 +647,27 @@ export default class PaymentController {
     next: any,
   ) {
     try {
+      let user: any = null;
       if (isSuccessful) {
-        const user = await User.findById(payment?.userId);
+        user = await User.findById(payment?.userId);
 
         if (!user) {
           console.error("❌ User not found:", payment?.userId);
         } else {
-          const plan = payment?.plan as PlanType;
-          const billingType = payment?.billingType || "monthly";
-          
-          // Get base monthly credits
-          let newCredits = PLAN_CONFIG[plan];
+          const plan = String(payment?.plan || "").trim();
+          const billingType =
+            payment?.billingType === "yearly" ? "yearly" : "monthly";
+
+          if (!plan) {
+            throw new Error("Plan is missing in payment record");
+          }
+
+          const baseCredits = await resolvePlanCredits(plan);
+          if (!baseCredits) {
+            throw new Error(`Unable to resolve credits for plan: ${plan}`);
+          }
+
+          let newCredits = { ...baseCredits };
 
           // ✅ If yearly billing, multiply credits by 12
           if (billingType === "yearly") {
@@ -660,7 +686,11 @@ export default class PaymentController {
           if (hasExistingPlan) {
             user.classCredits = addCredits(user.classCredits, newCredits);
           } else {
-            user.classCredits = newCredits;
+            user.classCredits = {
+              yoga: newCredits.yoga || 0,
+              zumba: newCredits.zumba || 0,
+              specialty: newCredits.specialty || 0,
+            };
           }
 
           user.overAllclassCredits = addCredits(
@@ -701,6 +731,10 @@ export default class PaymentController {
 
           await user.save();
 
+          if (payment) {
+            payment.subscriptionActivated = true;
+          }
+
           if (payment?.source === "app") {
             await this.notifyPaymentSuccess(user._id.toString(), payment);
           }
@@ -719,7 +753,7 @@ export default class PaymentController {
               userId: user._id.toString(),
               userEmail: user.email,
               userName: user.firstName + " " + user.lastName,
-              plan: plan.charAt(0).toUpperCase() + plan.slice(1),
+              plan: toDisplayPlanName(plan),
               amount: payment!.amount,
               currency: payment!.currency || "USD",
               date: new Date(),
@@ -754,6 +788,10 @@ export default class PaymentController {
             console.error("❌ Error generating/sending invoice:", invoiceErr);
           }
 
+          if (payment?.isModified?.()) {
+            await payment.save();
+          }
+
           addWelcomeEmailJob({
             userId: user._id.toString(),
             email: user.email,
@@ -769,7 +807,7 @@ export default class PaymentController {
         ? 365 * 24 * 60 * 60 * 1000
         : 30 * 24 * 60 * 60 * 1000;
 
-      return res.status(isSuccessful ? 200 : 400).json({
+      const responsePayload = {
         success: isSuccessful,
         gateway: payment?.gateway,
         orderRef: payment?.orderRef,
@@ -779,14 +817,32 @@ export default class PaymentController {
         status: payment?.status,
         plan: payment?.plan,
         billingType: payment?.billingType,
+        user: user
+          ? { onboardingCompleted: Boolean(user.onboardingCompleted) }
+          : undefined,
         subscriptionEndDate: new Date(Date.now() + subscriptionDuration),
         message: isSuccessful
           ? `✅ Payment successful! Subscription activated. ${payment?.billingType === "yearly" ? "Annual" : "Monthly"} billing will begin.`
           : `❌ Payment ${payment?.status}`,
-      });
+      };
+
+      if (!res) {
+        return responsePayload;
+      }
+
+      return res.status(isSuccessful ? 200 : 400).json(responsePayload);
     } catch (error) {
       console.error("❌ Subscription Activation Error:", error);
-      next(error);
+      if (!res) {
+        throw error;
+      }
+      if (typeof next === "function") {
+        return next(error);
+      }
+      return res.status(500).json({
+        success: false,
+        error: "Subscription activation failed",
+      });
     }
   }
 
@@ -1705,6 +1761,115 @@ async function getUsdToAedRate() {
     console.error("Error fetching exchange rate:", error);
     return 3.6725;
   }
+}
+
+const LEGACY_PLAN_CONFIG: Record<PlanType, { yoga: number; zumba: number; specialty: number }> =
+  PLAN_CONFIG;
+
+type Credits = { yoga: number; zumba: number; specialty: number };
+
+async function resolvePlanCredits(planKey: string): Promise<Credits | null> {
+  const normalizedPlanKey = planKey.trim().toLowerCase();
+  const legacyCredits = LEGACY_PLAN_CONFIG[normalizedPlanKey as PlanType];
+  if (legacyCredits) {
+    return { ...legacyCredits };
+  }
+
+  const query: any = {
+    $or: [
+      { uuid: planKey },
+      { name: { $regex: `^${escapeRegExp(planKey)}$`, $options: "i" } },
+    ],
+  };
+
+  if (mongoose.Types.ObjectId.isValid(planKey)) {
+    query.$or.push({ _id: planKey });
+  }
+
+  const planDoc = await PlanModel.findOne(query).lean();
+  if (planDoc) {
+    return distributeCreditsFromPlan({
+      classCountPerMonth: Number(planDoc.classCountPerMonth || 0),
+      services: Array.isArray(planDoc.services) ? planDoc.services : [],
+    });
+  }
+
+  const candidatePlans = await PlanModel.find({}, { services: 1, classCountPerMonth: 1, name: 1 }).lean();
+  const matchedBySlug = candidatePlans.find(
+    (candidate) => slugifyPlanName(candidate.name || "") === normalizedPlanKey,
+  );
+
+  if (!matchedBySlug) {
+    return null;
+  }
+
+  return distributeCreditsFromPlan({
+    classCountPerMonth: Number(matchedBySlug.classCountPerMonth || 0),
+    services: Array.isArray(matchedBySlug.services) ? matchedBySlug.services : [],
+  });
+}
+
+function distributeCreditsFromPlan(plan: {
+  classCountPerMonth: number;
+  services: string[];
+}): Credits {
+  const totalClasses = Math.max(0, Math.floor(plan.classCountPerMonth || 0));
+  const buckets = getPlanBuckets(plan.services);
+
+  if (totalClasses === 0 || buckets.length === 0) {
+    return { yoga: 0, zumba: 0, specialty: totalClasses };
+  }
+
+  const credits: Credits = { yoga: 0, zumba: 0, specialty: 0 };
+  const base = Math.floor(totalClasses / buckets.length);
+  let remainder = totalClasses % buckets.length;
+
+  buckets.forEach((bucket, index) => {
+    credits[bucket] += base + (index < remainder ? 1 : 0);
+  });
+
+  return credits;
+}
+
+function getPlanBuckets(services: string[]): Array<keyof Credits> {
+  const buckets: Array<keyof Credits> = [];
+
+  for (const rawService of services) {
+    const normalized = String(rawService || "").trim().toLowerCase();
+    let bucket: keyof Credits = "specialty";
+
+    if (normalized.includes("yoga")) {
+      bucket = "yoga";
+    } else if (normalized.includes("zumba")) {
+      bucket = "zumba";
+    }
+
+    if (!buckets.includes(bucket)) {
+      buckets.push(bucket);
+    }
+  }
+
+  return buckets;
+}
+
+function slugifyPlanName(value: string): string {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+}
+
+function toDisplayPlanName(value: string): string {
+  return value
+    .split("-")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 // Helper function to add credits (for upgrades)
