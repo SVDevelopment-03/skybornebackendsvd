@@ -5,14 +5,6 @@ import EcomPayment from "../modules/EcomPaymentModule/Ecompayment.model";
 
 const router = express.Router();
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2025-12-15.clover" as any,
-});
-
-// ⚠️ IMPORTANT: Use a SEPARATE webhook secret for ecom
-// Set STRIPE_ECOM_WEBHOOK_SECRET in your .env
-const webhookSecret = process.env.STRIPE_ECOM_WEBHOOK_SECRET!;
-
 /**
  * POST /webhooks/ecom-stripe
  * Handles Stripe events for ECOM product purchases ONLY.
@@ -23,7 +15,34 @@ const webhookSecret = process.env.STRIPE_ECOM_WEBHOOK_SECRET!;
 router.post(
   "/",
   async (req, res) => {
+    const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+    if (!stripeSecretKey) {
+      console.error("❌ [EcomWebhook] STRIPE_SECRET_KEY is missing");
+      return res.status(500).json({
+        success: false,
+        message: "Stripe secret key not configured",
+      });
+    }
+
+    const stripe = new Stripe(stripeSecretKey, {
+      apiVersion: "2025-12-15.clover" as any,
+    });
+
+    // Read at request-time so dotenv/env is guaranteed to be available
+    const webhookSecret = process.env.STRIPE_ECOM_WEBHOOK_SECRET;
+    if (!webhookSecret) {
+      console.error("❌ [EcomWebhook] STRIPE_ECOM_WEBHOOK_SECRET is missing");
+      return res.status(500).json({
+        success: false,
+        message: "Webhook secret not configured",
+      });
+    }
+
     const sig = req.headers["stripe-signature"] as string;
+    if (!sig) {
+      return res.status(400).send("Webhook Error: Missing stripe-signature header");
+    }
+
     let event: Stripe.Event;
 
 

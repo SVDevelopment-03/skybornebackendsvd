@@ -48,4 +48,16 @@ export const EcomPaymentRoute = [
     method: "get",
     roles: ["admin"],
   },
+
+  /**
+   * Admin: Get ecom payment stats
+   * GET /ecom-payments/admin/stats
+   */
+  {
+    path: "/ecom-payments/admin/stats",
+    request: null,
+    action: _ecomPaymentController.getAdminPaymentStats,
+    method: "get",
+    roles: ["admin"],
+  },
 ];

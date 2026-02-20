@@ -191,4 +191,54 @@ export class EcomPaymentController {
       return res.status(500).json({ success: false, message: error.message });
     }
   };
+
+  /**
+   * GET /ecom-payments/admin/stats
+   * Returns ecom payment stats for admin dashboard cards.
+   */
+  getAdminPaymentStats = async (_req: Request, res: Response) => {
+    try {
+      const payments = await EcomPayment.find().lean();
+
+      if (!payments || payments.length === 0) {
+        return res.status(200).json({
+          success: true,
+          stats: {
+            totalRevenue: 0,
+            thisMonth: 0,
+            totalTransactions: 0,
+          },
+        });
+      }
+
+      const succeededPayments = payments.filter((p) => p.status === "succeeded");
+      const totalRevenue = succeededPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+
+      const now = new Date();
+      const currentMonth = now.getMonth();
+      const currentYear = now.getFullYear();
+
+      const thisMonth = succeededPayments
+        .filter((p) => {
+          const d = new Date(p.createdAt);
+          return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+        })
+        .reduce((sum, p) => sum + (p.amount || 0), 0);
+
+      return res.status(200).json({
+        success: true,
+        stats: {
+          totalRevenue: Number(totalRevenue.toFixed(2)),
+          thisMonth: Number(thisMonth.toFixed(2)),
+          totalTransactions: payments.length,
+        },
+      });
+    } catch (error: any) {
+      console.error("❌ [EcomPayment] getAdminPaymentStats error:", error.message);
+      return res.status(500).json({
+        success: false,
+        message: error.message || "Failed to fetch ecom payment stats",
+      });
+    }
+  };
 }
