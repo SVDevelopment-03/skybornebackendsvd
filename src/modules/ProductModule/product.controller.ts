@@ -135,63 +135,101 @@ async getAllPublishedProducts(req: Request, res: Response, next: NextFunction) {
   /**
    * Create new product
    */
-  async createProduct(req: Request, res: Response, next: NextFunction) {
+async createProduct(req: Request, res: Response, next: NextFunction) {
+  try {
+    console.log("=== createProduct START ===");
+    console.log("REQ BODY keys:", Object.keys(req.body));
+    console.log("REQ BODY (minus imageBase64):", { ...req.body, imageBase64: req.body.imageBase64 ? `[base64 length: ${req.body.imageBase64.length}]` : undefined });
+
+    const {
+      name,
+      category,
+      price,
+      status = "inactive",
+      description = "",
+      imageBase64,
+    } = req.body;
+
+    console.log("=== PARSED FIELDS ===");
+    console.log("name:", name);
+    console.log("category:", category);
+    console.log("price:", price, "| type:", typeof price);
+    console.log("status:", status);
+    console.log("description:", description);
+    console.log("imageBase64 present:", !!imageBase64);
+
+    // ── Required field validation ──────────────────────────────────
+    if (!name || !name.trim()) {
+      console.log("FAILED: name validation");
+      return res.status(400).json({ success: false, message: "Product name is required" });
+    }
+    console.log("PASSED: name validation");
+
+    if (price === undefined || price === null) {
+      console.log("FAILED: price presence check");
+      return res.status(400).json({ success: false, message: "Price is required" });
+    }
+    console.log("PASSED: price presence check");
+
+    const parsedPrice = Number(price);
+    console.log("parsedPrice:", parsedPrice, "| isNaN:", isNaN(parsedPrice));
+    if (isNaN(parsedPrice) || parsedPrice < 1) {
+      console.log("FAILED: price value validation");
+      return res.status(400).json({ success: false, message: "Price must be at least $1" });
+    }
+    console.log("PASSED: price value validation");
+
+    if (!["active", "inactive"].includes(status)) {
+      console.log("FAILED: status validation, got:", status);
+      return res.status(400).json({
+        success: false,
+        message: "Status must be 'active' or 'inactive'",
+      });
+    }
+    console.log("PASSED: status validation");
+
+    if (!imageBase64) {
+      console.log("FAILED: imageBase64 missing");
+      return res.status(400).json({ success: false, message: "Product image is required" });
+    }
+    console.log("PASSED: imageBase64 present");
+
+    // ── Category validation (optional) ────────────────────────────
+    if (category && !mongoose.Types.ObjectId.isValid(category)) {
+      console.log("FAILED: invalid category ID:", category);
+      return res.status(400).json({ success: false, message: "Invalid category ID format" });
+    }
+    console.log("PASSED: category validation");
+
+    // ── Upload image to S3 ────────────────────────────────────────
+    console.log("=== S3 UPLOAD START ===");
+    console.log("AWS_S3_BUCKET:", process.env.AWS_S3_BUCKET);
+    console.log("AWS_REGION:", process.env.AWS_REGION);
+    console.log("AWS_ACCESS_KEY_ID present:", !!process.env.AWS_ACCESS_KEY_ID);
+    console.log("AWS_ACCESS_KEY_ID length:", process.env.AWS_ACCESS_KEY_ID?.length);
+    console.log("AWS_SECRET_ACCESS_KEY present:", !!process.env.AWS_SECRET_ACCESS_KEY);
+    console.log("AWS_SECRET_ACCESS_KEY length:", process.env.AWS_SECRET_ACCESS_KEY?.length);
+
+    const matches = imageBase64.match(/^data:(.+);base64,(.+)$/);
+    console.log("imageBase64 regex match success:", !!matches);
+    if (!matches) {
+      console.log("FAILED: imageBase64 format invalid, starts with:", imageBase64.substring(0, 50));
+      return res.status(400).json({ success: false, message: "Invalid imageBase64 format" });
+    }
+
+    const mimeType = matches[1];
+    const base64Data = matches[2];
+    const buffer = Buffer.from(base64Data, "base64");
+    const ext = mimeType.split("/")[1];
+    const key = `products/${Date.now()}.${ext}`;
+
+    console.log("mimeType:", mimeType);
+    console.log("ext:", ext);
+    console.log("S3 key:", key);
+    console.log("buffer size:", buffer.length, "bytes");
+    console.log("Attempting s3.send PutObjectCommand...");
+
     try {
-      console.log("REQ BODY:", req.body);
-
-      const {
-        name,
-        category,
-        price,
-        status = "inactive",
-        description = "",
-        imageBase64,
-      } = req.body;
-
-      // ── Required field validation ──────────────────────────────────
-      if (!name || !name.trim()) {
-        return res.status(400).json({ success: false, message: "Product name is required" });
-      }
-
-      if (price === undefined || price === null) {
-        return res.status(400).json({ success: false, message: "Price is required" });
-      }
-
-      const parsedPrice = Number(price);
-      if (isNaN(parsedPrice) || parsedPrice < 1) {
-        return res.status(400).json({ success: false, message: "Price must be at least $1" });
-      }
-
-     
-
-      if (!["active", "inactive"].includes(status)) {
-        return res.status(400).json({
-          success: false,
-          message: "Status must be 'active' or 'inactive'",
-        });
-      }
-
-      if (!imageBase64) {
-        return res.status(400).json({ success: false, message: "Product image is required" });
-      }
-
-      // ── Category validation (optional) ────────────────────────────
-      if (category && !mongoose.Types.ObjectId.isValid(category)) {
-        return res.status(400).json({ success: false, message: "Invalid category ID format" });
-      }
-
-      // ── Upload image to S3 ────────────────────────────────────────
-      const matches = imageBase64.match(/^data:(.+);base64,(.+)$/);
-      if (!matches) {
-        return res.status(400).json({ success: false, message: "Invalid imageBase64 format" });
-      }
-
-      const mimeType = matches[1];
-      const base64Data = matches[2];
-      const buffer = Buffer.from(base64Data, "base64");
-      const ext = mimeType.split("/")[1];
-      const key = `products/${Date.now()}.${ext}`;
-
       await s3.send(
         new PutObjectCommand({
           Bucket: process.env.AWS_S3_BUCKET!,
@@ -200,34 +238,55 @@ async getAllPublishedProducts(req: Request, res: Response, next: NextFunction) {
           ContentType: mimeType,
         })
       );
-
-      const imageUrl = `https://${process.env.AWS_S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
-
-      // ── Build product data ────────────────────────────────────────
-      const productData: Partial<IProduct> = {
-        name: name.trim(),
-        price: parsedPrice,
-        status: status as "active" | "inactive",
-        image: imageUrl,
-        description: description.trim(),
-      };
-
-      if (category) {
-        productData.category = new mongoose.Types.ObjectId(category);
-      }
-
-      const product = await productRepository.createModel(productData);
-      const populatedProduct = await productRepository.getOneModel(product._id.toString());
-
-      return res.status(201).json({
-        success: true,
-        message: "Product created successfully",
-        data: populatedProduct,
-      });
-    } catch (error) {
-      next(error);
+      console.log("PASSED: S3 upload success");
+    } catch (s3Error: any) {
+      console.error("FAILED: S3 upload error");
+      console.error("S3 error name:", s3Error?.name);
+      console.error("S3 error message:", s3Error?.message);
+      console.error("S3 error code:", s3Error?.Code);
+      console.error("S3 error stack:", s3Error?.stack);
+      throw s3Error;
     }
+
+    const imageUrl = `https://${process.env.AWS_S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
+    console.log("imageUrl:", imageUrl);
+
+    // ── Build product data ────────────────────────────────────────
+    const productData: Partial<IProduct> = {
+      name: name.trim(),
+      price: parsedPrice,
+      status: status as "active" | "inactive",
+      image: imageUrl,
+      description: description.trim(),
+    };
+
+    if (category) {
+      productData.category = new mongoose.Types.ObjectId(category);
+    }
+
+    console.log("productData:", productData);
+    console.log("Attempting productRepository.createModel...");
+
+    const product = await productRepository.createModel(productData);
+    console.log("PASSED: product created, id:", product._id);
+
+    const populatedProduct = await productRepository.getOneModel(product._id.toString());
+    console.log("PASSED: product populated:", !!populatedProduct);
+
+    console.log("=== createProduct SUCCESS ===");
+    return res.status(201).json({
+      success: true,
+      message: "Product created successfully",
+      data: populatedProduct,
+    });
+  } catch (error: any) {
+    console.error("=== createProduct CAUGHT ERROR ===");
+    console.error("error name:", error?.name);
+    console.error("error message:", error?.message);
+    console.error("error stack:", error?.stack);
+    next(error);
   }
+}
 
   /**
    * Update product
