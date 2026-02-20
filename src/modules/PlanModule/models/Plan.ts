@@ -28,6 +28,25 @@ const PlanSchema = new Schema<IPlanDocument>(
       default: [],
     },
 
+    serviceClassCounts: {
+      type: [
+        {
+          service: {
+            type: String,
+            required: true,
+            trim: true,
+          },
+          classCountPerMonth: {
+            type: Number,
+            required: true,
+            min: 0,
+            default: 0,
+          },
+        },
+      ],
+      default: [],
+    },
+
     classCountPerMonth: {
       type: Number,
       min: 0,

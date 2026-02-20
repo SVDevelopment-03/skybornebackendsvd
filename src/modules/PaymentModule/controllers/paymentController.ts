@@ -1791,10 +1791,16 @@ async function resolvePlanCredits(planKey: string): Promise<Credits | null> {
     return distributeCreditsFromPlan({
       classCountPerMonth: Number(planDoc.classCountPerMonth || 0),
       services: Array.isArray(planDoc.services) ? planDoc.services : [],
+      serviceClassCounts: Array.isArray((planDoc as any).serviceClassCounts)
+        ? (planDoc as any).serviceClassCounts
+        : [],
     });
   }
 
-  const candidatePlans = await PlanModel.find({}, { services: 1, classCountPerMonth: 1, name: 1 }).lean();
+  const candidatePlans = await PlanModel.find(
+    {},
+    { services: 1, classCountPerMonth: 1, serviceClassCounts: 1, name: 1 },
+  ).lean();
   const matchedBySlug = candidatePlans.find(
     (candidate) => slugifyPlanName(candidate.name || "") === normalizedPlanKey,
   );
@@ -1806,13 +1812,32 @@ async function resolvePlanCredits(planKey: string): Promise<Credits | null> {
   return distributeCreditsFromPlan({
     classCountPerMonth: Number(matchedBySlug.classCountPerMonth || 0),
     services: Array.isArray(matchedBySlug.services) ? matchedBySlug.services : [],
+    serviceClassCounts: Array.isArray((matchedBySlug as any).serviceClassCounts)
+      ? (matchedBySlug as any).serviceClassCounts
+      : [],
   });
 }
 
 function distributeCreditsFromPlan(plan: {
   classCountPerMonth: number;
   services: string[];
+  serviceClassCounts?: Array<{ service?: string; classCountPerMonth?: number }>;
 }): Credits {
+  if (Array.isArray(plan.serviceClassCounts) && plan.serviceClassCounts.length > 0) {
+    const creditsFromServices: Credits = { yoga: 0, zumba: 0, specialty: 0 };
+
+    for (const serviceEntry of plan.serviceClassCounts) {
+      const bucket = getPlanBuckets([String(serviceEntry?.service || "")])[0] || "specialty";
+      const classCount = Math.max(
+        0,
+        Math.floor(Number(serviceEntry?.classCountPerMonth || 0)),
+      );
+      creditsFromServices[bucket] += classCount;
+    }
+
+    return creditsFromServices;
+  }
+
   const totalClasses = Math.max(0, Math.floor(plan.classCountPerMonth || 0));
   const buckets = getPlanBuckets(plan.services);
 
