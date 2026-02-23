@@ -2,7 +2,7 @@ import { NextFunction, Request, Response } from "express";
 import axios from "axios";
 import Meeting, { IMeeting, IService } from "./MeetingModels/Meeting";
 import MeetingAttendance from "./MeetingModels/MeetingAttendance";
-import { getZoomAccessToken } from "../../utils/zoomAuth";
+import { clearZoomTokenCache, getZoomAccessToken } from "../../utils/zoomAuth";
 import mongoose, { Types } from "mongoose";
 import MeetingParticipant from "./MeetingModels/MeetingParticipant";
 import User from "../UserModule/models/User";
@@ -1985,6 +1985,14 @@ static async UpdateMeeting(req: Request, res: Response) {
       });
 
       try {
+        const fetchZoomMeeting = async (accessToken: string) =>
+          axios.get(`https://api.zoom.us/v2/meetings/${meeting.zoomMeetingId}`, {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              "Content-Type": "application/json",
+            },
+          });
+
         // 1) Force-sync title first so class name always reflects on Zoom.
         await axios.patch(
           `https://api.zoom.us/v2/meetings/${meeting.zoomMeetingId}`,
@@ -1999,15 +2007,7 @@ static async UpdateMeeting(req: Request, res: Response) {
         console.log("✅ [UpdateMeeting] Zoom topic synced successfully");
 
         // Verify topic really changed on Zoom (some accounts/meeting types can ignore updates).
-        const verifyResp = await axios.get(
-          `https://api.zoom.us/v2/meetings/${meeting.zoomMeetingId}`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "application/json",
-            },
-          },
-        );
+        const verifyResp = await fetchZoomMeeting(token);
         const zoomTopicAfterSync = String(verifyResp?.data?.topic || "").trim();
         if (zoomTopicAfterSync !== meetingTopic) {
           throw new Error(
@@ -2029,6 +2029,25 @@ static async UpdateMeeting(req: Request, res: Response) {
         );
 
         console.log("✅ [UpdateMeeting] Zoom meeting fully updated successfully");
+
+        // Verify final state once more after full update to avoid false success.
+        let verified = false;
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          const finalVerifyResp = await fetchZoomMeeting(token);
+          const finalTopic = String(finalVerifyResp?.data?.topic || "").trim();
+          if (finalTopic === meetingTopic) {
+            verified = true;
+            break;
+          }
+          if (attempt < 3) {
+            await new Promise((resolve) => setTimeout(resolve, 800));
+          }
+        }
+        if (!verified) {
+          throw new Error(
+            `Zoom final verification failed. Meeting ${meeting.zoomMeetingId} did not reflect topic "${meetingTopic}".`,
+          );
+        }
       } catch (fullUpdateError: any) {
         // If full update fails, trigger outer fallback (recreate + relink)
         // so recurrence/time/range changes are not silently ignored.
@@ -2040,149 +2059,108 @@ static async UpdateMeeting(req: Request, res: Response) {
         zoomError?.response?.data || zoomError?.message,
       );
 
-      // Hard fallback: recreate Zoom meeting and relink DB records.
-      // This helps with legacy/invalid Zoom meetings that no longer accept updates.
-      try {
-        const fallbackToken = await getZoomAccessToken();
-        const fallbackTopic = `${title} - Live Class`;
-        const startDateTime = new Date(localTime);
-
-        // Build recurrence for fallback creation
-        let fallbackRecurrence: any = null;
-        if (recurringClass) {
-          const jsWeekDay = startDateTime.getUTCDay();
-          const zoomWeekDay = jsWeekDay === 0 ? 7 : jsWeekDay;
-
-          if (recurrenceType === "weekly") {
-            fallbackRecurrence = {
-              type: 2,
-              repeat_interval: 1,
-              weekly_days: zoomWeekDay,
-            };
-          } else if (recurrenceType === "monthly") {
-            fallbackRecurrence = {
-              type: 3,
-              repeat_interval: 1,
-              monthly_day: startDateTime.getUTCDate(),
-            };
-          } else if (recurrenceType === "custom") {
-            fallbackRecurrence = {
-              type: 2,
-              repeat_interval: 1,
-              weekly_days: (customDays || []).join(","),
-            };
-          } else if (recurrenceType === "bi-weekly") {
-            fallbackRecurrence = {
-              type: 2,
-              repeat_interval: 2,
-              weekly_days: (customDays || []).join(","),
-            };
-          }
-
-          if (weeklyEndDate) {
-            fallbackRecurrence.end_date_time = toZoomEndDateTime(weeklyEndDate);
-          }
-        }
-
-        const fallbackType = recurringClass ? 8 : 2;
-        const fallbackPayload: any = {
-          topic: fallbackTopic,
-          type: fallbackType,
-          start_time: localTime,
-          duration,
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-          settings: {
-            mute_upon_entry: true,
-            allow_multiple_audio_unmute: false,
-            allow_participants_to_unmute_themselves: false,
-            allow_participants_to_unmute: false,
-            auto_recording: autoRecording ? "cloud" : "none",
-            host_video: true,
-            participant_video: true,
-            waiting_room: true,
-          },
-        };
-
-        if (recurringClass && fallbackRecurrence) {
-          fallbackPayload.recurrence = fallbackRecurrence;
-        }
-
-        const createdZoom = await axios.post(
-          "https://api.zoom.us/v2/users/me/meetings",
-          fallbackPayload,
-          {
-            headers: {
-              Authorization: `Bearer ${fallbackToken}`,
-              "Content-Type": "application/json",
-            },
-          },
-        );
-
-        const oldZoomMeetingId = meeting.zoomMeetingId;
-        const newZoomMeetingId = createdZoom.data.id;
-        const zoomPassword = createdZoom.data.password;
-
-        const newWebJoinUrl = `https://app.zoom.us/wc/${newZoomMeetingId}/join?pwd=${zoomPassword}&browser=1`;
-        const newWebStartUrl = `https://app.zoom.us/wc/${newZoomMeetingId}/start?pwd=${zoomPassword}&browser=1`;
-
-        meeting.zoomMeetingId = newZoomMeetingId;
-        meeting.joinUrl = newWebJoinUrl;
-        meeting.startUrl = newWebStartUrl;
-
-        // Relink sibling instances (same old zoomMeetingId)
-        await Meeting.updateMany(
-          {
-            zoomMeetingId: oldZoomMeetingId,
-            _id: { $ne: meeting._id },
-          },
-          {
-            $set: {
-              zoomMeetingId: newZoomMeetingId,
-              joinUrl: newWebJoinUrl,
-              startUrl: newWebStartUrl,
-              title,
-            },
-          },
-        );
-
-        // Best-effort cleanup: remove old Zoom meeting to avoid confusion/duplicates.
+      // Zoom code 4711 = token/scope issue. Try once with a fresh token in case
+      // backend still holds an older cached token after scope changes.
+      const zoomErrorCode = zoomError?.response?.data?.code;
+      if (zoomErrorCode === 4711) {
         try {
-          await axios.delete(
-            `https://api.zoom.us/v2/meetings/${oldZoomMeetingId}`,
+          const retryStartDateTime = new Date(localTime);
+          const retryZoomWeekDay = toZoomWeekDay(retryStartDateTime);
+          let retryRecurrence: any = null;
+
+          if (recurringClass) {
+            if (recurrenceType === "weekly") {
+              retryRecurrence = {
+                type: 2,
+                repeat_interval: 1,
+                weekly_days: retryZoomWeekDay,
+              };
+            } else if (recurrenceType === "monthly") {
+              retryRecurrence = {
+                type: 3,
+                repeat_interval: 1,
+                monthly_day: retryStartDateTime.getUTCDate(),
+              };
+            } else if (recurrenceType === "custom") {
+              retryRecurrence = {
+                type: 2,
+                repeat_interval: 1,
+                weekly_days: (customDays || []).join(","),
+              };
+            } else if (recurrenceType === "bi-weekly") {
+              retryRecurrence = {
+                type: 2,
+                repeat_interval: 2,
+                weekly_days: (customDays || []).join(","),
+              };
+            }
+            if (weeklyEndDate) {
+              retryRecurrence.end_date_time = toZoomEndDateTime(weeklyEndDate);
+            }
+          }
+
+          const retryZoomPayload: any = {
+            topic: `${title} - Live Class`,
+            type: recurringClass ? 8 : 2,
+            start_time: localTime,
+            duration,
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            settings: {
+              mute_upon_entry: true,
+              allow_multiple_audio_unmute: false,
+              allow_participants_to_unmute_themselves: false,
+              allow_participants_to_unmute: false,
+              auto_recording: autoRecording ? "cloud" : "none",
+              host_video: true,
+              participant_video: true,
+              waiting_room: true,
+            },
+          };
+          if (recurringClass && retryRecurrence) {
+            retryZoomPayload.recurrence = retryRecurrence;
+          }
+
+          clearZoomTokenCache();
+          const freshToken = await getZoomAccessToken({ forceRefresh: true });
+          await axios.patch(
+            `https://api.zoom.us/v2/meetings/${meeting.zoomMeetingId}`,
+            retryZoomPayload,
             {
               headers: {
-                Authorization: `Bearer ${fallbackToken}`,
+                Authorization: `Bearer ${freshToken}`,
                 "Content-Type": "application/json",
               },
             },
           );
           console.log(
-            "🧹 [UpdateMeeting] Old Zoom meeting deleted after recreate fallback",
-            oldZoomMeetingId,
+            "✅ [UpdateMeeting] Zoom meeting updated successfully after forced token refresh",
           );
-        } catch (deleteOldErr: any) {
-          console.warn(
-            "⚠️ [UpdateMeeting] Could not delete old Zoom meeting:",
-            deleteOldErr?.response?.data || deleteOldErr?.message,
-          );
-        }
+        } catch (retryErr: any) {
+          const retryErrorBody = retryErr?.response?.data;
+          const retryMessage = String(retryErrorBody?.message || retryErr?.message || "");
+          const missingScopesMatch = retryMessage.match(/scopes:\[(.*?)\]/);
+          const missingScopes = missingScopesMatch?.[1] || "";
 
-        console.log("✅ [UpdateMeeting] Zoom recreate fallback succeeded", {
-          oldZoomMeetingId,
-          newZoomMeetingId,
-        });
-      } catch (fallbackError: any) {
-        console.error(
-          "❌ [UpdateMeeting] Zoom recreate fallback failed:",
-          fallbackError?.response?.data || fallbackError?.message,
-        );
+          return res.status(502).json({
+            success: false,
+            message:
+              "Zoom token is missing update scope. Enable required Zoom scopes and retry.",
+            error: retryErrorBody || retryErr?.message,
+            requiredScopes: missingScopes || "meeting:update:meeting or meeting:update:meeting:admin",
+          });
+        }
+      } else {
+        // Do not recreate a new Zoom meeting on edit.
+        // If Zoom update fails, return error so existing meeting stays intact.
         return res.status(502).json({
           success: false,
           message:
-            "Failed to sync meeting with Zoom (update + recreate both failed).",
-          error: fallbackError?.response?.data || fallbackError?.message,
+            "Failed to update existing Zoom meeting. No new meeting was created.",
+          error: zoomError?.response?.data || zoomError?.message,
         });
       }
+
+      // If retry succeeded, continue normal flow.
     }
 
     // Save the meeting
