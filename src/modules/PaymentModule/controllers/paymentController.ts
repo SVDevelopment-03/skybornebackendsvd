@@ -1091,7 +1091,7 @@ export default class PaymentController {
       const limitNum = parseInt(limit as string) || 10;
       const skip = (pageNum - 1) * limitNum;
 
-      const query: any = { status: "COMPLETED" };
+      const matchQuery: any = {};
 
       // Filter by status
       const validStatuses = ["COMPLETED", "PENDING", "FAILED", "CANCELLED"];
@@ -1100,7 +1100,10 @@ export default class PaymentController {
         status !== "all" &&
         validStatuses.includes(String(status).toUpperCase())
       ) {
-        query.status = String(status).toUpperCase();
+        matchQuery.status = String(status).toUpperCase();
+      } else {
+        // Preserve existing default behavior
+        matchQuery.status = "COMPLETED";
       }
 
       // Filter by gateway
@@ -1110,13 +1113,16 @@ export default class PaymentController {
         gateway !== "all" &&
         validGateways.includes(String(gateway).toLowerCase())
       ) {
-        query.gateway = String(gateway).toLowerCase();
+        matchQuery.gateway = String(gateway).toLowerCase();
       }
+
+      const escapeRegex = (value: string) =>
+        value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
       // Build aggregation pipeline
       const pipeline: any[] = [
         // Match payment filters (status, gateway)
-        { $match: { status: "COMPLETED" } },
+        { $match: matchQuery },
         // Lookup user data
         {
           $lookup: {
@@ -1140,6 +1146,48 @@ export default class PaymentController {
         });
       }
 
+      // Apply search at DB level BEFORE pagination
+      if (search && String(search).trim()) {
+        const searchRegex = escapeRegex(String(search).trim());
+        pipeline.push({
+          $match: {
+            $or: [
+              { "user.email": { $regex: searchRegex, $options: "i" } },
+              { orderRef: { $regex: searchRegex, $options: "i" } },
+              { reference: { $regex: searchRegex, $options: "i" } },
+              {
+                $expr: {
+                  $regexMatch: {
+                    input: {
+                      $trim: {
+                        input: {
+                          $concat: [
+                            { $ifNull: ["$user.firstName", ""] },
+                            " ",
+                            { $ifNull: ["$user.lastName", ""] },
+                          ],
+                        },
+                      },
+                    },
+                    regex: searchRegex,
+                    options: "i",
+                  },
+                },
+              },
+              {
+                $expr: {
+                  $regexMatch: {
+                    input: { $toString: "$_id" },
+                    regex: searchRegex,
+                    options: "i",
+                  },
+                },
+              },
+            ],
+          },
+        });
+      }
+
       // Add sorting, facet for count and pagination
       pipeline.push(
         { $sort: { createdAt: -1 } },
@@ -1154,30 +1202,10 @@ export default class PaymentController {
       const result = await Payment.aggregate(pipeline as any);
 
       const totalCount = result[0]?.metadata[0]?.total || 0;
-      let payments = result[0]?.data || [];
-
-      // Apply search filter (client-side after population)
-      let filteredPayments = payments;
-      if (search) {
-        const searchLower = String(search).toLowerCase();
-        filteredPayments = payments.filter((payment: any) => {
-          const user = payment.user;
-          const username = user
-            ? `${user.firstName} ${user.lastName || ""}`.trim()
-            : "Unknown";
-
-          return (
-            user?.email?.toLowerCase().includes(searchLower) ||
-            username.toLowerCase().includes(searchLower) ||
-            payment._id?.toString().includes(searchLower) ||
-            payment.orderRef?.toLowerCase().includes(searchLower) ||
-            payment.reference?.toLowerCase().includes(searchLower)
-          );
-        });
-      }
+      const payments = result[0]?.data || [];
 
       // Format response
-      const formattedPayments = filteredPayments.map((payment: any) => {
+      const formattedPayments = payments.map((payment: any) => {
         const user = payment.user;
         const username = user
           ? `${user.firstName} ${user.lastName || ""}`.trim()
@@ -1211,7 +1239,7 @@ export default class PaymentController {
         success: true,
         payments: formattedPayments,
         total: totalCount,
-        filteredCount: filteredPayments.length,
+        filteredCount: totalCount,
         page: pageNum,
         limit: limitNum,
         totalPages: Math.ceil(totalCount / limitNum),

@@ -1992,7 +1992,7 @@ static async GetAllTrainerMeetings(req: Request, res: Response) {
 
     // Fetch trainer details
     const trainer = await TrainerModel.findById(trainerId).select(
-      "_id firstName lastName email profileImage",
+      "_id name email image",
     );
 
     if (!trainer) {
@@ -2058,7 +2058,7 @@ static async GetAllTrainerMeetings(req: Request, res: Response) {
         .skip(skip)
         .limit(limitNum)
         .populate("service", "title name image _id description")
-        .populate("trainer", "firstName lastName email profileImage _id")
+        .populate("trainer", "name email image _id")
         .populate("createdBy", "firstName lastName email _id")
         .lean(),
       Meeting.countDocuments(filter),
@@ -2099,9 +2099,9 @@ static async GetAllTrainerMeetings(req: Request, res: Response) {
         status, // Add computed status to response
         trainer: {
           _id: meeting.trainer?._id,
-          name: `${meeting.trainer?.firstName || ""} ${meeting.trainer?.lastName || ""}`.trim(),
+          name: meeting.trainer?.name?.trim() || "Unknown Trainer",
           email: meeting.trainer?.email,
-          profileImage: meeting.trainer?.profileImage,
+          profileImage: meeting.trainer?.image,
         },
       };
     });
@@ -2131,9 +2131,9 @@ static async GetAllTrainerMeetings(req: Request, res: Response) {
         },
         trainer: {
           id: trainer._id,
-          name: `${trainer.firstName || ""} ${trainer.lastName || ""}`.trim(),
+          name: trainer.name?.trim() || "Unknown Trainer",
           email: trainer.email,
-          profileImage: trainer.profileImage,
+          profileImage: trainer.image,
         },
         filters: {
           search: search || null,
