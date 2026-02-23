@@ -6,11 +6,11 @@ import { boolean } from "yup";
 // Meeting Interface
 // -----------------------------
 export interface IRegionEntry {
-  region: string; // e.g. "Gulf"
-  localTime: string; // e.g. "10:00 AM"
-  timezone: string; // e.g. "Asia/Dubai"
-  mode: "live" | "replay"; // tells frontend live or replay
-  date: string; // date for this region
+  region?: string; // e.g. "Gulf"
+  localTime?: string; // e.g. "10:00 AM"
+  timezone?: string; // e.g. "Asia/Dubai"
+  mode?: "live" | "replay"; // tells frontend live or replay
+  date?: string; // date for this region
 }
 
 export interface IService {
@@ -108,11 +108,11 @@ const MeetingSchema = new Schema<IPopulatedMeeting>(
     // Store all regions from frontend
     regions: [
       {
-        region: { type: String, required: true },
-        localTime: { type: String, required: true },
-        timezone: { type: String, required: true },
-        mode: { type: String, enum: ["live", "replay"], required: true },
-        date: { type: String, required: true },
+        region: { type: String, required: false },
+        localTime: { type: String, required: false },
+        timezone: { type: String, required: false },
+        mode: { type: String, enum: ["live", "replay"], required: false },
+        date: { type: String, required: false },
       },
     ],
 
