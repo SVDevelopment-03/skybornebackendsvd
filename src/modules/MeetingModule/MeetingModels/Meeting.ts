@@ -43,7 +43,7 @@ export interface IMeeting extends Document {
 
   // NEW: Recurring class settings
   recurringClass: boolean;
-  recurrenceType?: "weekly" | "monthly" | "custom" | null;
+  recurrenceType?: "weekly" | "monthly" | "custom" | "bi-weekly" | null;
   customDays?: number[]; // Array of weekday numbers (1-7) for custom recurrence
 
   rotationEnabled: boolean;
@@ -165,7 +165,7 @@ const MeetingSchema = new Schema<IPopulatedMeeting>(
 
     recurrenceType: {
       type: String,
-      enum: ["weekly", "monthly", "custom", null],
+      enum: ["weekly", "monthly", "custom", "bi-weekly", null],
       default: null,
     },
 

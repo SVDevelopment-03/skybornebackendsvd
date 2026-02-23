@@ -15,6 +15,122 @@ import { channel } from "diagnostics_channel";
 
 const _countryRepository = new CountryRepository();
 
+const toZoomEndDateTime = (dateInput: string | Date) => {
+  const end = new Date(dateInput);
+  // Keep whole end date inclusive for all recurrence types.
+  end.setUTCHours(23, 59, 59, 999);
+  return end.toISOString();
+};
+
+const toZoomWeekDay = (date: Date) => {
+  const jsWeekDay = date.getUTCDay();
+  return jsWeekDay === 0 ? 7 : jsWeekDay;
+};
+
+const startOfUtcDay = (date: Date) =>
+  new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+
+const buildUtcDateWithBaseTime = (day: Date, base: Date) => {
+  const next = new Date(day);
+  next.setUTCHours(
+    base.getUTCHours(),
+    base.getUTCMinutes(),
+    base.getUTCSeconds(),
+    base.getUTCMilliseconds(),
+  );
+  return next;
+};
+
+const getUtcMondayOfWeek = (date: Date) => {
+  const dayStart = startOfUtcDay(date);
+  const weekday = toZoomWeekDay(dayStart); // 1..7
+  dayStart.setUTCDate(dayStart.getUTCDate() - (weekday - 1));
+  return dayStart;
+};
+
+const generateRecurringDatesInRange = ({
+  startAt,
+  endAt,
+  recurrenceType,
+  customDays,
+}: {
+  startAt: Date;
+  endAt: Date;
+  recurrenceType: "weekly" | "monthly" | "custom" | "bi-weekly";
+  customDays: number[];
+}) => {
+  const result: Date[] = [];
+  const safeStart = new Date(startAt);
+  const safeEnd = new Date(endAt);
+  if (isNaN(safeStart.getTime()) || isNaN(safeEnd.getTime()) || safeStart > safeEnd) {
+    return result;
+  }
+
+  if (recurrenceType === "monthly") {
+    const startDayOfMonth = safeStart.getUTCDate();
+    let monthCursor = new Date(
+      Date.UTC(safeStart.getUTCFullYear(), safeStart.getUTCMonth(), 1),
+    );
+    while (monthCursor <= safeEnd) {
+      const daysInMonth = new Date(
+        Date.UTC(monthCursor.getUTCFullYear(), monthCursor.getUTCMonth() + 1, 0),
+      ).getUTCDate();
+      if (startDayOfMonth <= daysInMonth) {
+        const candidate = new Date(
+          Date.UTC(
+            monthCursor.getUTCFullYear(),
+            monthCursor.getUTCMonth(),
+            startDayOfMonth,
+            safeStart.getUTCHours(),
+            safeStart.getUTCMinutes(),
+            safeStart.getUTCSeconds(),
+            safeStart.getUTCMilliseconds(),
+          ),
+        );
+        if (candidate >= safeStart && candidate <= safeEnd) {
+          result.push(candidate);
+        }
+      }
+      monthCursor.setUTCMonth(monthCursor.getUTCMonth() + 1);
+    }
+    return result;
+  }
+
+  const validCustomDays =
+    Array.isArray(customDays) && customDays.length > 0
+      ? customDays
+      : [toZoomWeekDay(safeStart)];
+  const selectedDays = new Set(validCustomDays);
+  const startWeekMonday = getUtcMondayOfWeek(safeStart);
+
+  let dayCursor = startOfUtcDay(safeStart);
+  while (dayCursor <= safeEnd) {
+    const candidate = buildUtcDateWithBaseTime(dayCursor, safeStart);
+    if (candidate >= safeStart && candidate <= safeEnd) {
+      const candidateWeekDay = toZoomWeekDay(candidate);
+      const daySelected =
+        recurrenceType === "weekly"
+          ? candidateWeekDay === toZoomWeekDay(safeStart)
+          : selectedDays.has(candidateWeekDay);
+      if (daySelected) {
+        if (recurrenceType === "bi-weekly") {
+          const candidateMonday = getUtcMondayOfWeek(candidate);
+          const diffMs = candidateMonday.getTime() - startWeekMonday.getTime();
+          const weekIndex = Math.floor(diffMs / (7 * 24 * 60 * 60 * 1000));
+          if (weekIndex % 2 === 0) {
+            result.push(candidate);
+          }
+        } else {
+          result.push(candidate);
+        }
+      }
+    }
+    dayCursor.setUTCDate(dayCursor.getUTCDate() + 1);
+  }
+
+  return result;
+};
+
 export default class MeetingController {
 static async CreateMeeting(req: Request, res: Response) {
   try {
@@ -61,17 +177,17 @@ static async CreateMeeting(req: Request, res: Response) {
 
     // Validate recurrence settings if recurring class is enabled
     if (recurringClass) {
-      if (!recurrenceType || !["weekly", "monthly", "custom"].includes(recurrenceType)) {
+      if (!recurrenceType || !["weekly", "monthly", "custom", "bi-weekly"].includes(recurrenceType)) {
         return res.status(400).json({
           success: false,
-          message: "Invalid recurrence type. Must be 'weekly', 'monthly', or 'custom'",
+          message: "Invalid recurrence type. Must be 'weekly', 'monthly', 'custom', or 'bi-weekly'",
         });
       }
 
-      if (recurrenceType === "custom" && (!customDays || customDays.length === 0)) {
+      if ((recurrenceType === "custom" || recurrenceType === "bi-weekly") && (!customDays || customDays.length === 0)) {
         return res.status(400).json({
           success: false,
-          message: "Custom days are required when recurrence type is 'custom'",
+          message: "Custom days are required when recurrence type is 'custom' or 'bi-weekly'",
         });
       }
     }
@@ -125,18 +241,22 @@ static async CreateMeeting(req: Request, res: Response) {
           repeat_interval: 1,
           weekly_days: customDays.join(","), // e.g., "1,3,5" for Mon, Wed, Fri
         };
+      } else if (recurrenceType === "bi-weekly") {
+        // Bi-weekly recurrence on selected weekdays
+        recurrenceSettings = {
+          type: 2, // Weekly
+          repeat_interval: 2,
+          weekly_days: customDays.join(","),
+        };
       }
 
       // Add end date
       if (weeklyEndDate) {
-        const endDate = new Date(weeklyEndDate);
-        const endDateString = endDate.toISOString().split("T")[0];
-        recurrenceSettings.end_date_time = endDateString;
+        recurrenceSettings.end_date_time = toZoomEndDateTime(weeklyEndDate);
       } else {
         const defaultEndDate = new Date(startDateTime);
         defaultEndDate.setFullYear(defaultEndDate.getFullYear() + 1);
-        const endDateString = defaultEndDate.toISOString().split("T")[0];
-        recurrenceSettings.end_date_time = endDateString;
+        recurrenceSettings.end_date_time = toZoomEndDateTime(defaultEndDate);
       }
     }
 
@@ -204,7 +324,11 @@ static async CreateMeeting(req: Request, res: Response) {
       duration,
       recurringClass,
       recurrenceType: recurringClass ? recurrenceType : null,
-      customDays: recurringClass && recurrenceType === "custom" ? customDays : [],
+      customDays:
+        recurringClass &&
+        (recurrenceType === "custom" || recurrenceType === "bi-weekly")
+          ? customDays
+          : [],
       rotationEnabled: false,
       isRecurring: recurringClass,
       isLive: true,
@@ -232,9 +356,23 @@ static async CreateMeeting(req: Request, res: Response) {
 
     if (recurringClass && occurrences && occurrences.length > 0) {
       console.log(`📦 [CreateMeeting] Storing ${occurrences.length} recurring instances...`);
+      const recurrenceRangeEnd = weeklyEndDate
+        ? new Date(toZoomEndDateTime(weeklyEndDate))
+        : null;
       
       for (const occurrence of occurrences) {
         try {
+          const occurrenceStart = new Date(occurrence.start_time);
+          if (
+            recurrenceRangeEnd &&
+            occurrenceStart.getTime() > recurrenceRangeEnd.getTime()
+          ) {
+            console.log(
+              `  ⏭️ Skipped out-of-range instance: ${occurrence.occurrence_id} - ${occurrence.start_time}`,
+            );
+            continue;
+          }
+
           const instanceRecord = await Meeting.create({
             zoomMeetingId: meetingId,
             occurrenceId: occurrence.occurrence_id,
@@ -251,8 +389,8 @@ static async CreateMeeting(req: Request, res: Response) {
             rotationEnabled: false,
             isRecurring: false, // Individual instances are not recurring
             isLive: true,
-            startDate: new Date(occurrence.start_time),
-            localTime: new Date(occurrence.start_time),
+            startDate: occurrenceStart,
+            localTime: occurrenceStart,
             joinUrl: webJoinUrl,
             startUrl: webStartUrl,
             recordingUrl: "",
@@ -278,7 +416,8 @@ static async CreateMeeting(req: Request, res: Response) {
 
     let responseMessage = "";
     if (recurringClass) {
-      const recurrenceInfo = recurrenceType === "custom" 
+      const recurrenceInfo =
+        recurrenceType === "custom" || recurrenceType === "bi-weekly"
         ? `custom schedule (${customDays.join(", ")})`
         : recurrenceType;
       responseMessage = `${recurrenceInfo.charAt(0).toUpperCase() + recurrenceInfo.slice(1)} recurring meeting "${title}" created successfully. Live session for ${liveRegion}. Recording available for other regions.`;
@@ -1693,29 +1832,44 @@ static async UpdateMeeting(req: Request, res: Response) {
 
     // Validate recurrence settings if recurring class is enabled
     if (recurringClass) {
-      if (!recurrenceType || !["weekly", "monthly", "custom"].includes(recurrenceType)) {
+      if (!recurrenceType || !["weekly", "monthly", "custom", "bi-weekly"].includes(recurrenceType)) {
         return res.status(400).json({
           success: false,
-          message: "Invalid recurrence type. Must be 'weekly', 'monthly', or 'custom'",
+          message: "Invalid recurrence type. Must be 'weekly', 'monthly', 'custom', or 'bi-weekly'",
         });
       }
 
-      if (recurrenceType === "custom" && (!customDays || customDays.length === 0)) {
+      if ((recurrenceType === "custom" || recurrenceType === "bi-weekly") && (!customDays || customDays.length === 0)) {
         return res.status(400).json({
           success: false,
-          message: "Custom days are required when recurrence type is 'custom'",
+          message: "Custom days are required when recurrence type is 'custom' or 'bi-weekly'",
         });
       }
     }
 
-    // Find the meeting
-    const meeting = await Meeting.findById(id);
+    // Find the meeting. If a child recurring instance is edited, always
+    // upgrade update target to the parent series so range expansion works.
+    let meeting = await Meeting.findById(id);
 
     if (!meeting) {
       return res.status(404).json({
         success: false,
         message: "Meeting not found",
       });
+    }
+
+    if (meeting.parentMeetingId) {
+      const parentMeeting = await Meeting.findById(meeting.parentMeetingId);
+      if (parentMeeting) {
+        console.log(
+          "ℹ️ [UpdateMeeting] Child occurrence edit detected. Redirecting update to parent series:",
+          {
+            childId: meeting._id,
+            parentId: parentMeeting._id,
+          },
+        );
+        meeting = parentMeeting;
+      }
     }
 
     console.log("✅ [UpdateMeeting] Meeting found, updating fields...");
@@ -1735,7 +1889,11 @@ static async UpdateMeeting(req: Request, res: Response) {
     // Update recurring class fields
     meeting.recurringClass = recurringClass;
     meeting.recurrenceType = recurringClass ? recurrenceType : null;
-    meeting.customDays = recurringClass && recurrenceType === "custom" ? customDays : [];
+    meeting.customDays =
+      recurringClass &&
+      (recurrenceType === "custom" || recurrenceType === "bi-weekly")
+        ? customDays
+        : [];
     meeting.weeklyEndDate = weeklyEndDate ? new Date(weeklyEndDate) : null;
     meeting.isRecurring = recurringClass;
 
@@ -1778,13 +1936,17 @@ static async UpdateMeeting(req: Request, res: Response) {
             repeat_interval: 1,
             weekly_days: customDays.join(","), // e.g., "1,3,5"
           };
+        } else if (recurrenceType === "bi-weekly") {
+          recurrenceSettings = {
+            type: 2, // Weekly
+            repeat_interval: 2,
+            weekly_days: customDays.join(","),
+          };
         }
 
         // Add end date
         if (weeklyEndDate) {
-          const endDate = new Date(weeklyEndDate);
-          const endDateString = endDate.toISOString().split("T")[0];
-          recurrenceSettings.end_date_time = endDateString;
+          recurrenceSettings.end_date_time = toZoomEndDateTime(weeklyEndDate);
         }
       }
 
@@ -1822,28 +1984,394 @@ static async UpdateMeeting(req: Request, res: Response) {
         recurrence: recurrenceSettings,
       });
 
-      await axios.patch(
-        `https://api.zoom.us/v2/meetings/${meeting.zoomMeetingId}`,
-        zoomPayload,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
+      try {
+        // 1) Force-sync title first so class name always reflects on Zoom.
+        await axios.patch(
+          `https://api.zoom.us/v2/meetings/${meeting.zoomMeetingId}`,
+          { topic: meetingTopic },
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
           },
-        },
-      );
+        );
+        console.log("✅ [UpdateMeeting] Zoom topic synced successfully");
 
-      console.log("✅ [UpdateMeeting] Zoom meeting updated successfully");
+        // Verify topic really changed on Zoom (some accounts/meeting types can ignore updates).
+        const verifyResp = await axios.get(
+          `https://api.zoom.us/v2/meetings/${meeting.zoomMeetingId}`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+          },
+        );
+        const zoomTopicAfterSync = String(verifyResp?.data?.topic || "").trim();
+        if (zoomTopicAfterSync !== meetingTopic) {
+          throw new Error(
+            `Zoom topic verification failed. Expected "${meetingTopic}", got "${zoomTopicAfterSync}"`,
+          );
+        }
+        console.log("✅ [UpdateMeeting] Zoom topic verification passed");
+
+        // 2) Then attempt full meeting update (time/recurrence/settings).
+        await axios.patch(
+          `https://api.zoom.us/v2/meetings/${meeting.zoomMeetingId}`,
+          zoomPayload,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+          },
+        );
+
+        console.log("✅ [UpdateMeeting] Zoom meeting fully updated successfully");
+      } catch (fullUpdateError: any) {
+        // If full update fails, trigger outer fallback (recreate + relink)
+        // so recurrence/time/range changes are not silently ignored.
+        throw fullUpdateError;
+      }
     } catch (zoomError: any) {
       console.error(
         "⚠️ [UpdateMeeting] Error updating Zoom meeting:",
-        zoomError.message,
+        zoomError?.response?.data || zoomError?.message,
       );
-      // Don't fail the entire request if Zoom update fails
+
+      // Hard fallback: recreate Zoom meeting and relink DB records.
+      // This helps with legacy/invalid Zoom meetings that no longer accept updates.
+      try {
+        const fallbackToken = await getZoomAccessToken();
+        const fallbackTopic = `${title} - Live Class`;
+        const startDateTime = new Date(localTime);
+
+        // Build recurrence for fallback creation
+        let fallbackRecurrence: any = null;
+        if (recurringClass) {
+          const jsWeekDay = startDateTime.getUTCDay();
+          const zoomWeekDay = jsWeekDay === 0 ? 7 : jsWeekDay;
+
+          if (recurrenceType === "weekly") {
+            fallbackRecurrence = {
+              type: 2,
+              repeat_interval: 1,
+              weekly_days: zoomWeekDay,
+            };
+          } else if (recurrenceType === "monthly") {
+            fallbackRecurrence = {
+              type: 3,
+              repeat_interval: 1,
+              monthly_day: startDateTime.getUTCDate(),
+            };
+          } else if (recurrenceType === "custom") {
+            fallbackRecurrence = {
+              type: 2,
+              repeat_interval: 1,
+              weekly_days: (customDays || []).join(","),
+            };
+          } else if (recurrenceType === "bi-weekly") {
+            fallbackRecurrence = {
+              type: 2,
+              repeat_interval: 2,
+              weekly_days: (customDays || []).join(","),
+            };
+          }
+
+          if (weeklyEndDate) {
+            fallbackRecurrence.end_date_time = toZoomEndDateTime(weeklyEndDate);
+          }
+        }
+
+        const fallbackType = recurringClass ? 8 : 2;
+        const fallbackPayload: any = {
+          topic: fallbackTopic,
+          type: fallbackType,
+          start_time: localTime,
+          duration,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          settings: {
+            mute_upon_entry: true,
+            allow_multiple_audio_unmute: false,
+            allow_participants_to_unmute_themselves: false,
+            allow_participants_to_unmute: false,
+            auto_recording: autoRecording ? "cloud" : "none",
+            host_video: true,
+            participant_video: true,
+            waiting_room: true,
+          },
+        };
+
+        if (recurringClass && fallbackRecurrence) {
+          fallbackPayload.recurrence = fallbackRecurrence;
+        }
+
+        const createdZoom = await axios.post(
+          "https://api.zoom.us/v2/users/me/meetings",
+          fallbackPayload,
+          {
+            headers: {
+              Authorization: `Bearer ${fallbackToken}`,
+              "Content-Type": "application/json",
+            },
+          },
+        );
+
+        const oldZoomMeetingId = meeting.zoomMeetingId;
+        const newZoomMeetingId = createdZoom.data.id;
+        const zoomPassword = createdZoom.data.password;
+
+        const newWebJoinUrl = `https://app.zoom.us/wc/${newZoomMeetingId}/join?pwd=${zoomPassword}&browser=1`;
+        const newWebStartUrl = `https://app.zoom.us/wc/${newZoomMeetingId}/start?pwd=${zoomPassword}&browser=1`;
+
+        meeting.zoomMeetingId = newZoomMeetingId;
+        meeting.joinUrl = newWebJoinUrl;
+        meeting.startUrl = newWebStartUrl;
+
+        // Relink sibling instances (same old zoomMeetingId)
+        await Meeting.updateMany(
+          {
+            zoomMeetingId: oldZoomMeetingId,
+            _id: { $ne: meeting._id },
+          },
+          {
+            $set: {
+              zoomMeetingId: newZoomMeetingId,
+              joinUrl: newWebJoinUrl,
+              startUrl: newWebStartUrl,
+              title,
+            },
+          },
+        );
+
+        // Best-effort cleanup: remove old Zoom meeting to avoid confusion/duplicates.
+        try {
+          await axios.delete(
+            `https://api.zoom.us/v2/meetings/${oldZoomMeetingId}`,
+            {
+              headers: {
+                Authorization: `Bearer ${fallbackToken}`,
+                "Content-Type": "application/json",
+              },
+            },
+          );
+          console.log(
+            "🧹 [UpdateMeeting] Old Zoom meeting deleted after recreate fallback",
+            oldZoomMeetingId,
+          );
+        } catch (deleteOldErr: any) {
+          console.warn(
+            "⚠️ [UpdateMeeting] Could not delete old Zoom meeting:",
+            deleteOldErr?.response?.data || deleteOldErr?.message,
+          );
+        }
+
+        console.log("✅ [UpdateMeeting] Zoom recreate fallback succeeded", {
+          oldZoomMeetingId,
+          newZoomMeetingId,
+        });
+      } catch (fallbackError: any) {
+        console.error(
+          "❌ [UpdateMeeting] Zoom recreate fallback failed:",
+          fallbackError?.response?.data || fallbackError?.message,
+        );
+        return res.status(502).json({
+          success: false,
+          message:
+            "Failed to sync meeting with Zoom (update + recreate both failed).",
+          error: fallbackError?.response?.data || fallbackError?.message,
+        });
+      }
     }
 
     // Save the meeting
     await meeting.save();
+
+    // Sync recurring child instances from Zoom occurrences.
+    // This ensures range extension creates additional classes in DB.
+    if (meeting.recurringClass) {
+      try {
+        const syncToken = await getZoomAccessToken();
+        const zoomMeetingResp = await axios.get(
+          `https://api.zoom.us/v2/meetings/${meeting.zoomMeetingId}`,
+          {
+            headers: {
+              Authorization: `Bearer ${syncToken}`,
+              "Content-Type": "application/json",
+            },
+            params: {
+              show_previous_occurrences: true,
+            },
+          },
+        );
+
+        const zoomOccurrences: any[] = Array.isArray(zoomMeetingResp?.data?.occurrences)
+          ? zoomMeetingResp.data.occurrences
+          : [];
+        const rangeEnd = meeting.weeklyEndDate
+          ? new Date(toZoomEndDateTime(meeting.weeklyEndDate))
+          : null;
+
+        const inRangeZoomOccurrences = zoomOccurrences.filter((occ: any) => {
+          const start = new Date(occ?.start_time);
+          if (isNaN(start.getTime())) return false;
+          if (!rangeEnd) return true;
+          return start.getTime() <= rangeEnd.getTime();
+        });
+
+        type NormalizedOccurrence = {
+          occurrenceId: string;
+          startTime: Date;
+        };
+
+        const normalizedByStart = new Map<number, NormalizedOccurrence>();
+        for (const occ of inRangeZoomOccurrences) {
+          const occurrenceId = String(occ?.occurrence_id || "");
+          const startTime = new Date(occ?.start_time);
+          if (!occurrenceId || isNaN(startTime.getTime())) continue;
+          normalizedByStart.set(startTime.getTime(), { occurrenceId, startTime });
+        }
+
+        const targetOccurrences: NormalizedOccurrence[] = [];
+        const seenOccurrenceIds = new Set<string>();
+
+        // Always keep valid Zoom-provided occurrences.
+        for (const [, item] of normalizedByStart.entries()) {
+          if (!seenOccurrenceIds.has(item.occurrenceId)) {
+            seenOccurrenceIds.add(item.occurrenceId);
+            targetOccurrences.push(item);
+          }
+        }
+
+        // Fallback generation for missing future instances in extended ranges.
+        if (
+          rangeEnd &&
+          meeting.recurrenceType &&
+          ["weekly", "monthly", "custom", "bi-weekly"].includes(meeting.recurrenceType)
+        ) {
+          const generatedDates = generateRecurringDatesInRange({
+            startAt: new Date(meeting.localTime),
+            endAt: rangeEnd,
+            recurrenceType: meeting.recurrenceType as
+              | "weekly"
+              | "monthly"
+              | "custom"
+              | "bi-weekly",
+            customDays: Array.isArray(meeting.customDays) ? meeting.customDays : [],
+          });
+
+          for (const generatedDate of generatedDates) {
+            const matchedZoom = normalizedByStart.get(generatedDate.getTime());
+            const generatedOccurrenceId =
+              matchedZoom?.occurrenceId || `local-${generatedDate.toISOString()}`;
+            if (seenOccurrenceIds.has(generatedOccurrenceId)) continue;
+            seenOccurrenceIds.add(generatedOccurrenceId);
+            targetOccurrences.push({
+              occurrenceId: generatedOccurrenceId,
+              startTime: generatedDate,
+            });
+          }
+        }
+
+        const existingInstances = await Meeting.find({
+          parentMeetingId: meeting._id,
+        }).select("_id occurrenceId");
+
+        const existingByOccurrence = new Map<string, string>();
+        for (const instance of existingInstances) {
+          if (instance.occurrenceId) {
+            existingByOccurrence.set(
+              String(instance.occurrenceId),
+              String(instance._id),
+            );
+          }
+        }
+
+        const keepOccurrenceIds = new Set<string>();
+        for (const occ of targetOccurrences) {
+          const occurrenceId = String(occ?.occurrenceId || "");
+          const occurrenceStart = new Date(occ?.startTime);
+          if (!occurrenceId || isNaN(occurrenceStart.getTime())) continue;
+
+          keepOccurrenceIds.add(occurrenceId);
+
+          const instancePayload: any = {
+            service: meeting.service,
+            title: meeting.title,
+            regions: meeting.regions,
+            liveRegion: meeting.liveRegion,
+            liveTime: meeting.liveTime,
+            trainer: meeting.trainer,
+            duration: meeting.duration,
+            recurringClass: false,
+            recurrenceType: null,
+            customDays: [],
+            rotationEnabled: false,
+            isRecurring: false,
+            isLive: true,
+            startDate: occurrenceStart,
+            localTime: occurrenceStart,
+            joinUrl: meeting.joinUrl,
+            startUrl: meeting.startUrl,
+            recordingUrl: meeting.recordingUrl || "",
+            createdBy: meeting.createdBy,
+          };
+
+          const existingId = existingByOccurrence.get(occurrenceId);
+          if (existingId) {
+            await Meeting.findByIdAndUpdate(existingId, instancePayload);
+          } else {
+            await Meeting.create({
+              ...instancePayload,
+              zoomMeetingId: meeting.zoomMeetingId,
+              occurrenceId,
+              parentMeetingId: meeting._id,
+            });
+          }
+        }
+
+        // Remove instances no longer present in Zoom occurrence list (for this range/config).
+        if (targetOccurrences.length > 0) {
+          await Meeting.deleteMany({
+            parentMeetingId: meeting._id,
+            occurrenceId: { $nin: Array.from(keepOccurrenceIds) },
+          });
+        }
+      } catch (syncErr: any) {
+        console.warn(
+          "⚠️ [UpdateMeeting] Recurring instance sync skipped:",
+          syncErr?.response?.data || syncErr?.message,
+        );
+      }
+    } else {
+      // Non-recurring: clear any previously generated recurring children.
+      await Meeting.deleteMany({ parentMeetingId: meeting._id });
+    }
+
+    // Keep all instances of the same Zoom meeting in sync (recurring copies).
+    await Meeting.updateMany(
+      {
+        zoomMeetingId: meeting.zoomMeetingId,
+        _id: { $ne: meeting._id },
+      },
+      { $set: { title } },
+    );
+
+    // Enforce recurrence range for all generated child instances.
+    if (recurringClass && weeklyEndDate) {
+      const recurrenceRangeEnd = new Date(toZoomEndDateTime(weeklyEndDate));
+      const cleanup = await Meeting.deleteMany({
+        zoomMeetingId: meeting.zoomMeetingId,
+        parentMeetingId: { $ne: null },
+        localTime: { $gt: recurrenceRangeEnd },
+      });
+      if (cleanup.deletedCount) {
+        console.log(
+          `🧹 [UpdateMeeting] Removed ${cleanup.deletedCount} out-of-range recurring instances`,
+        );
+      }
+    }
 
     console.log("✅ [UpdateMeeting] Meeting saved to database");
     console.log("📊 [UpdateMeeting] Updated meeting:", {
