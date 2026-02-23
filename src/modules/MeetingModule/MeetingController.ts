@@ -285,7 +285,7 @@ static async CreateMeeting(req: Request, res: Response) {
         auto_recording: "cloud",
         host_video: true,
         participant_video: true,
-        waiting_room: true,
+        waiting_room: false,
       },
     };
 
@@ -1967,7 +1967,7 @@ static async UpdateMeeting(req: Request, res: Response) {
           auto_recording: autoRecording ? "cloud" : "none",
           host_video: true,
           participant_video: true,
-          waiting_room: true,
+          waiting_room: false,
         },
       };
 
@@ -2113,7 +2113,7 @@ static async UpdateMeeting(req: Request, res: Response) {
               auto_recording: autoRecording ? "cloud" : "none",
               host_video: true,
               participant_video: true,
-              waiting_room: true,
+              waiting_room: false,
             },
           };
           if (recurringClass && retryRecurrence) {
