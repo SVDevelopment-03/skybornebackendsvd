@@ -37,6 +37,24 @@ const WEEKDAY_NAME_TO_ZOOM: Record<string, number> = {
   sun: 7,
 };
 
+const toZoomApiWeekday = (internalWeekday: number) => {
+  // Internal: Mon=1..Sun=7
+  // Zoom API: Sun=1..Sat=7
+  if (!Number.isInteger(internalWeekday) || internalWeekday < 1 || internalWeekday > 7) {
+    return internalWeekday;
+  }
+  return internalWeekday === 7 ? 1 : internalWeekday + 1;
+};
+
+const toZoomApiWeeklyDaysCsv = (days: number[]) =>
+  (Array.isArray(days) ? days : [])
+    .map((day) => toZoomApiWeekday(Number(day)))
+    .filter((day) => Number.isInteger(day) && day >= 1 && day <= 7)
+    .join(",");
+
+const isSameSlot = (a: Date, b: Date, toleranceMs = 60 * 1000) =>
+  Math.abs(a.getTime() - b.getTime()) <= toleranceMs;
+
 const resolveMeetingTimezone = (regions: any[], liveRegion: string): string => {
   if (!Array.isArray(regions)) return "UTC";
   const matchedRegion = regions.find(
@@ -140,16 +158,44 @@ const getUtcMondayOfWeek = (date: Date) => {
   return dayStart;
 };
 
+const getDatePartsInTimezone = (date: Date, timeZone: string) => {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+
+  const pick = (type: string) =>
+    Number(parts.find((part) => part.type === type)?.value || "0");
+
+  return {
+    year: pick("year"),
+    month: pick("month"),
+    day: pick("day"),
+  };
+};
+
+const getMondayOfWeekInTimezone = (date: Date, timeZone: string) => {
+  const { year, month, day } = getDatePartsInTimezone(date, timeZone);
+  const weekDay = getZoomWeekdayInTimezone(date, timeZone); // 1..7 (Mon..Sun)
+  const monday = new Date(Date.UTC(year, month - 1, day));
+  monday.setUTCDate(monday.getUTCDate() - (weekDay - 1));
+  return monday;
+};
+
 const generateRecurringDatesInRange = ({
   startAt,
   endAt,
   recurrenceType,
   customDays,
+  timeZone,
 }: {
   startAt: Date;
   endAt: Date;
   recurrenceType: "weekly" | "monthly" | "custom" | "bi-weekly";
   customDays: number[];
+  timeZone?: string;
 }) => {
   const result: Date[] = [];
   const safeStart = new Date(startAt);
@@ -193,21 +239,33 @@ const generateRecurringDatesInRange = ({
       ? customDays
       : [toZoomWeekDay(safeStart)];
   const selectedDays = new Set(validCustomDays);
-  const startWeekMonday = getUtcMondayOfWeek(safeStart);
+  const weekAnchorMonday =
+    recurrenceType === "bi-weekly" && timeZone
+      ? getMondayOfWeekInTimezone(safeStart, timeZone)
+      : getUtcMondayOfWeek(safeStart);
 
   let dayCursor = startOfUtcDay(safeStart);
   while (dayCursor <= safeEnd) {
     const candidate = buildUtcDateWithBaseTime(dayCursor, safeStart);
     if (candidate >= safeStart && candidate <= safeEnd) {
       const candidateWeekDay = toZoomWeekDay(candidate);
+      const biWeeklyWeekDayInContext =
+        recurrenceType === "bi-weekly" && timeZone
+          ? getZoomWeekdayInTimezone(candidate, timeZone)
+          : candidateWeekDay;
       const daySelected =
         recurrenceType === "weekly"
           ? candidateWeekDay === toZoomWeekDay(safeStart)
-          : selectedDays.has(candidateWeekDay);
+          : recurrenceType === "bi-weekly"
+            ? selectedDays.has(biWeeklyWeekDayInContext)
+            : selectedDays.has(candidateWeekDay);
       if (daySelected) {
         if (recurrenceType === "bi-weekly") {
-          const candidateMonday = getUtcMondayOfWeek(candidate);
-          const diffMs = candidateMonday.getTime() - startWeekMonday.getTime();
+          const candidateMonday =
+            timeZone
+              ? getMondayOfWeekInTimezone(candidate, timeZone)
+              : getUtcMondayOfWeek(candidate);
+          const diffMs = candidateMonday.getTime() - weekAnchorMonday.getTime();
           const weekIndex = Math.floor(diffMs / (7 * 24 * 60 * 60 * 1000));
           if (weekIndex % 2 === 0) {
             result.push(candidate);
@@ -347,7 +405,7 @@ static async CreateMeeting(req: Request, res: Response) {
         recurrenceSettings = {
           type: 2, // Weekly
           repeat_interval: 2,
-          weekly_days: customDays.join(","),
+          weekly_days: toZoomApiWeeklyDaysCsv(customDays),
         };
       }
 
@@ -465,6 +523,12 @@ static async CreateMeeting(req: Request, res: Response) {
       for (const occurrence of occurrences) {
         try {
           const occurrenceStart = new Date(occurrence.start_time);
+          if (isSameSlot(occurrenceStart, startDateTime)) {
+            console.log(
+              `  ⏭️ Skipped first occurrence duplicate of parent: ${occurrence.occurrence_id} - ${occurrence.start_time}`,
+            );
+            continue;
+          }
           if (
             recurrenceRangeEnd &&
             occurrenceStart.getTime() > recurrenceRangeEnd.getTime()
@@ -2143,7 +2207,7 @@ static async UpdateMeeting(req: Request, res: Response) {
           recurrenceSettings = {
             type: 2, // Weekly
             repeat_interval: 2,
-            weekly_days: nextCustomDays.join(","),
+            weekly_days: toZoomApiWeeklyDaysCsv(nextCustomDays),
           };
         }
 
@@ -2314,7 +2378,7 @@ static async UpdateMeeting(req: Request, res: Response) {
               retryRecurrence = {
                 type: 2,
                 repeat_interval: 2,
-                weekly_days: nextCustomDays.join(","),
+                weekly_days: toZoomApiWeeklyDaysCsv(nextCustomDays),
               };
             }
             if (nextWeeklyEndDate) {
@@ -2430,10 +2494,12 @@ static async UpdateMeeting(req: Request, res: Response) {
         };
 
         const normalizedByStart = new Map<number, NormalizedOccurrence>();
+        const parentStart = new Date(meeting.localTime);
         for (const occ of inRangeZoomOccurrences) {
           const occurrenceId = String(occ?.occurrence_id || "");
           const startTime = new Date(occ?.start_time);
           if (!occurrenceId || isNaN(startTime.getTime())) continue;
+          if (isSameSlot(startTime, parentStart)) continue;
           normalizedByStart.set(startTime.getTime(), { occurrenceId, startTime });
         }
 
@@ -2463,9 +2529,11 @@ static async UpdateMeeting(req: Request, res: Response) {
               | "custom"
               | "bi-weekly",
             customDays: Array.isArray(meeting.customDays) ? meeting.customDays : [],
+            timeZone: resolveMeetingTimezone(meeting.regions as any[], meeting.liveRegion),
           });
 
           for (const generatedDate of generatedDates) {
+            if (isSameSlot(generatedDate, parentStart)) continue;
             const matchedZoom = normalizedByStart.get(generatedDate.getTime());
             const generatedOccurrenceId =
               matchedZoom?.occurrenceId || `local-${generatedDate.toISOString()}`;
@@ -2626,7 +2694,7 @@ static async UpdateMeeting(req: Request, res: Response) {
         });
       }
 
-      const meeting = await Meeting.findByIdAndDelete(id);
+      const meeting = await Meeting.findById(id);
 
       if (!meeting) {
         return res.status(404).json({
@@ -2635,24 +2703,87 @@ static async UpdateMeeting(req: Request, res: Response) {
         });
       }
 
-      // Try to delete from Zoom
+      // Delete from Zoom first so DB and Zoom stay in sync.
       try {
         const token = await getZoomAccessToken();
+        const zoomDeleteConfig: any = {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        };
+
+        let occurrenceIdToDelete: string | null = meeting.occurrenceId
+          ? String(meeting.occurrenceId)
+          : null;
+
+        // If this is a recurring parent record, resolve the matching occurrence by localTime.
+        // Never delete the full Zoom series when user asked to delete a single class.
+        if (!occurrenceIdToDelete && meeting.recurringClass) {
+          const zoomMeetingResp = await axios.get(
+            `https://api.zoom.us/v2/meetings/${meeting.zoomMeetingId}`,
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json",
+              },
+              params: {
+                show_previous_occurrences: true,
+              },
+            },
+          );
+
+          const zoomOccurrences: any[] = Array.isArray(zoomMeetingResp?.data?.occurrences)
+            ? zoomMeetingResp.data.occurrences
+            : [];
+          const meetingStart = new Date(meeting.localTime);
+
+          const matched = zoomOccurrences.find((occ: any) => {
+            const start = new Date(occ?.start_time);
+            return !isNaN(start.getTime()) && isSameSlot(start, meetingStart);
+          });
+
+          if (matched?.occurrence_id) {
+            occurrenceIdToDelete = String(matched.occurrence_id);
+          } else {
+            return res.status(409).json({
+              success: false,
+              message:
+                "Could not resolve recurring occurrence for this class. Series delete is blocked to avoid removing all classes.",
+            });
+          }
+        }
+
+        // If occurrence is known, delete only that occurrence from Zoom.
+        if (occurrenceIdToDelete) {
+          zoomDeleteConfig.params = { occurrence_id: occurrenceIdToDelete };
+        }
+
         await axios.delete(
           `https://api.zoom.us/v2/meetings/${meeting.zoomMeetingId}`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          },
+          zoomDeleteConfig,
         );
       } catch (zoomError: any) {
+        const status = zoomError?.response?.status;
+        // Already deleted remotely; continue DB cleanup.
+        if (status !== 404) {
+          console.error(
+            "❌ [DeleteMeeting] Zoom delete failed:",
+            zoomError?.response?.data || zoomError?.message,
+          );
+          return res.status(502).json({
+            success: false,
+            message: "Failed to delete meeting on Zoom. Local record not deleted.",
+            error: zoomError?.response?.data || zoomError?.message,
+          });
+        }
         console.error(
-          "⚠️ [DeleteMeeting] Error deleting Zoom meeting:",
-          zoomError.message,
+          "⚠️ [DeleteMeeting] Zoom meeting already deleted remotely:",
+          zoomError?.response?.data || zoomError?.message,
         );
-        // Don't fail if Zoom deletion fails
       }
+
+      // Delete only selected DB record (single-class delete behavior).
+      await Meeting.findByIdAndDelete(id);
 
       return res.json({
         success: true,
