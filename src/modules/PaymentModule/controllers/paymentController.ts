@@ -645,12 +645,18 @@ export default class PaymentController {
       }
 
       const subscriptionId = session.subscription as string | null;
+      const transactionId =
+        typeof session.payment_intent === "string"
+          ? session.payment_intent
+          : session.payment_intent?.id || null;
 
       // Update payment state first; subscriptionActivated is marked only after successful activation
       payment = await Payment.findOneAndUpdate(
         { _id: payment._id },
         {
           subscriptionId: subscriptionId || payment.subscriptionId,
+          transactionId: transactionId || payment.transactionId,
+          paymentIntentId: transactionId || payment.paymentIntentId,
           status: paymentStatus,
           gatewayResponse: session,
           verifiedAt: new Date(),
@@ -855,6 +861,8 @@ export default class PaymentController {
         gateway: payment?.gateway,
         orderRef: payment?.orderRef,
         reference: payment?.reference,
+        subscriptionId: payment?.subscriptionId,
+        transactionId: payment?.transactionId,
         amount: payment?.amount,
         currency: payment?.currency,
         status: payment?.status,
@@ -1029,6 +1037,8 @@ export default class PaymentController {
           status: payment.status,
           gateway: payment.gateway,
           invoiceId: payment.invoiceId,
+          subscriptionId: payment.subscriptionId,
+          transactionId: payment.transactionId,
           createdAt: payment.createdAt,
           updatedAt: payment.updatedAt,
           paymentMethod: payment.reference
@@ -1259,6 +1269,7 @@ export default class PaymentController {
           userId: user._id,
           username,
           email: user?.email || "N/A",
+          phoneNumber: user?.phoneNumber || "N/A",
           stripeSubscriptionId: user?.stripeSubscriptionId || "N/A",
           country: user?.country || "N/A",
           orderRef: payment.orderRef,
@@ -1270,6 +1281,9 @@ export default class PaymentController {
           gateway: payment.gateway,
           status: payment.status,
           invoiceId: payment.invoiceId,
+          verifiedAt: payment.verifiedAt,
+          subscriptionId: payment.subscriptionId,
+          transactionId: payment.transactionId,
           createdAt: payment.createdAt,
           updatedAt: payment.updatedAt,
           paymentMethod: payment.reference
@@ -1308,13 +1322,36 @@ export default class PaymentController {
    */
   static async exportPaymentsCSV(req: Request, res: Response) {
     try {
-      const { search, status, country } = req.query;
+      const { search, status, gateway, country } = req.query;
 
-      // Build aggregation pipeline
+      const matchQuery: any = {};
+
+      // Match the same filter behavior as getAllPayments
+      const validStatuses = ["COMPLETED", "PENDING", "FAILED", "CANCELLED"];
+      if (
+        status &&
+        status !== "all" &&
+        validStatuses.includes(String(status).toUpperCase())
+      ) {
+        matchQuery.status = String(status).toUpperCase();
+      } else {
+        matchQuery.status = "COMPLETED";
+      }
+
+      const validGateways = ["ngenius", "stripe"];
+      if (
+        gateway &&
+        gateway !== "all" &&
+        validGateways.includes(String(gateway).toLowerCase())
+      ) {
+        matchQuery.gateway = String(gateway).toLowerCase();
+      }
+
+      const escapeRegex = (value: string) =>
+        value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
       const pipeline: any[] = [
-        // Match payment filters (status)
-        { $match: { status: "COMPLETED" } },
-        // Lookup user data
+        { $match: matchQuery },
         {
           $lookup: {
             from: "users",
@@ -1323,11 +1360,9 @@ export default class PaymentController {
             as: "user",
           },
         },
-        // Unwind user array
         { $unwind: "$user" },
       ];
 
-      // Filter by country if provided
       if (country && country !== "all") {
         const countryCode = String(country).toUpperCase();
         pipeline.push({
@@ -1337,36 +1372,60 @@ export default class PaymentController {
         });
       }
 
-      // Add sorting
-      pipeline.push({ $sort: { createdAt: -1 } });
-
-      const payments = await Payment.aggregate(pipeline as any);
-
-      // Apply search filter (client-side after population)
-      let filteredPayments = payments;
-      if (search) {
-        const searchLower = String(search).toLowerCase();
-        filteredPayments = payments.filter((payment: any) => {
-          const user = payment.user;
-          const username = user
-            ? `${user.firstName} ${user.lastName || ""}`.trim()
-            : "Unknown";
-
-          return (
-            user?.email?.toLowerCase().includes(searchLower) ||
-            username.toLowerCase().includes(searchLower) ||
-            payment._id?.toString().includes(searchLower) ||
-            payment.orderRef?.toLowerCase().includes(searchLower) ||
-            payment.reference?.toLowerCase().includes(searchLower)
-          );
+      if (search && String(search).trim()) {
+        const searchRegex = escapeRegex(String(search).trim());
+        pipeline.push({
+          $match: {
+            $or: [
+              { "user.email": { $regex: searchRegex, $options: "i" } },
+              { orderRef: { $regex: searchRegex, $options: "i" } },
+              { reference: { $regex: searchRegex, $options: "i" } },
+              {
+                $expr: {
+                  $regexMatch: {
+                    input: {
+                      $trim: {
+                        input: {
+                          $concat: [
+                            { $ifNull: ["$user.firstName", ""] },
+                            " ",
+                            { $ifNull: ["$user.lastName", ""] },
+                          ],
+                        },
+                      },
+                    },
+                    regex: searchRegex,
+                    options: "i",
+                  },
+                },
+              },
+              {
+                $expr: {
+                  $regexMatch: {
+                    input: { $toString: "$_id" },
+                    regex: searchRegex,
+                    options: "i",
+                  },
+                },
+              },
+            ],
+          },
         });
       }
 
+      pipeline.push({ $sort: { createdAt: -1 } });
+
+      const filteredPayments = await Payment.aggregate(pipeline as any);
+
       // Generate CSV
       const headers = [
+        "Subscription Id",
+        "Transaction Id",
         "Order Reference",
         "Username",
         "Email",
+        "Phone Number",
+        "Verified At",
         "Date",
         "Plan",
         "Amount",
@@ -1402,9 +1461,13 @@ export default class PaymentController {
         };
 
         return [
+          payment.subscriptionId || user?.stripeSubscriptionId || "N/A",
+          payment.transactionId || "N/A",
           payment.orderRef || "N/A",
           username,
           user?.email || "N/A",
+          user?.phoneNumber || "N/A",
+          payment.verifiedAt ? formatDate(payment.verifiedAt) : "N/A",
           formatDate(payment.createdAt),
           formatPlanName(payment.plan),
           payment.amount?.toString() || "0",

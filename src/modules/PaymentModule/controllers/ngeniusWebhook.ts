@@ -185,6 +185,7 @@ router.post("/ngenius", async (req: Request, res: Response) => {
 
           // Store transaction details
           if (paymentDetails.id) {
+            payment.transactionId = paymentDetails.id;
             payment.invoiceId = paymentDetails.id;
           }
 

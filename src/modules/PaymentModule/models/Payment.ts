@@ -24,6 +24,7 @@ paymentLink?: string;
 // Stripe specific
 paymentIntentId?: string;
 subscriptionId?: string;
+transactionId?: string;
 
 // Common fields
 invoiceId?: string;
@@ -115,6 +116,11 @@ const PaymentSchema = new Schema<IPayment>(
   subscriptionId: {
     type: String,
     unique: true,
+    sparse: true,
+    index: true,
+  },
+  transactionId: {
+    type: String,
     sparse: true,
     index: true,
   },
