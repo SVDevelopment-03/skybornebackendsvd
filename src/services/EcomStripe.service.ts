@@ -19,7 +19,10 @@ export class EcomStripeService {
     userId: string,
     cartItems: Array<{ name: string; price: number; quantity: number; image?: string }>,
     shippingAddress: Record<string, any>,
-    userEmail: string
+    userEmail: string,
+    source: "app" | "web" = "web",
+    customSuccessUrl?: string,
+    customCancelUrl?: string
   ): Promise<{
     checkoutUrl: string;
     sessionId: string;
@@ -40,6 +43,30 @@ export class EcomStripeService {
       quantity: item.quantity,
     }));
 
+    const appSuccessUrl = customSuccessUrl || process.env.ECOM_APP_SUCCESS_URL;
+    const appCancelUrl = customCancelUrl || process.env.ECOM_APP_CANCEL_URL;
+    const webSuccessUrl =
+      process.env.ECOM_WEB_SUCCESS_URL ||
+      `${process.env.FRONTEND_URL}/order-success?sessionId={CHECKOUT_SESSION_ID}`;
+    const webCancelUrl =
+      process.env.ECOM_WEB_CANCEL_URL ||
+      `${process.env.FRONTEND_URL}/checkout?cancelled=true`;
+
+    if (source === "app" && (!appSuccessUrl || !appCancelUrl)) {
+      throw new Error(
+        "Missing ecom app redirect URLs. Set ECOM_APP_SUCCESS_URL and ECOM_APP_CANCEL_URL.",
+      );
+    }
+
+    if (source === "web" && (!webSuccessUrl || !webCancelUrl)) {
+      throw new Error(
+        "Missing ecom web redirect URLs. Set ECOM_WEB_SUCCESS_URL/ECOM_WEB_CANCEL_URL or FRONTEND_URL.",
+      );
+    }
+
+    const successUrl = source === "app" ? appSuccessUrl : webSuccessUrl;
+    const cancelUrl = source === "app" ? appCancelUrl : webCancelUrl;
+
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
       mode: "payment", // ← one-time payment, NOT subscription
@@ -51,8 +78,8 @@ export class EcomStripeService {
         shippingAddress: JSON.stringify(shippingAddress),
         type: "ecom", // ← distinguish from subscription sessions
       },
-      success_url: `${process.env.FRONTEND_URL}/order-success?sessionId={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.FRONTEND_URL}/checkout?cancelled=true`,
+      success_url: successUrl,
+      cancel_url: cancelUrl,
     });
 
     return {

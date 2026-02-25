@@ -17,7 +17,17 @@ export class EcomPaymentController {
       }
 
       const userId = req.user.id;
-      const { shippingAddress } = req.body;
+      const {
+        shippingAddress,
+        source = "web",
+        successUrl,
+        cancelUrl,
+      } = req.body as {
+        shippingAddress: any;
+        source?: "app" | "web";
+        successUrl?: string;
+        cancelUrl?: string;
+      };
 
       if (
         !shippingAddress?.firstName ||
@@ -53,7 +63,10 @@ export class EcomPaymentController {
           image: item.image,
         })),
         shippingAddress,
-        (user as any).email
+        (user as any).email,
+        source,
+        successUrl,
+        cancelUrl
       );
 
       console.log("✅ [EcomPayment] Checkout session created:", result.orderRef);

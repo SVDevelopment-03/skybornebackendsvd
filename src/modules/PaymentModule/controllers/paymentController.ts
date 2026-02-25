@@ -124,10 +124,51 @@ export default class PaymentController {
 
   static async createPaymentOrder(req: Request, res: Response) {
     try {
-      let { amount, currency = "USD", userId, plan, source, billingType = "monthly" } = req.body;
-      
-      const paymentSource = source === "app" ? "app" : "web";
+      let {
+        amount,
+        currency = "USD",
+        userId,
+        plan,
+        source,
+        billingType = "monthly",
+        successUrl,
+        cancelUrl,
+      } = req.body;
+
+      const normalizedSource = String(source ?? "")
+        .trim()
+        .toLowerCase();
+      const userAgent = String(req.headers["user-agent"] ?? "").toLowerCase();
+      const explicitClientSource = String(
+        req.headers["x-client-source"] ?? req.headers["x-platform"] ?? ""
+      )
+        .trim()
+        .toLowerCase();
+
+      const isAppSource =
+        normalizedSource === "app" ||
+        normalizedSource === "mobile" ||
+        explicitClientSource === "app" ||
+        explicitClientSource === "mobile" ||
+        userAgent.includes("okhttp") ||
+        userAgent.includes("reactnative") ||
+        userAgent.includes("react-native") ||
+        userAgent.includes("dalvik");
+
+      const paymentSource = isAppSource ? "app" : "web";
+      const appSuccessUrl =
+        successUrl || process.env.APP_PAYMENT_SUCCESS_URL;
+      const appCancelUrl =
+        cancelUrl || process.env.APP_PAYMENT_CANCEL_URL;
       const userAmount = amount;
+
+      if (paymentSource === "app" && (!appSuccessUrl || !appCancelUrl)) {
+        return res.status(500).json({
+          success: false,
+          message:
+            "Missing app payment redirect URLs. Set APP_PAYMENT_SUCCESS_URL and APP_PAYMENT_CANCEL_URL in environment.",
+        });
+      }
 
       // Validation
       if (!userId || !plan) {
@@ -195,6 +236,8 @@ export default class PaymentController {
           userAmount,
           paymentSource,
           billingType, // Pass billing type
+          paymentSource === "app" ? appSuccessUrl : undefined,
+          paymentSource === "app" ? appCancelUrl : undefined,
         );
 
         // Add paymentLink for frontend compatibility

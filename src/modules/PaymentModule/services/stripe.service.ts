@@ -188,6 +188,8 @@ export class StripeService {
     userAmount: number,
     source: "app" | "web" = "web",
     billingType: "monthly" | "yearly" = "monthly",
+    customSuccessUrl?: string,
+    customCancelUrl?: string,
   ): Promise<{
     checkoutUrl: string;
     sessionId: string;
@@ -235,16 +237,25 @@ export class StripeService {
 
       const orderRef = `STR-${Date.now()}`;
       const billingInterval = this.getBillingInterval(billingType);
-      
-      const successUrl =
-        source === "app"
-          ? "skybornedrop://payment-processing" 
-          : `${process.env.FRONTEND_URL}/payment-success?sessionId={CHECKOUT_SESSION_ID}`;
+      const appSuccessUrl = customSuccessUrl || process.env.APP_PAYMENT_SUCCESS_URL;
+      const appCancelUrl = customCancelUrl || process.env.APP_PAYMENT_CANCEL_URL;
+      const webSuccessUrl = process.env.WEB_PAYMENT_SUCCESS_URL || `${process.env.FRONTEND_URL}/payment-success?sessionId={CHECKOUT_SESSION_ID}`;
+      const webCancelUrl = process.env.WEB_PAYMENT_CANCEL_URL || `${process.env.FRONTEND_URL}/payment-failed`;
 
-      const cancelUrl =
-        source === "app"
-          ? "skybornedrop://payment-processing"
-          : `${process.env.FRONTEND_URL}/payment-failed`;
+      if (source === "app" && (!appSuccessUrl || !appCancelUrl)) {
+        throw new Error(
+          "Missing app Stripe redirect URLs. Set APP_PAYMENT_SUCCESS_URL and APP_PAYMENT_CANCEL_URL.",
+        );
+      }
+
+      if (source === "web" && (!webSuccessUrl || !webCancelUrl)) {
+        throw new Error(
+          "Missing web Stripe redirect URLs. Set WEB_PAYMENT_SUCCESS_URL/WEB_PAYMENT_CANCEL_URL or FRONTEND_URL.",
+        );
+      }
+
+      const successUrl = source === "app" ? appSuccessUrl : webSuccessUrl;
+      const cancelUrl = source === "app" ? appCancelUrl : webCancelUrl;
 
       // Create checkout session with LOCAL CURRENCY
       const session = await this.stripe.checkout.sessions.create({
