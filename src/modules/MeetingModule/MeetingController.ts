@@ -2168,10 +2168,18 @@ static async UpdateMeeting(req: Request, res: Response) {
           meeting.recurrenceType === "bi-weekly" &&
           updateScope !== "series",
       );
+    const defaultSingleForCustomParent =
+      Boolean(
+        meeting.recurringClass &&
+          !meeting.parentMeetingId &&
+          meeting.recurrenceType === "custom" &&
+          updateScope !== "series",
+      );
     const isSingleClassUpdate = Boolean(
       meeting.parentMeetingId ||
         updateScope === "single" ||
-        defaultSingleForBiWeeklyParent,
+        defaultSingleForBiWeeklyParent ||
+        defaultSingleForCustomParent,
     );
 
     const nextService = service ?? meeting.service;
