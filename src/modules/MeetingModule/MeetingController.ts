@@ -2705,7 +2705,9 @@ static async UpdateMeeting(req: Request, res: Response) {
       }
 
       const isRecurringParent = Boolean(meeting.recurringClass && !meeting.parentMeetingId);
+      const isChildOccurrenceRecord = Boolean(meeting.parentMeetingId);
       const shouldDeleteSeries = isRecurringParent && deleteScope !== "single";
+      let attemptedOccurrenceDelete = false;
 
       // Delete from Zoom first so DB and Zoom stay in sync.
       try {
@@ -2760,6 +2762,7 @@ static async UpdateMeeting(req: Request, res: Response) {
         // If occurrence is known, delete only that occurrence from Zoom.
         // Otherwise, Zoom deletes the full meeting/series.
         if (occurrenceIdToDelete) {
+          attemptedOccurrenceDelete = true;
           zoomDeleteConfig.params = { occurrence_id: occurrenceIdToDelete };
         }
 
@@ -2769,22 +2772,67 @@ static async UpdateMeeting(req: Request, res: Response) {
         );
       } catch (zoomError: any) {
         const status = zoomError?.response?.status;
+        const zoomCode = zoomError?.response?.data?.code;
+        const zoomMessage = String(zoomError?.response?.data?.message || "").toLowerCase();
+        const invalidOccurrenceParam =
+          status === 400 &&
+          zoomCode === 300 &&
+          zoomMessage.includes("occurrence_id");
+
+        if (attemptedOccurrenceDelete && invalidOccurrenceParam) {
+          // Stale/invalid occurrence id. Avoid deleting full series accidentally.
+          // Safe fallback:
+          // - series delete request: retry full meeting delete (no occurrence_id)
+          // - non-child standalone meeting: retry full delete
+          // - child occurrence record: keep Zoom intact and continue local cleanup
+          if (shouldDeleteSeries || !isChildOccurrenceRecord) {
+            try {
+              const token = await getZoomAccessToken();
+              await axios.delete(
+                `https://api.zoom.us/v2/meetings/${meeting.zoomMeetingId}`,
+                {
+                  headers: {
+                    Authorization: `Bearer ${token}`,
+                  },
+                },
+              );
+            } catch (retryError: any) {
+              const retryStatus = retryError?.response?.status;
+              if (retryStatus !== 404) {
+                console.error(
+                  "❌ [DeleteMeeting] Zoom retry delete failed:",
+                  retryError?.response?.data || retryError?.message,
+                );
+                return res.status(502).json({
+                  success: false,
+                  message: "Failed to delete meeting on Zoom. Local record not deleted.",
+                  error: retryError?.response?.data || retryError?.message,
+                });
+              }
+            }
+          } else {
+            console.warn(
+              "⚠️ [DeleteMeeting] Invalid occurrence_id for child meeting; continuing with local cleanup.",
+            );
+          }
+        } else {
         // Already deleted remotely; continue DB cleanup.
-        if (status !== 404) {
+          if (status !== 404) {
+            console.error(
+              "❌ [DeleteMeeting] Zoom delete failed:",
+              zoomError?.response?.data || zoomError?.message,
+            );
+            return res.status(502).json({
+              success: false,
+              message: "Failed to delete meeting on Zoom. Local record not deleted.",
+              error: zoomError?.response?.data || zoomError?.message,
+            });
+          }
           console.error(
-            "❌ [DeleteMeeting] Zoom delete failed:",
+            "⚠️ [DeleteMeeting] Zoom meeting already deleted remotely:",
             zoomError?.response?.data || zoomError?.message,
           );
-          return res.status(502).json({
-            success: false,
-            message: "Failed to delete meeting on Zoom. Local record not deleted.",
-            error: zoomError?.response?.data || zoomError?.message,
-          });
         }
-        console.error(
-          "⚠️ [DeleteMeeting] Zoom meeting already deleted remotely:",
-          zoomError?.response?.data || zoomError?.message,
-        );
       }
 
       const deletedMeetingIds: Types.ObjectId[] = [];
