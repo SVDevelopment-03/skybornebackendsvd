@@ -221,6 +221,29 @@ const countMonthlyOccurrencesInRange = (
   return Math.max(count, 1);
 };
 
+const countType2OccurrencesInRange = ({
+  startAt,
+  endAt,
+  recurrenceType,
+  customDays,
+  timeZone,
+}: {
+  startAt: Date;
+  endAt: Date;
+  recurrenceType: "weekly" | "custom" | "bi-weekly";
+  customDays: number[];
+  timeZone: string;
+}) => {
+  const dates = generateRecurringDatesInRange({
+    startAt,
+    endAt,
+    recurrenceType,
+    customDays,
+    timeZone,
+  });
+  return Math.max(dates.length, 1);
+};
+
 const generateRecurringDatesInRange = ({
   startAt,
   endAt,
@@ -476,6 +499,24 @@ static async CreateMeeting(req: Request, res: Response) {
             monthlyEnd,
             meetingTimeZone,
           );
+        } else if (
+          recurrenceType === "weekly" ||
+          recurrenceType === "custom" ||
+          recurrenceType === "bi-weekly"
+        ) {
+          const endTimes = countType2OccurrencesInRange({
+            startAt: startDateTime,
+            endAt: new Date(weeklyEndDate),
+            recurrenceType,
+            customDays: normalizedCustomDays,
+            timeZone: meetingTimeZone,
+          });
+          // Zoom type-2 recurrence supports up to 60 occurrences.
+          if (endTimes <= 60) {
+            recurrenceSettings.end_times = endTimes;
+          } else {
+            recurrenceSettings.end_date_time = toZoomEndDateTime(weeklyEndDate);
+          }
         } else {
           recurrenceSettings.end_date_time = toZoomEndDateTime(weeklyEndDate);
         }
@@ -2417,6 +2458,23 @@ static async UpdateMeeting(req: Request, res: Response) {
               nextWeeklyEndDate,
               meetingTimeZone,
             );
+          } else if (
+            nextRecurrenceType === "weekly" ||
+            nextRecurrenceType === "custom" ||
+            nextRecurrenceType === "bi-weekly"
+          ) {
+            const endTimes = countType2OccurrencesInRange({
+              startAt: startDateTime,
+              endAt: nextWeeklyEndDate,
+              recurrenceType: nextRecurrenceType,
+              customDays: nextCustomDays,
+              timeZone: meetingTimeZone,
+            });
+            if (endTimes <= 60) {
+              recurrenceSettings.end_times = endTimes;
+            } else {
+              recurrenceSettings.end_date_time = toZoomEndDateTime(nextWeeklyEndDate);
+            }
           } else {
             recurrenceSettings.end_date_time = toZoomEndDateTime(nextWeeklyEndDate);
           }
@@ -2598,6 +2656,23 @@ static async UpdateMeeting(req: Request, res: Response) {
                   nextWeeklyEndDate,
                   retryMeetingTimeZone,
                 );
+              } else if (
+                nextRecurrenceType === "weekly" ||
+                nextRecurrenceType === "custom" ||
+                nextRecurrenceType === "bi-weekly"
+              ) {
+                const endTimes = countType2OccurrencesInRange({
+                  startAt: retryStartDateTime,
+                  endAt: nextWeeklyEndDate,
+                  recurrenceType: nextRecurrenceType,
+                  customDays: nextCustomDays,
+                  timeZone: retryMeetingTimeZone,
+                });
+                if (endTimes <= 60) {
+                  retryRecurrence.end_times = endTimes;
+                } else {
+                  retryRecurrence.end_date_time = toZoomEndDateTime(nextWeeklyEndDate);
+                }
               } else {
                 retryRecurrence.end_date_time = toZoomEndDateTime(nextWeeklyEndDate);
               }
