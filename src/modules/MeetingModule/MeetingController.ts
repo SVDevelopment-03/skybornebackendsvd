@@ -184,6 +184,43 @@ const getMondayOfWeekInTimezone = (date: Date, timeZone: string) => {
   return monday;
 };
 
+const countMonthlyOccurrencesInRange = (
+  startAt: Date,
+  endAt: Date,
+  timeZone: string,
+) => {
+  const start = getDatePartsInTimezone(startAt, timeZone);
+  const end = getDatePartsInTimezone(endAt, timeZone);
+  const targetDay = start.day;
+
+  if (!targetDay) return 1;
+
+  let year = start.year;
+  let month = start.month; // 1..12
+  let count = 0;
+
+  while (year < end.year || (year === end.year && month <= end.month)) {
+    const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    if (targetDay <= daysInMonth) {
+      const isBeforeOrOnEnd =
+        year < end.year ||
+        (year === end.year &&
+          (month < end.month || (month === end.month && targetDay <= end.day)));
+      if (isBeforeOrOnEnd) {
+        count += 1;
+      }
+    }
+
+    month += 1;
+    if (month > 12) {
+      month = 1;
+      year += 1;
+    }
+  }
+
+  return Math.max(count, 1);
+};
+
 const generateRecurringDatesInRange = ({
   startAt,
   endAt,
@@ -302,6 +339,13 @@ static async CreateMeeting(req: Request, res: Response) {
       adminId,
       weeklyEndDate,
     } = req.body;
+    const normalizedCustomDays = Array.from(
+      new Set(
+        (Array.isArray(customDays) ? customDays : [])
+          .map((day) => Number(day))
+          .filter((day) => Number.isInteger(day) && day >= 1 && day <= 7),
+      ),
+    );
 
     // Validate required fields
     if (
@@ -334,10 +378,14 @@ static async CreateMeeting(req: Request, res: Response) {
         });
       }
 
-      if ((recurrenceType === "custom" || recurrenceType === "bi-weekly") && (!customDays || customDays.length === 0)) {
+      if (
+        (recurrenceType === "custom" || recurrenceType === "bi-weekly") &&
+        normalizedCustomDays.length === 0
+      ) {
         return res.status(400).json({
           success: false,
-          message: "Custom days are required when recurrence type is 'custom' or 'bi-weekly'",
+          message:
+            "Custom days are required and must be between 1 (Mon) and 7 (Sun) when recurrence type is 'custom' or 'bi-weekly'",
         });
       }
     }
@@ -351,7 +399,7 @@ static async CreateMeeting(req: Request, res: Response) {
       ? alignRecurringStartDate({
           startAt: inputStartDateTime,
           recurrenceType,
-          customDays,
+          customDays: normalizedCustomDays,
           timeZone: meetingTimeZone,
         })
       : inputStartDateTime;
@@ -383,11 +431,14 @@ static async CreateMeeting(req: Request, res: Response) {
         recurrenceSettings = {
           type: 2, // Weekly
           repeat_interval: 1,
-          weekly_days: zoomWeekDay,
+          weekly_days: toZoomApiWeekday(zoomWeekDay),
         };
       } else if (recurrenceType === "monthly") {
         // Monthly recurrence
-        const dayOfMonth = startDateTime.getUTCDate();
+        const dayOfMonth = getDatePartsInTimezone(
+          startDateTime,
+          meetingTimeZone,
+        ).day;
         recurrenceSettings = {
           type: 3, // Monthly
           repeat_interval: 1,
@@ -398,20 +449,29 @@ static async CreateMeeting(req: Request, res: Response) {
         recurrenceSettings = {
           type: 2, // Weekly
           repeat_interval: 1,
-          weekly_days: customDays.join(","), // e.g., "1,3,5" for Mon, Wed, Fri
+          weekly_days: toZoomApiWeeklyDaysCsv(normalizedCustomDays),
         };
       } else if (recurrenceType === "bi-weekly") {
         // Bi-weekly recurrence on selected weekdays
         recurrenceSettings = {
           type: 2, // Weekly
           repeat_interval: 2,
-          weekly_days: toZoomApiWeeklyDaysCsv(customDays),
+          weekly_days: toZoomApiWeeklyDaysCsv(normalizedCustomDays),
         };
       }
 
       // Add end date
       if (weeklyEndDate) {
-        recurrenceSettings.end_date_time = toZoomEndDateTime(weeklyEndDate);
+        if (recurrenceType === "monthly") {
+          const monthlyEnd = new Date(weeklyEndDate);
+          recurrenceSettings.end_times = countMonthlyOccurrencesInRange(
+            startDateTime,
+            monthlyEnd,
+            meetingTimeZone,
+          );
+        } else {
+          recurrenceSettings.end_date_time = toZoomEndDateTime(weeklyEndDate);
+        }
       } else {
         const defaultEndDate = new Date(startDateTime);
         defaultEndDate.setFullYear(defaultEndDate.getFullYear() + 1);
@@ -487,7 +547,7 @@ static async CreateMeeting(req: Request, res: Response) {
       customDays:
         recurringClass &&
         (recurrenceType === "custom" || recurrenceType === "bi-weekly")
-          ? customDays
+          ? normalizedCustomDays
           : [],
       rotationEnabled: false,
       isRecurring: recurringClass,
@@ -584,7 +644,7 @@ static async CreateMeeting(req: Request, res: Response) {
     if (recurringClass) {
       const recurrenceInfo =
         recurrenceType === "custom" || recurrenceType === "bi-weekly"
-        ? `custom schedule (${customDays.join(", ")})`
+        ? `custom schedule (${normalizedCustomDays.join(", ")})`
         : recurrenceType;
       responseMessage = `${recurrenceInfo.charAt(0).toUpperCase() + recurrenceInfo.slice(1)} recurring meeting "${title}" created successfully. Live session for ${liveRegion}. Recording available for other regions.`;
     } else {
@@ -2254,7 +2314,10 @@ static async UpdateMeeting(req: Request, res: Response) {
             weekly_days: toZoomApiWeekday(zoomWeekDay),
           };
         } else if (nextRecurrenceType === "monthly") {
-          const dayOfMonth = startDateTime.getUTCDate();
+          const dayOfMonth = getDatePartsInTimezone(
+            startDateTime,
+            meetingTimeZone,
+          ).day;
           recurrenceSettings = {
             type: 3, // Monthly
             repeat_interval: 1,
@@ -2276,7 +2339,15 @@ static async UpdateMeeting(req: Request, res: Response) {
 
         // Add end date
         if (nextWeeklyEndDate) {
-          recurrenceSettings.end_date_time = toZoomEndDateTime(nextWeeklyEndDate);
+          if (nextRecurrenceType === "monthly") {
+            recurrenceSettings.end_times = countMonthlyOccurrencesInRange(
+              startDateTime,
+              nextWeeklyEndDate,
+              meetingTimeZone,
+            );
+          } else {
+            recurrenceSettings.end_date_time = toZoomEndDateTime(nextWeeklyEndDate);
+          }
         }
       }
 
@@ -2426,10 +2497,14 @@ static async UpdateMeeting(req: Request, res: Response) {
                 weekly_days: toZoomApiWeekday(retryZoomWeekDay),
               };
             } else if (nextRecurrenceType === "monthly") {
+              const retryMonthDay = getDatePartsInTimezone(
+                retryStartDateTime,
+                retryMeetingTimeZone,
+              ).day;
               retryRecurrence = {
                 type: 3,
                 repeat_interval: 1,
-                monthly_day: retryStartDateTime.getUTCDate(),
+                monthly_day: retryMonthDay,
               };
             } else if (nextRecurrenceType === "custom") {
               retryRecurrence = {
@@ -2445,7 +2520,15 @@ static async UpdateMeeting(req: Request, res: Response) {
               };
             }
             if (nextWeeklyEndDate) {
-              retryRecurrence.end_date_time = toZoomEndDateTime(nextWeeklyEndDate);
+              if (nextRecurrenceType === "monthly") {
+                retryRecurrence.end_times = countMonthlyOccurrencesInRange(
+                  retryStartDateTime,
+                  nextWeeklyEndDate,
+                  retryMeetingTimeZone,
+                );
+              } else {
+                retryRecurrence.end_date_time = toZoomEndDateTime(nextWeeklyEndDate);
+              }
             }
           }
 
