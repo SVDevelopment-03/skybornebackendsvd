@@ -2685,6 +2685,7 @@ static async UpdateMeeting(req: Request, res: Response) {
   static async DeleteMeeting(req: Request, res: Response) {
     try {
       const { id } = req.params;
+      const deleteScope = String(req.query.scope || "").toLowerCase();
 
       // Validate MongoDB ID
       if (!mongoose.Types.ObjectId.isValid(id)) {
@@ -2703,6 +2704,9 @@ static async UpdateMeeting(req: Request, res: Response) {
         });
       }
 
+      const isRecurringParent = Boolean(meeting.recurringClass && !meeting.parentMeetingId);
+      const shouldDeleteSeries = isRecurringParent && deleteScope !== "single";
+
       // Delete from Zoom first so DB and Zoom stay in sync.
       try {
         const token = await getZoomAccessToken();
@@ -2716,9 +2720,9 @@ static async UpdateMeeting(req: Request, res: Response) {
           ? String(meeting.occurrenceId)
           : null;
 
-        // If this is a recurring parent record, resolve the matching occurrence by localTime.
-        // Never delete the full Zoom series when user asked to delete a single class.
-        if (!occurrenceIdToDelete && meeting.recurringClass) {
+        // For recurring parent records, default behavior is deleting full series.
+        // Pass ?scope=single to delete only one class occurrence.
+        if (!occurrenceIdToDelete && isRecurringParent && !shouldDeleteSeries) {
           const zoomMeetingResp = await axios.get(
             `https://api.zoom.us/v2/meetings/${meeting.zoomMeetingId}`,
             {
@@ -2754,6 +2758,7 @@ static async UpdateMeeting(req: Request, res: Response) {
         }
 
         // If occurrence is known, delete only that occurrence from Zoom.
+        // Otherwise, Zoom deletes the full meeting/series.
         if (occurrenceIdToDelete) {
           zoomDeleteConfig.params = { occurrence_id: occurrenceIdToDelete };
         }
@@ -2782,13 +2787,42 @@ static async UpdateMeeting(req: Request, res: Response) {
         );
       }
 
-      // Delete only selected DB record (single-class delete behavior).
-      await Meeting.findByIdAndDelete(id);
+      const deletedMeetingIds: Types.ObjectId[] = [];
+      if (shouldDeleteSeries) {
+        const seriesMeetings = await Meeting.find(
+          {
+            $or: [{ _id: meeting._id }, { parentMeetingId: meeting._id }],
+          },
+          { _id: 1 },
+        ).lean();
+        deletedMeetingIds.push(
+          ...seriesMeetings.map((item: any) => item._id as Types.ObjectId),
+        );
+        await Meeting.deleteMany({
+          $or: [{ _id: meeting._id }, { parentMeetingId: meeting._id }],
+        });
+      } else {
+        deletedMeetingIds.push(meeting._id as Types.ObjectId);
+        await Meeting.findByIdAndDelete(id);
+      }
+
+      if (deletedMeetingIds.length > 0) {
+        await Promise.all([
+          MeetingAttendance.deleteMany({ meeting: { $in: deletedMeetingIds } }),
+          MeetingParticipant.deleteMany({ meetingId: { $in: deletedMeetingIds } }),
+        ]);
+      }
 
       return res.json({
         success: true,
-        message: "Meeting deleted successfully",
-        data: { meetingId: id },
+        message: shouldDeleteSeries
+          ? "Meeting series deleted successfully"
+          : "Meeting deleted successfully",
+        data: {
+          meetingId: id,
+          deletedCount: deletedMeetingIds.length,
+          scope: shouldDeleteSeries ? "series" : "single",
+        },
       });
     } catch (error: any) {
       console.error("❌ [DeleteMeeting] ERROR CAUGHT");
