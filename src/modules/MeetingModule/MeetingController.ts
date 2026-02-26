@@ -574,34 +574,101 @@ static async CreateMeeting(req: Request, res: Response) {
     // Store all recurring instances in database
     const storedInstances: any[] = [];
 
-    if (recurringClass && occurrences && occurrences.length > 0) {
-      console.log(`📦 [CreateMeeting] Storing ${occurrences.length} recurring instances...`);
+    if (recurringClass) {
       const recurrenceRangeEnd = weeklyEndDate
         ? new Date(toZoomEndDateTime(weeklyEndDate))
         : null;
-      
-      for (const occurrence of occurrences) {
-        try {
-          const occurrenceStart = new Date(occurrence.start_time);
-          if (isSameSlot(occurrenceStart, startDateTime)) {
-            console.log(
-              `  ⏭️ Skipped first occurrence duplicate of parent: ${occurrence.occurrence_id} - ${occurrence.start_time}`,
-            );
-            continue;
-          }
-          if (
-            recurrenceRangeEnd &&
-            occurrenceStart.getTime() > recurrenceRangeEnd.getTime()
-          ) {
-            console.log(
-              `  ⏭️ Skipped out-of-range instance: ${occurrence.occurrence_id} - ${occurrence.start_time}`,
-            );
-            continue;
-          }
 
+      type NormalizedOccurrence = {
+        occurrenceId: string;
+        startTime: Date;
+      };
+
+      let zoomOccurrences: any[] = Array.isArray(occurrences) ? occurrences : [];
+      try {
+        const zoomMeetingResp = await axios.get(
+          `https://api.zoom.us/v2/meetings/${meetingId}`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            params: {
+              show_previous_occurrences: true,
+            },
+          },
+        );
+        const fetchedOccurrences: any[] = Array.isArray(zoomMeetingResp?.data?.occurrences)
+          ? zoomMeetingResp.data.occurrences
+          : [];
+        if (fetchedOccurrences.length > zoomOccurrences.length) {
+          zoomOccurrences = fetchedOccurrences;
+        }
+      } catch (fetchErr: any) {
+        console.warn(
+          "⚠️ [CreateMeeting] Could not fetch full Zoom occurrences, using create response only:",
+          fetchErr?.response?.data || fetchErr?.message,
+        );
+      }
+
+      const normalizedByStart = new Map<number, NormalizedOccurrence>();
+      for (const occ of zoomOccurrences) {
+        const occurrenceId = String(occ?.occurrence_id || "");
+        const occStart = new Date(occ?.start_time);
+        if (!occurrenceId || isNaN(occStart.getTime())) continue;
+        if (isSameSlot(occStart, startDateTime)) continue;
+        if (recurrenceRangeEnd && occStart.getTime() > recurrenceRangeEnd.getTime()) {
+          continue;
+        }
+        normalizedByStart.set(occStart.getTime(), { occurrenceId, startTime: occStart });
+      }
+
+      const targetOccurrences: NormalizedOccurrence[] = [];
+      const seenOccurrenceIds = new Set<string>();
+      for (const [, item] of normalizedByStart.entries()) {
+        if (!seenOccurrenceIds.has(item.occurrenceId)) {
+          seenOccurrenceIds.add(item.occurrenceId);
+          targetOccurrences.push(item);
+        }
+      }
+
+      if (
+        recurrenceRangeEnd &&
+        recurrenceType &&
+        ["weekly", "monthly", "custom", "bi-weekly"].includes(recurrenceType)
+      ) {
+        const generatedDates = generateRecurringDatesInRange({
+          startAt: new Date(startDateTime),
+          endAt: recurrenceRangeEnd,
+          recurrenceType: recurrenceType as
+            | "weekly"
+            | "monthly"
+            | "custom"
+            | "bi-weekly",
+          customDays: normalizedCustomDays,
+          timeZone: meetingTimeZone,
+        });
+
+        for (const generatedDate of generatedDates) {
+          if (isSameSlot(generatedDate, startDateTime)) continue;
+          const matchedZoom = normalizedByStart.get(generatedDate.getTime());
+          const generatedOccurrenceId =
+            matchedZoom?.occurrenceId || `local-${generatedDate.toISOString()}`;
+          if (seenOccurrenceIds.has(generatedOccurrenceId)) continue;
+          seenOccurrenceIds.add(generatedOccurrenceId);
+          targetOccurrences.push({
+            occurrenceId: generatedOccurrenceId,
+            startTime: generatedDate,
+          });
+        }
+      }
+
+      console.log(`📦 [CreateMeeting] Storing ${targetOccurrences.length} recurring instances...`);
+      for (const occ of targetOccurrences) {
+        try {
           const instanceRecord = await Meeting.create({
             zoomMeetingId: meetingId,
-            occurrenceId: occurrence.occurrence_id,
+            occurrenceId: occ.occurrenceId,
             service,
             title,
             regions,
@@ -615,8 +682,8 @@ static async CreateMeeting(req: Request, res: Response) {
             rotationEnabled: false,
             isRecurring: false, // Individual instances are not recurring
             isLive: true,
-            startDate: occurrenceStart,
-            localTime: occurrenceStart,
+            startDate: occ.startTime,
+            localTime: occ.startTime,
             joinUrl: webJoinUrl,
             startUrl: webStartUrl,
             recordingUrl: "",
@@ -626,14 +693,12 @@ static async CreateMeeting(req: Request, res: Response) {
 
           storedInstances.push({
             _id: instanceRecord._id,
-            occurrenceId: occurrence.occurrence_id,
-            startTime: occurrence.start_time,
+            occurrenceId: occ.occurrenceId,
+            startTime: occ.startTime.toISOString(),
           });
-
-          console.log(`  ✅ Instance saved: ${occurrence.occurrence_id} - ${occurrence.start_time}`);
         } catch (error: any) {
           console.error(
-            `  ❌ Error saving instance ${occurrence.occurrence_id}:`,
+            `  ❌ Error saving instance ${occ.occurrenceId}:`,
             error.message,
           );
         }
