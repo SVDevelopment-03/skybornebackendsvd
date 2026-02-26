@@ -1985,7 +1985,21 @@ static async UpdateMeeting(req: Request, res: Response) {
       });
     }
 
-    const isSingleClassUpdate = Boolean(meeting.parentMeetingId);
+    const updateScope = String(
+      (req.query.scope as string) || req.body?.scope || "",
+    ).toLowerCase();
+    const defaultSingleForBiWeeklyParent =
+      Boolean(
+        meeting.recurringClass &&
+          !meeting.parentMeetingId &&
+          meeting.recurrenceType === "bi-weekly" &&
+          updateScope !== "series",
+      );
+    const isSingleClassUpdate = Boolean(
+      meeting.parentMeetingId ||
+        updateScope === "single" ||
+        defaultSingleForBiWeeklyParent,
+    );
 
     const nextService = service ?? meeting.service;
     const nextTitle = title ?? meeting.title;
@@ -2008,11 +2022,19 @@ static async UpdateMeeting(req: Request, res: Response) {
       ? recurrenceType ?? meeting.recurrenceType ?? "weekly"
       : null;
     const nextCustomDays = nextRecurringClass
-      ? (Array.isArray(customDays)
-        ? customDays
-        : Array.isArray(meeting.customDays)
-          ? meeting.customDays
-          : [])
+      ? Array.from(
+          new Set(
+            (
+              Array.isArray(customDays)
+                ? customDays
+                : Array.isArray(meeting.customDays)
+                  ? meeting.customDays
+                  : []
+            )
+              .map((day) => Number(day))
+              .filter((day) => Number.isInteger(day) && day >= 1 && day <= 7),
+          ),
+        )
       : [];
     const nextWeeklyEndDate =
       weeklyEndDate !== undefined
@@ -2041,6 +2063,10 @@ static async UpdateMeeting(req: Request, res: Response) {
     console.log("✅ [UpdateMeeting] Meeting found, updating fields...");
 
     if (isSingleClassUpdate) {
+      let occurrenceIdToUpdate: string | null = meeting.occurrenceId
+        ? String(meeting.occurrenceId)
+        : null;
+
       try {
         const token = await getZoomAccessToken();
         const topic = `${nextTitle} - Live Class`;
@@ -2051,8 +2077,45 @@ static async UpdateMeeting(req: Request, res: Response) {
           },
         };
 
-        if (meeting.occurrenceId) {
-          zoomPatchConfig.params = { occurrence_id: meeting.occurrenceId };
+        // For recurring meetings, never patch Zoom without occurrence_id,
+        // otherwise Zoom updates the whole series.
+        const requiresOccurrenceId = Boolean(meeting.parentMeetingId || meeting.recurringClass);
+        if (requiresOccurrenceId && !occurrenceIdToUpdate) {
+          const zoomMeetingResp = await axios.get(
+            `https://api.zoom.us/v2/meetings/${meeting.zoomMeetingId}`,
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json",
+              },
+              params: {
+                show_previous_occurrences: true,
+              },
+            },
+          );
+          const zoomOccurrences: any[] = Array.isArray(zoomMeetingResp?.data?.occurrences)
+            ? zoomMeetingResp.data.occurrences
+            : [];
+          const meetingStart = new Date(meeting.localTime);
+          const matched = zoomOccurrences.find((occ: any) => {
+            const start = new Date(occ?.start_time);
+            return !isNaN(start.getTime()) && isSameSlot(start, meetingStart);
+          });
+          if (matched?.occurrence_id) {
+            occurrenceIdToUpdate = String(matched.occurrence_id);
+          }
+        }
+
+        if (requiresOccurrenceId && !occurrenceIdToUpdate) {
+          return res.status(409).json({
+            success: false,
+            message:
+              "Could not resolve recurring occurrence for this class. Single-class update is blocked to avoid updating all classes.",
+          });
+        }
+
+        if (occurrenceIdToUpdate) {
+          zoomPatchConfig.params = { occurrence_id: occurrenceIdToUpdate };
         }
 
         await axios.patch(
@@ -2072,8 +2135,8 @@ static async UpdateMeeting(req: Request, res: Response) {
                 "Content-Type": "application/json",
               },
             };
-            if (meeting.occurrenceId) {
-              retryConfig.params = { occurrence_id: meeting.occurrenceId };
+            if (occurrenceIdToUpdate) {
+              retryConfig.params = { occurrence_id: occurrenceIdToUpdate };
             }
 
             await axios.patch(
@@ -2188,7 +2251,7 @@ static async UpdateMeeting(req: Request, res: Response) {
           recurrenceSettings = {
             type: 2, // Weekly
             repeat_interval: 1,
-            weekly_days: zoomWeekDay,
+            weekly_days: toZoomApiWeekday(zoomWeekDay),
           };
         } else if (nextRecurrenceType === "monthly") {
           const dayOfMonth = startDateTime.getUTCDate();
@@ -2201,7 +2264,7 @@ static async UpdateMeeting(req: Request, res: Response) {
           recurrenceSettings = {
             type: 2, // Weekly
             repeat_interval: 1,
-            weekly_days: nextCustomDays.join(","), // e.g., "1,3,5"
+            weekly_days: toZoomApiWeeklyDaysCsv(nextCustomDays),
           };
         } else if (nextRecurrenceType === "bi-weekly") {
           recurrenceSettings = {
@@ -2360,7 +2423,7 @@ static async UpdateMeeting(req: Request, res: Response) {
               retryRecurrence = {
                 type: 2,
                 repeat_interval: 1,
-                weekly_days: retryZoomWeekDay,
+                weekly_days: toZoomApiWeekday(retryZoomWeekDay),
               };
             } else if (nextRecurrenceType === "monthly") {
               retryRecurrence = {
@@ -2372,7 +2435,7 @@ static async UpdateMeeting(req: Request, res: Response) {
               retryRecurrence = {
                 type: 2,
                 repeat_interval: 1,
-                weekly_days: nextCustomDays.join(","),
+                weekly_days: toZoomApiWeeklyDaysCsv(nextCustomDays),
               };
             } else if (nextRecurrenceType === "bi-weekly") {
               retryRecurrence = {
