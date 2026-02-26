@@ -274,28 +274,35 @@ const generateRecurringDatesInRange = ({
   const validCustomDays =
     Array.isArray(customDays) && customDays.length > 0
       ? customDays
-      : [toZoomWeekDay(safeStart)];
+      : [
+          timeZone
+            ? getZoomWeekdayInTimezone(safeStart, timeZone)
+            : toZoomWeekDay(safeStart),
+        ];
   const selectedDays = new Set(validCustomDays);
   const weekAnchorMonday =
     recurrenceType === "bi-weekly" && timeZone
       ? getMondayOfWeekInTimezone(safeStart, timeZone)
       : getUtcMondayOfWeek(safeStart);
+  const startWeekDayInContext =
+    timeZone
+      ? getZoomWeekdayInTimezone(safeStart, timeZone)
+      : toZoomWeekDay(safeStart);
 
   let dayCursor = startOfUtcDay(safeStart);
   while (dayCursor <= safeEnd) {
     const candidate = buildUtcDateWithBaseTime(dayCursor, safeStart);
     if (candidate >= safeStart && candidate <= safeEnd) {
-      const candidateWeekDay = toZoomWeekDay(candidate);
-      const biWeeklyWeekDayInContext =
-        recurrenceType === "bi-weekly" && timeZone
+      const candidateWeekDayInContext =
+        timeZone
           ? getZoomWeekdayInTimezone(candidate, timeZone)
-          : candidateWeekDay;
+          : toZoomWeekDay(candidate);
       const daySelected =
         recurrenceType === "weekly"
-          ? candidateWeekDay === toZoomWeekDay(safeStart)
+          ? candidateWeekDayInContext === startWeekDayInContext
           : recurrenceType === "bi-weekly"
-            ? selectedDays.has(biWeeklyWeekDayInContext)
-            : selectedDays.has(candidateWeekDay);
+            ? selectedDays.has(candidateWeekDayInContext)
+            : selectedDays.has(candidateWeekDayInContext);
       if (daySelected) {
         if (recurrenceType === "bi-weekly") {
           const candidateMonday =
