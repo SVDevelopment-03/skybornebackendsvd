@@ -2229,21 +2229,47 @@ static async UpdateMeeting(req: Request, res: Response) {
       }
     }
 
-    console.log("✅ [UpdateMeeting] Meeting found, updating fields...");
+	    console.log("✅ [UpdateMeeting] Meeting found, updating fields...");
+	    const meetingTimeZone = resolveMeetingTimezone(nextRegions, nextLiveRegion);
 
-    if (isSingleClassUpdate) {
-      let occurrenceIdToUpdate: string | null = meeting.occurrenceId
-        ? String(meeting.occurrenceId)
-        : null;
+	    if (isSingleClassUpdate) {
+	      let occurrenceIdToUpdate: string | null = meeting.occurrenceId
+	        ? String(meeting.occurrenceId)
+	        : null;
+	      const singleClassLocalTime = localTime
+	        ? new Date(localTime)
+	        : new Date(meeting.localTime);
+	      if (isNaN(singleClassLocalTime.getTime())) {
+	        return res.status(400).json({
+	          success: false,
+	          message: "Invalid localTime provided for meeting update",
+	        });
+	      }
 
-      try {
-        const token = await getZoomAccessToken();
-        const topic = `${nextTitle} - Live Class`;
-        const zoomPatchConfig: any = {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
+	      try {
+	        const token = await getZoomAccessToken();
+	        const topic = `${nextTitle} - Live Class`;
+	        const zoomSinglePayload: any = {
+	          topic,
+	          start_time: toZoomLocalDateTime(singleClassLocalTime, meetingTimeZone),
+	          duration: nextDuration,
+	          timezone: meetingTimeZone,
+	          settings: {
+	            mute_upon_entry: true,
+	            allow_multiple_audio_unmute: false,
+	            allow_participants_to_unmute_themselves: false,
+	            allow_participants_to_unmute: false,
+	            auto_recording: autoRecording ? "cloud" : "none",
+	            host_video: true,
+	            participant_video: true,
+	            waiting_room: false,
+	          },
+	        };
+	        const zoomPatchConfig: any = {
+	          headers: {
+	            Authorization: `Bearer ${token}`,
+	            "Content-Type": "application/json",
+	          },
         };
 
         // For recurring meetings, never patch Zoom without occurrence_id,
@@ -2287,14 +2313,14 @@ static async UpdateMeeting(req: Request, res: Response) {
           zoomPatchConfig.params = { occurrence_id: occurrenceIdToUpdate };
         }
 
-        await axios.patch(
-          `https://api.zoom.us/v2/meetings/${meeting.zoomMeetingId}`,
-          { topic },
-          zoomPatchConfig,
-        );
-      } catch (zoomError: any) {
-        const zoomErrorCode = zoomError?.response?.data?.code;
-        if (zoomErrorCode === 4711) {
+	        await axios.patch(
+	          `https://api.zoom.us/v2/meetings/${meeting.zoomMeetingId}`,
+	          zoomSinglePayload,
+	          zoomPatchConfig,
+	        );
+	      } catch (zoomError: any) {
+	        const zoomErrorCode = zoomError?.response?.data?.code;
+	        if (zoomErrorCode === 4711) {
           try {
             clearZoomTokenCache();
             const freshToken = await getZoomAccessToken({ forceRefresh: true });
@@ -2308,14 +2334,29 @@ static async UpdateMeeting(req: Request, res: Response) {
               retryConfig.params = { occurrence_id: occurrenceIdToUpdate };
             }
 
-            await axios.patch(
-              `https://api.zoom.us/v2/meetings/${meeting.zoomMeetingId}`,
-              { topic: `${nextTitle} - Live Class` },
-              retryConfig,
-            );
-          } catch (retryErr: any) {
-            return res.status(502).json({
-              success: false,
+	            await axios.patch(
+	              `https://api.zoom.us/v2/meetings/${meeting.zoomMeetingId}`,
+	              {
+	                topic: `${nextTitle} - Live Class`,
+	                start_time: toZoomLocalDateTime(singleClassLocalTime, meetingTimeZone),
+	                duration: nextDuration,
+	                timezone: meetingTimeZone,
+	                settings: {
+	                  mute_upon_entry: true,
+	                  allow_multiple_audio_unmute: false,
+	                  allow_participants_to_unmute_themselves: false,
+	                  allow_participants_to_unmute: false,
+	                  auto_recording: autoRecording ? "cloud" : "none",
+	                  host_video: true,
+	                  participant_video: true,
+	                  waiting_room: false,
+	                },
+	              },
+	              retryConfig,
+	            );
+	          } catch (retryErr: any) {
+	            return res.status(502).json({
+	              success: false,
               message:
                 "Failed to update meeting name on Zoom. Local data was not changed.",
               error: retryErr?.response?.data || retryErr?.message,
@@ -2336,26 +2377,25 @@ static async UpdateMeeting(req: Request, res: Response) {
       meeting.liveRegion = nextLiveRegion;
       meeting.liveTime = nextLiveTime;
       meeting.trainer = nextTrainer;
-      meeting.duration = nextDuration;
-      meeting.rotationEnabled = nextRotationEnabled;
-      meeting.regions = nextRegions;
+	      meeting.duration = nextDuration;
+	      meeting.rotationEnabled = nextRotationEnabled;
+	      meeting.regions = nextRegions;
+	      meeting.startDate = startDate ? new Date(startDate) : singleClassLocalTime;
+	      meeting.localTime = singleClassLocalTime;
+	      // Intentionally do not update series recurrence settings from child updates.
+	      await meeting.save();
 
-      // Intentionally do not update startDate/localTime for single class edits.
-      // Intentionally do not update series recurrence settings from child updates.
-      await meeting.save();
+	      return res.json({
+	        success: true,
+	        data: {
+	          meeting,
+	          message:
+	            `Single class "${meeting.title}" updated successfully on both Zoom and database.`,
+	        },
+	      });
+	    }
 
-      return res.json({
-        success: true,
-        data: {
-          meeting,
-          message:
-            `Single class "${meeting.title}" updated successfully. Date/time was kept unchanged.`,
-        },
-      });
-    }
-
-    const meetingTimeZone = resolveMeetingTimezone(nextRegions, nextLiveRegion);
-    const effectiveLocalTime = localTime ?? meeting.localTime;
+	    const effectiveLocalTime = localTime ?? meeting.localTime;
     const inputStartDateTime = new Date(effectiveLocalTime);
     const alignedStartDateTime = nextRecurringClass && nextRecurrenceType
       ? alignRecurringStartDate({
