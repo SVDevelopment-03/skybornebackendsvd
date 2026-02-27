@@ -77,4 +77,16 @@ export const PaymentApiRoutes = [
     request: null,
     method: "get",
   },
+  {
+    path: "/payment/card-details",
+    action: PaymentController.getCardDetails,
+    request: null,
+    method: "get",
+  },
+  {
+    path: "/payment/card-portal-session",
+    action: PaymentController.createCardPortalSession,
+    request: null,
+    method: "post",
+  },
 ];

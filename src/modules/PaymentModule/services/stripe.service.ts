@@ -37,6 +37,13 @@ export class StripeService {
     this.stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
   }
 
+  private static getStripeClient(): Stripe {
+    if (!this.stripe) {
+      this.initialize();
+    }
+    return this.stripe;
+  }
+
   /**
    * Get billing interval based on billing type
    */
@@ -60,7 +67,8 @@ export class StripeService {
     customerId: string,
   ): Promise<Stripe.Subscription[]> {
     try {
-      const subscriptions = await this.stripe.subscriptions.list({
+      const stripe = this.getStripeClient();
+      const subscriptions = await stripe.subscriptions.list({
         customer: customerId,
         status: "active",
       });
@@ -399,29 +407,217 @@ export class StripeService {
    */
   static async getOrCreateCustomer(user: any): Promise<string> {
     try {
-      // Check if user already has a Stripe customer ID
+      const stripe = this.getStripeClient();
+      const createNewCustomer = async () => {
+        const customer = await stripe.customers.create({
+          email: user.email,
+          name: `${user.firstName} ${user.lastName}`,
+          metadata: {
+            userId: user._id.toString(),
+          },
+        });
+
+        user.stripeCustomerId = customer.id;
+        await user.save();
+        return customer.id;
+      };
+
+      // If customer ID exists, verify it is valid in current Stripe account.
       if (user.stripeCustomerId) {
-        return user.stripeCustomerId;
+        try {
+          const existing = await stripe.customers.retrieve(user.stripeCustomerId);
+          if (!existing.deleted) {
+            return user.stripeCustomerId;
+          }
+        } catch (error: any) {
+          const notFound =
+            error?.statusCode === 404 ||
+            error?.code === "resource_missing" ||
+            String(error?.message || "").toLowerCase().includes("no such customer");
+          if (!notFound) {
+            throw error;
+          }
+          console.warn(
+            `⚠️ Invalid Stripe customerId (${user.stripeCustomerId}) for user ${user._id}. Recreating customer...`,
+          );
+        }
       }
-
-      // Create new customer
-      const customer = await this.stripe.customers.create({
-        email: user.email,
-        name: `${user.firstName} ${user.lastName}`,
-        metadata: {
-          userId: user._id.toString(),
-        },
-      });
-
-      // Save customer ID to user
-      user.stripeCustomerId = customer.id;
-      await user.save();
-
-      return customer.id;
+      return await createNewCustomer();
     } catch (error) {
       console.error("❌ Error creating Stripe customer:", error);
       throw error;
     }
+  }
+
+  static async getDefaultCardDetails(user: any) {
+    const stripe = this.getStripeClient();
+    const customerId = await this.getOrCreateCustomer(user);
+
+    const customer = await stripe.customers.retrieve(customerId);
+    if (customer.deleted) {
+      throw new Error("Stripe customer not found");
+    }
+
+    const defaultPaymentMethodId =
+      typeof customer.invoice_settings?.default_payment_method === "string"
+        ? customer.invoice_settings.default_payment_method
+        : customer.invoice_settings?.default_payment_method?.id || null;
+
+    if (!defaultPaymentMethodId) {
+      return {
+        customerId,
+        hasCard: false,
+        card: null,
+        billingDetails: {
+          name: customer.name || "",
+          email: customer.email || "",
+          phone: customer.phone || "",
+          address: {
+            line1: "",
+            line2: "",
+            city: "",
+            state: "",
+            postal_code: "",
+            country: "",
+          },
+        },
+      };
+    }
+
+    const paymentMethod = await stripe.paymentMethods.retrieve(defaultPaymentMethodId);
+    const details = (paymentMethod.billing_details || {}) as any;
+    const address = (details.address || {}) as any;
+    const card = paymentMethod.card;
+
+    return {
+      customerId,
+      hasCard: Boolean(card),
+      card: card
+        ? {
+            paymentMethodId: paymentMethod.id,
+            brand: card.brand,
+            last4: card.last4,
+            expMonth: card.exp_month,
+            expYear: card.exp_year,
+            funding: card.funding || null,
+          }
+        : null,
+      billingDetails: {
+        name: details.name || customer.name || "",
+        email: details.email || customer.email || "",
+        phone: details.phone || customer.phone || "",
+        address: {
+          line1: address.line1 || "",
+          line2: address.line2 || "",
+          city: address.city || "",
+          state: address.state || "",
+          postal_code: address.postal_code || "",
+          country: address.country || "",
+        },
+      },
+    };
+  }
+
+  static async createCardSetupIntent(user: any) {
+    const stripe = this.getStripeClient();
+    const customerId = await this.getOrCreateCustomer(user);
+    const setupIntent = await stripe.setupIntents.create({
+      customer: customerId,
+      payment_method_types: ["card"],
+      usage: "off_session",
+    });
+    return {
+      customerId,
+      clientSecret: setupIntent.client_secret,
+      setupIntentId: setupIntent.id,
+    };
+  }
+
+  static async createCardUpdatePortalSession(user: any, returnUrl?: string) {
+    const stripe = this.getStripeClient();
+    const customerId = await this.getOrCreateCustomer(user);
+    const fallbackReturnUrl = `${process.env.FRONTEND_URL || ""}/payments`;
+    const safeReturnUrl =
+      typeof returnUrl === "string" && /^https?:\/\//i.test(returnUrl)
+        ? returnUrl
+        : fallbackReturnUrl;
+
+    const session = await stripe.billingPortal.sessions.create({
+      customer: customerId,
+      return_url: safeReturnUrl,
+    } as any);
+
+    return {
+      customerId,
+      url: session.url,
+    };
+  }
+
+  static async setDefaultPaymentMethodForUser(
+    user: any,
+    paymentMethodId: string,
+    billingDetails?: {
+      name?: string;
+      email?: string;
+      phone?: string;
+      address?: {
+        line1?: string;
+        line2?: string;
+        city?: string;
+        state?: string;
+        postal_code?: string;
+        country?: string;
+      };
+    },
+  ) {
+    const stripe = this.getStripeClient();
+    const customerId = await this.getOrCreateCustomer(user);
+
+    // Ensure payment method is attached to this customer.
+    const existingPaymentMethod = await stripe.paymentMethods.retrieve(paymentMethodId);
+    const currentCustomer =
+      typeof existingPaymentMethod.customer === "string"
+        ? existingPaymentMethod.customer
+        : existingPaymentMethod.customer?.id || null;
+
+    if (!currentCustomer) {
+      await stripe.paymentMethods.attach(paymentMethodId, { customer: customerId });
+    } else if (currentCustomer !== customerId) {
+      throw new Error("Payment method belongs to a different customer");
+    }
+
+    if (billingDetails) {
+      await stripe.paymentMethods.update(paymentMethodId, {
+        billing_details: {
+          name: billingDetails.name,
+          email: billingDetails.email,
+          phone: billingDetails.phone,
+          address: billingDetails.address,
+        },
+      });
+    }
+
+    await stripe.customers.update(customerId, {
+      invoice_settings: {
+        default_payment_method: paymentMethodId,
+      },
+      name: billingDetails?.name || undefined,
+      email: billingDetails?.email || undefined,
+      phone: billingDetails?.phone || undefined,
+      address: billingDetails?.address || undefined,
+    });
+
+    if (user.stripeSubscriptionId) {
+      try {
+        await stripe.subscriptions.update(user.stripeSubscriptionId, {
+          default_payment_method: paymentMethodId,
+        });
+      } catch (error) {
+        console.warn("⚠️ Failed to update Stripe subscription default payment method:", error);
+      }
+    }
+
+    return this.getDefaultCardDetails(user);
   }
 
   /**

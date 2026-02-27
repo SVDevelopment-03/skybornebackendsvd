@@ -458,6 +458,163 @@ export default class PaymentController {
     }
   }
 
+  static async getCardDetails(req: Request, res: Response) {
+    try {
+      const userId = req?.user?.id;
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated",
+        });
+      }
+
+      const user = await User.findById(userId);
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found",
+        });
+      }
+
+      const cardData = await StripeService.getDefaultCardDetails(user);
+      return res.status(200).json({
+        success: true,
+        data: cardData,
+      });
+    } catch (error: any) {
+      console.error("❌ [getCardDetails] Error:", error);
+      return res.status(500).json({
+        success: false,
+        message: error?.message || "Failed to fetch card details",
+      });
+    }
+  }
+
+  static async createCardSetupIntent(req: Request, res: Response) {
+    try {
+      const userId = req?.user?.id;
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated",
+        });
+      }
+
+      const user = await User.findById(userId);
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found",
+        });
+      }
+
+      const setupIntent = await StripeService.createCardSetupIntent(user);
+      return res.status(200).json({
+        success: true,
+        data: setupIntent,
+      });
+    } catch (error: any) {
+      console.error("❌ [createCardSetupIntent] Error:", error);
+      return res.status(500).json({
+        success: false,
+        message: error?.message || "Failed to create setup intent",
+      });
+    }
+  }
+
+  static async updateCardDetails(req: Request, res: Response) {
+    try {
+      const userId = req?.user?.id;
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated",
+        });
+      }
+
+      const user = await User.findById(userId);
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found",
+        });
+      }
+
+      const paymentMethodId = String(req.body?.paymentMethodId || "").trim();
+      if (!paymentMethodId) {
+        return res.status(400).json({
+          success: false,
+          message: "paymentMethodId is required",
+        });
+      }
+
+      const billingDetails = {
+        name: req.body?.billingDetails?.name || "",
+        email: req.body?.billingDetails?.email || "",
+        phone: req.body?.billingDetails?.phone || "",
+        address: {
+          line1: req.body?.billingDetails?.address?.line1 || "",
+          line2: req.body?.billingDetails?.address?.line2 || "",
+          city: req.body?.billingDetails?.address?.city || "",
+          state: req.body?.billingDetails?.address?.state || "",
+          postal_code: req.body?.billingDetails?.address?.postal_code || "",
+          country: req.body?.billingDetails?.address?.country || "",
+        },
+      };
+
+      const updated = await StripeService.setDefaultPaymentMethodForUser(
+        user,
+        paymentMethodId,
+        billingDetails,
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: "Card details updated successfully",
+        data: updated,
+      });
+    } catch (error: any) {
+      console.error("❌ [updateCardDetails] Error:", error);
+      return res.status(500).json({
+        success: false,
+        message: error?.message || "Failed to update card details",
+      });
+    }
+  }
+
+  static async createCardPortalSession(req: Request, res: Response) {
+    try {
+      const userId = req?.user?.id;
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated",
+        });
+      }
+
+      const user = await User.findById(userId);
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found",
+        });
+      }
+
+      const returnUrl = String(req.body?.returnUrl || "").trim() || undefined;
+      const session = await StripeService.createCardUpdatePortalSession(user, returnUrl);
+      return res.status(200).json({
+        success: true,
+        data: session,
+      });
+    } catch (error: any) {
+      console.error("❌ [createCardPortalSession] Error:", error);
+      return res.status(500).json({
+        success: false,
+        message: error?.message || "Failed to create Stripe card update session",
+      });
+    }
+  }
+
   /**
    * Enhanced verifyNgeniusPayment for mobile
    */
