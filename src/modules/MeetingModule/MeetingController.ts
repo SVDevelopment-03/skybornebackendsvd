@@ -854,7 +854,7 @@ static async GetUpcomingMeetings(req: Request, res: Response) {
     }
 
     const now = new Date();
-    const oneHourAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+    const fifteenMinutesAgo = new Date(now.getTime() - 15 * 60 * 1000);
 
     let serviceTitles: string[] = [];
 
@@ -873,7 +873,7 @@ static async GetUpcomingMeetings(req: Request, res: Response) {
 
     // Build filter
     const filter: any = {
-      localTime: { $gte: oneHourAgo },
+      localTime: { $gte: fifteenMinutesAgo },
       title: { $regex: search, $options: "i" },
     };
 
