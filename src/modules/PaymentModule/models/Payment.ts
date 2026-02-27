@@ -115,9 +115,7 @@ const PaymentSchema = new Schema<IPayment>(
   },
   subscriptionId: {
     type: String,
-    sparse: true,
     unique: false,
-    index: true,
   },
   transactionId: {
     type: String,
