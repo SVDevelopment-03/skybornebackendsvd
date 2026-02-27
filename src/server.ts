@@ -18,7 +18,7 @@ const PORT = process.env.PORT || 8000;
 
 const startServer = async () => {
   try {
-    console.log("🚀 Starting server...");
+    console.log("🚀 Starting latest server...");
 
     /** 1. Connect MongoDB */
     await connectDB();
