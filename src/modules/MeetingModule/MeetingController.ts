@@ -807,10 +807,12 @@ static async CreateMeeting(req: Request, res: Response) {
 
 static async GetUpcomingMeetings(req: Request, res: Response) {
   console.log("📍 [GetUpcomingMeetings] Fetching upcoming meetings with query:", req.query);
-  try {
-    const { search = "", skip = 0, limit = 10, region } = req?.query;
-    const skipNum = parseInt(skip as string) || 0;
-    const limitNum = parseInt(limit as string) || 10;
+	  try {
+	    const { search = "", skip = 0, limit = 10, region } = req?.query;
+	    const skipNum = parseInt(skip as string) || 0;
+	    const limitNum = parseInt(limit as string) || 10;
+	    const normalizedRegion =
+	      typeof region === "string" ? region.trim() : "";
 
     const userId = req.user?.id;
     const userRole = (req as any).user?.role;
@@ -837,11 +839,11 @@ static async GetUpcomingMeetings(req: Request, res: Response) {
     const isAdminOrTrainer = userRole === "admin" || userRole === "trainer";
 
     // ✅ Region validation - only required for regular users
-    if (!isAdminOrTrainer) {
-      if (!region || typeof region !== 'string' || region.trim() === '' || region === '+' || region === ' ') {
-        return res.json({
-          success: true,
-          count: 0,
+	    if (!isAdminOrTrainer) {
+	      if (!normalizedRegion || normalizedRegion === "+") {
+	        return res.json({
+	          success: true,
+	          count: 0,
           totalCount: 0,
           hasMore: false,
           meetings: [],
@@ -885,16 +887,12 @@ static async GetUpcomingMeetings(req: Request, res: Response) {
       filter.service = { $in: serviceIds };
     }
 
-    // ✅ Region filter - only add for regular users
-    if (!isAdminOrTrainer) {
-      if (!region) {
-        return res.status(400).json({
-          success: false,
-          message: "Region is required for users",
-        });
-      }
-      filter.liveRegion = (region as string).trim();
-    }
+	    // ✅ Region filter:
+	    // - Required for regular users
+	    // - Applied for admin/trainer too when region query param is provided
+	    if (!isAdminOrTrainer || normalizedRegion) {
+	      filter.liveRegion = normalizedRegion;
+	    }
 
     console.log("📍 [GetUpcomingMeetings] User role:", userRole, "Is Admin/Trainer:", isAdminOrTrainer);
     console.log("📍 [GetUpcomingMeetings] Filter:", filter);
@@ -931,11 +929,13 @@ static async GetUpcomingMeetings(req: Request, res: Response) {
   }
 }
 
-static async GetAllMeetings(req: Request, res: Response) {
-  try {
-    const { search = "", skip = 0, limit = 10, region } = req?.query;
-    const skipNum = parseInt(skip as string) || 0;
-    const limitNum = parseInt(limit as string) || 10;
+	static async GetAllMeetings(req: Request, res: Response) {
+	  try {
+	    const { search = "", skip = 0, limit = 10, region } = req?.query;
+	    const skipNum = parseInt(skip as string) || 0;
+	    const limitNum = parseInt(limit as string) || 10;
+	    const normalizedRegion =
+	      typeof region === "string" ? region.trim() : "";
 
     const userId = req.user?.id;
     const userRole = (req as any).user?.role;
@@ -962,11 +962,11 @@ static async GetAllMeetings(req: Request, res: Response) {
     const isAdminOrTrainer = userRole === "admin" || userRole === "trainer";
 
     // ✅ Region validation - only required for regular users
-    if (!isAdminOrTrainer) {
-      if (!region || typeof region !== 'string' || region.trim() === '' || region === '+' || region === ' ') {
-        return res.json({
-          success: true,
-          count: 0,
+	    if (!isAdminOrTrainer) {
+	      if (!normalizedRegion || normalizedRegion === "+") {
+	        return res.json({
+	          success: true,
+	          count: 0,
           totalCount: 0,
           hasMore: false,
           meetings: [],
@@ -1006,16 +1006,12 @@ static async GetAllMeetings(req: Request, res: Response) {
       filter.service = { $in: serviceIds };
     }
 
-    // ✅ Region filter - only add for regular users
-    if (!isAdminOrTrainer) {
-      if (!region) {
-        return res.status(400).json({
-          success: false,
-          message: "Region is required for users",
-        });
-      }
-      filter.liveRegion = (region as string).trim();
-    }
+	    // ✅ Region filter:
+	    // - Required for regular users
+	    // - Applied for admin/trainer too when region query param is provided
+	    if (!isAdminOrTrainer || normalizedRegion) {
+	      filter.liveRegion = normalizedRegion;
+	    }
 
     console.log("📍 [GetAllMeetings] User role:", userRole, "Is Admin/Trainer:", isAdminOrTrainer);
     console.log("📍 [GetAllMeetings] Filter:", filter);
