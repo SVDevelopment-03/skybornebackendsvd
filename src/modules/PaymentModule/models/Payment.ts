@@ -109,13 +109,14 @@ const PaymentSchema = new Schema<IPayment>(
   // Stripe specific
   paymentIntentId: {
     type: String,
-    unique: true,
+    unique: false,
     sparse: true,
     index: true,
   },
   subscriptionId: {
     type: String,
     sparse: true,
+    unique: false,
     index: true,
   },
   transactionId: {
