@@ -19,7 +19,8 @@ const toZoomEndDateTime = (dateInput: string | Date) => {
   const end = new Date(dateInput);
   // Keep whole end date inclusive for all recurrence types.
   end.setUTCHours(23, 59, 59, 999);
-  return end.toISOString();
+  // Zoom expects RFC3339 without milliseconds for recurrence end_date_time.
+  return end.toISOString().replace(/\.\d{3}Z$/, "Z");
 };
 
 const toZoomWeekDay = (date: Date) => {
