@@ -427,7 +427,8 @@ export default class PaymentController {
   }
   static async me(req: Request, res: Response) {
     try {
-      const userId = req?.user?.id;
+      const userId =
+        (req as any)?.user?.id || (req as any)?.user?._id?.toString?.();
 
       if (!userId) {
         return res.status(401).json({
