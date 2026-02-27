@@ -9,8 +9,6 @@ import User from "../../UserModule/models/User";
 import { PLAN_CONFIG } from "../../../config/planConfig";
 import { PlanType } from "../../UserModule/interface/userInterface";
 import PlanModel from "../../PlanModule/models/Plan";
-import { addWelcomeEmailJob } from "../../../services/queues/emailQueue";
-import { addInvoiceEmailJob } from "../../../services/queues/invoiceEmailQueue";
 import { generateInvoicePDF } from "../../../services/invoiceService";
 import { v4 as uuidv4 } from "uuid";
 import {
@@ -21,6 +19,18 @@ import { getIO } from "../../../config/socket";
 import CancelSubscriptionModel from "../../CancelSubscriptionModule/CancelSubscriptionModel";
 
 type PreferedType = "stripe" | "ngenius";
+
+async function enqueueWelcomeEmail(payload: any) {
+  const { addWelcomeEmailJob } = await import("../../../services/queues/emailQueue");
+  return addWelcomeEmailJob(payload);
+}
+
+async function enqueueInvoiceEmail(payload: any, invoicePdfBase64: string) {
+  const { addInvoiceEmailJob } = await import(
+    "../../../services/queues/invoiceEmailQueue"
+  );
+  return addInvoiceEmailJob(payload, invoicePdfBase64);
+}
 
 export default class PaymentController {
   /**
@@ -460,7 +470,8 @@ export default class PaymentController {
 
   static async getCardDetails(req: Request, res: Response) {
     try {
-      const userId = req?.user?.id;
+      const userId =
+        (req as any)?.user?.id || (req as any)?.user?._id?.toString?.();
       if (!userId) {
         return res.status(401).json({
           success: false,
@@ -492,7 +503,8 @@ export default class PaymentController {
 
   static async createCardSetupIntent(req: Request, res: Response) {
     try {
-      const userId = req?.user?.id;
+      const userId =
+        (req as any)?.user?.id || (req as any)?.user?._id?.toString?.();
       if (!userId) {
         return res.status(401).json({
           success: false,
@@ -524,7 +536,8 @@ export default class PaymentController {
 
   static async updateCardDetails(req: Request, res: Response) {
     try {
-      const userId = req?.user?.id;
+      const userId =
+        (req as any)?.user?.id || (req as any)?.user?._id?.toString?.();
       if (!userId) {
         return res.status(401).json({
           success: false,
@@ -584,7 +597,8 @@ export default class PaymentController {
 
   static async createCardPortalSession(req: Request, res: Response) {
     try {
-      const userId = req?.user?.id;
+      const userId =
+        (req as any)?.user?.id || (req as any)?.user?._id?.toString?.();
       if (!userId) {
         return res.status(401).json({
           success: false,
@@ -970,7 +984,7 @@ export default class PaymentController {
 
             const invoicePDFBase64 = invoicePDF.toString("base64");
 
-            addInvoiceEmailJob(
+            enqueueInvoiceEmail(
               {
                 invoiceId,
                 orderRef: payment?.orderRef as string,
@@ -999,7 +1013,7 @@ export default class PaymentController {
             await payment.save();
           }
 
-          addWelcomeEmailJob({
+          enqueueWelcomeEmail({
             userId: user._id.toString(),
             email: user.email,
             firstName: user.firstName,
