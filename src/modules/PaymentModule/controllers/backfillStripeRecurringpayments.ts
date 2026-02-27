@@ -387,7 +387,11 @@ async function processInvoice(
     stats.created++;
   } catch (err: any) {
     if (err?.code === 11000) {
-      console.warn(`  ⚠️  [${invoiceId}] Duplicate key — skip`);
+      const keyPattern = err?.keyPattern ? JSON.stringify(err.keyPattern) : "unknown";
+      const keyValue = err?.keyValue ? JSON.stringify(err.keyValue) : "unknown";
+      console.warn(
+        `  ⚠️  [${invoiceId}] Duplicate key (${keyPattern} => ${keyValue}) — skip`,
+      );
       stats.skipped_already_exists++;
     } else {
       console.error(`  ❌ [${invoiceId}] Error:`, err.message);

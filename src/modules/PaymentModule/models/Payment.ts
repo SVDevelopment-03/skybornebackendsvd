@@ -115,7 +115,6 @@ const PaymentSchema = new Schema<IPayment>(
   },
   subscriptionId: {
     type: String,
-    unique: true,
     sparse: true,
     index: true,
   },
@@ -168,6 +167,14 @@ const PaymentSchema = new Schema<IPayment>(
 PaymentSchema.index({ userId: 1, isRecurring: 1, status: 1 });
 PaymentSchema.index({ recurringCycle: 1, status: 1 });
 PaymentSchema.index({ gateway: 1, status: 1 });
+PaymentSchema.index(
+  { gateway: 1, invoiceId: 1 },
+  {
+    unique: true,
+    sparse: true,
+    partialFilterExpression: { gateway: "stripe", invoiceId: { $type: "string" } },
+  },
+);
 PaymentSchema.index({ createdAt: -1 });
 
 export default mongoose.model<IPayment>('Payment', PaymentSchema);
