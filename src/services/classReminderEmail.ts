@@ -4,6 +4,7 @@ dotenv.config();
 
 import { classReminderEmailQueue } from "./queues/classReminderEmailQueue";
 import sgMail from "@sendgrid/mail";
+import { COUNTRY_TIMEZONE_MAP } from "../constants/countryTimezoneMap";
 
 sgMail.setApiKey(process.env.SENDGRID_API_KEY!);
 
@@ -11,12 +12,17 @@ const getClassReminderEmailHTML = (
   firstName: string,
   meetingTitle: string,
   region: string,
-  liveTime: string,
+  localTime: string,
+  localDate: string,
+  timezone: string,
   trainerName: string,
-  startDate: Date,
   duration: number,
+  reminderOffsetMinutes: number,
 ): string => {
-  const timeUntilClass = "10 minutes"; // or calculate dynamically
+  const timeUntilClass =
+    reminderOffsetMinutes >= 60
+      ? `${Math.round(reminderOffsetMinutes / 60)} hours`
+      : `${reminderOffsetMinutes} minutes`;
 
   return `
 <!DOCTYPE html>
@@ -225,7 +231,7 @@ const getClassReminderEmailHTML = (
                 
                 <div class="detail-row">
                     <span class="detail-label">🕐 Time</span>
-                    <span class="detail-value">${liveTime}</span>
+                    <span class="detail-value">${localTime} (${timezone})</span>
                 </div>
                 
                 <div class="detail-row">
@@ -235,13 +241,7 @@ const getClassReminderEmailHTML = (
                 
                 <div class="detail-row">
                     <span class="detail-label">📅 Date</span>
-                    <span class="detail-value">${new Date(
-                      startDate,
-                    ).toLocaleDateString("en-US", {
-                      year: "numeric",
-                      month: "short",
-                      day: "numeric",
-                    })}</span>
+                    <span class="detail-value">${localDate}</span>
                 </div>
             </div>
             
@@ -280,7 +280,8 @@ classReminderEmailQueue.process(async (job: any) => {
     userEmails,
     meetingTitle,
     region,
-    liveTime,
+    reminderOffsetMinutes = 10,
+    classStartAt,
     startDate,
     duration,
     trainerName,
@@ -288,21 +289,46 @@ classReminderEmailQueue.process(async (job: any) => {
 
   try {
     // Send email to all users in the region
+    const meetingStartDate = new Date(classStartAt || startDate);
+    if (isNaN(meetingStartDate.getTime())) {
+      throw new Error("Invalid class start time in reminder job payload");
+    }
     const emailPromises = userEmails.map((user: any) => {
+      const countryCode = String(user?.countryCode || "").trim().toUpperCase();
+      const timezone = COUNTRY_TIMEZONE_MAP[countryCode] || "UTC";
+      const localTime = meetingStartDate.toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+        timeZone: timezone,
+      });
+      const localDate = meetingStartDate.toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        timeZone: timezone,
+      });
+
       const htmlContent = getClassReminderEmailHTML(
         user.firstName,
         meetingTitle,
         region,
-        liveTime,
+        localTime,
+        localDate,
+        timezone,
         trainerName,
-        startDate,
         duration,
+        reminderOffsetMinutes,
       );
 
       const msg = {
         to: user.email,
         from: process.env.SENDGRID_FROM_EMAIL as string,
-        subject: `⏰ Reminder: ${meetingTitle} starts in 10 minutes!`,
+        subject: `⏰ Reminder: ${meetingTitle} starts in ${
+          reminderOffsetMinutes >= 60
+            ? `${Math.round(reminderOffsetMinutes / 60)} hours`
+            : `${reminderOffsetMinutes} minutes`
+        }!`,
         html: htmlContent,
       };
 

@@ -5,13 +5,15 @@ export interface ClassReminderEmailJob {
   meetingId: string;
   meetingTitle: string;
   region: string;
+  reminderOffsetMinutes: number;
   liveTime: string;
-  startDate: Date;
+  classStartAt: Date;
   duration: number;
   trainerName: string;
   userEmails: Array<{
     email: string;
     firstName: string;
+    countryCode?: string;
   }>;
 }
 

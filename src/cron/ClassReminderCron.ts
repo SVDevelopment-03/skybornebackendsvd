@@ -15,50 +15,55 @@ export const startClassReminderCron = () => {
     try {
       const now = new Date();
       console.log("⏰ Cron started:", new Date().toISOString());
+      const reminderConfigs = [
+        { minutesBefore: 24 * 60, flag: "reminder24HourSent" as const },
+        { minutesBefore: 30, flag: "reminder30MinSent" as const },
+      ];
 
-      // Calculate time windows: 5-15 minutes from now
-      const timeWindow = {
-        start: new Date(now.getTime() + 5 * 60 * 1000), // 5 minutes from now
-        end: new Date(now.getTime() + 15 * 60 * 1000), // 15 minutes from now
-      };
+      for (const reminder of reminderConfigs) {
+        const timeWindow = {
+          start: new Date(now.getTime() + (reminder.minutesBefore - 5) * 60 * 1000),
+          end: new Date(now.getTime() + (reminder.minutesBefore + 5) * 60 * 1000),
+        };
 
-      console.log("⏰ Time window for upcoming meetings:", timeWindow);
+        const upcomingMeetings = await Meeting.find({
+          localTime: {
+            $gte: timeWindow.start,
+            $lte: timeWindow.end,
+          },
+          [reminder.flag]: { $ne: true },
+        }).select("_id title liveRegion liveTime localTime reminder24HourSent reminder30MinSent");
 
-      // Find all meetings that start within this window AND haven't sent reminder yet
-      const upcomingMeetings = await Meeting.find({
-        localTime: {
-          $gte: timeWindow.start,
-          $lte: timeWindow.end,
-        },
-        reminderSent: false, // Add this field to track if reminder was sent
-      }).select("_id title liveRegion liveTime localTime");
+        if (upcomingMeetings.length > 0) {
+          console.log(
+            `⏰ Found ${upcomingMeetings.length} class(es) for ${reminder.minutesBefore} minutes reminder`,
+          );
+        }
 
-      console.log("⏰ Upcoming meetings found:", upcomingMeetings);
-
-      if (upcomingMeetings.length > 0) {
-        console.log(
-          `⏰ Found ${upcomingMeetings.length} class(es) starting soon`
-        );
-
-        // Process each meeting
         for (const meeting of upcomingMeetings) {
           try {
             await ClassReminderService.sendClassReminder(
               (meeting._id as string).toString(),
-              10 // 10 minutes before
+              reminder.minutesBefore,
             );
 
-            // Mark reminder as sent
-            await Meeting.updateOne(
-              { _id: meeting._id },
-              { reminderSent: true }
-            );
+            const updateData: Record<string, boolean> = {
+              [reminder.flag]: true,
+            };
 
-            console.log(`✅ Reminder sent and marked for meeting ${meeting._id}`);
+            if (reminder.flag === "reminder30MinSent") {
+              updateData.reminderSent = true;
+            }
+
+            await Meeting.updateOne({ _id: meeting._id }, updateData);
+
+            console.log(
+              `✅ ${reminder.minutesBefore} minute reminder sent and marked for meeting ${meeting._id}`,
+            );
           } catch (error) {
             console.error(
-              `❌ Error processing meeting ${meeting._id}:`,
-              error
+              `❌ Error processing ${reminder.minutesBefore} minute reminder for meeting ${meeting._id}:`,
+              error,
             );
           }
         }

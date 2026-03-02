@@ -120,22 +120,23 @@ static async getCountriesByRegion(regionName: string) {
       const userEmails = users.map((user: any) => ({
         email: user.email,
         firstName: user.firstName || user.lastName || "User",
+        countryCode: user.countryCode || "",
       }));
 
       // Get trainer name
       const trainerName = (meeting.trainer as any)?.name || "Your Trainer";
 
-      // Need to uncomment
-      // await addClassReminderEmailJob({
-      //   meetingId: (meeting._id as string).toString(),
-      //   meetingTitle: meeting.title,
-      //   region: region,
-      //   liveTime: meeting.liveTime,
-      //   startDate: meeting.startDate,
-      //   duration: meeting.duration,
-      //   trainerName: trainerName,
-      //   userEmails: userEmails,
-      // });
+      await addClassReminderEmailJob({
+        meetingId: (meeting._id as string).toString(),
+        meetingTitle: meeting.title,
+        region: region,
+        reminderOffsetMinutes: minutesBefore,
+        liveTime: meeting.liveTime,
+        classStartAt: meeting.localTime,
+        duration: meeting.duration,
+        trainerName: trainerName,
+        userEmails: userEmails,
+      });
 
       console.log(
         `✅ Class reminder job queued for ${userEmails.length} users. Meeting: ${meeting.title}`
@@ -184,6 +185,7 @@ static async getCountriesByRegion(regionName: string) {
       const userEmails = users.map((user: any) => ({
         email: user.email,
         firstName: user.firstName || user.lastName || "User",
+        countryCode: user.countryCode || "",
       }));
 
       const trainerName = (meeting.trainer as any)?.name || "Your Trainer";
@@ -192,8 +194,9 @@ static async getCountriesByRegion(regionName: string) {
         meetingId: (meeting._id as string).toString(),
         meetingTitle: meeting.title,
         region: region,
+        reminderOffsetMinutes: 10,
         liveTime: meeting.liveTime,
-        startDate: meeting.startDate,
+        classStartAt: meeting.localTime,
         duration: meeting.duration,
         trainerName: trainerName,
         userEmails: userEmails,

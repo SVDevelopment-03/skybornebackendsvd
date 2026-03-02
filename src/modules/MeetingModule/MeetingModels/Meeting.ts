@@ -26,6 +26,8 @@ export interface IMeeting extends Document {
   service: Types.ObjectId | IService;
   title: string;
   reminderSent?: boolean; // Track if reminder email has been sent
+  reminder30MinSent?: boolean;
+  reminder24HourSent?: boolean;
   occurrenceId?: string;
 
   // Dynamic region grid
@@ -83,6 +85,16 @@ const MeetingSchema = new Schema<IPopulatedMeeting>(
       required: true,
     },
     reminderSent: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+    reminder30MinSent: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+    reminder24HourSent: {
       type: Boolean,
       required: false,
       default: false,
