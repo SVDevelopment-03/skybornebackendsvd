@@ -204,6 +204,17 @@ export default class PaymentController {
         });
       }
 
+      if (
+        user.stripeSubscriptionId &&
+        user.subscription?.status === "active"
+      ) {
+        return res.status(409).json({
+          success: false,
+          message:
+            "Active Stripe subscription already exists. Use upgrade plan API instead of create-order.",
+        });
+      }
+
       // Determine preferred gateway based on country
       const countryCode = user.country || user.countryCode;
       const preferredGateway =
@@ -283,6 +294,110 @@ export default class PaymentController {
       return res.status(500).json({
         success: false,
         message: "Failed to create payment order",
+        error: err instanceof Error ? err.message : "Unknown error",
+      });
+    }
+  }
+
+  static async upgradePlanOrder(req: Request, res: Response) {
+    try {
+      const {
+        userId,
+        plan,
+        amount,
+        currency = "USD",
+        billingType = "monthly",
+      } = req.body;
+
+      if (!userId || !plan || amount === undefined || amount === null) {
+        return res.status(400).json({
+          success: false,
+          message: "userId, plan and amount are required",
+        });
+      }
+
+      if (!["monthly", "yearly"].includes(billingType)) {
+        return res.status(400).json({
+          success: false,
+          message: "billingType must be 'monthly' or 'yearly'",
+        });
+      }
+
+      const user = await User.findById(userId);
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found",
+        });
+      }
+
+      if (!user.stripeSubscriptionId) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "No existing Stripe subscription found. Use create-order API for new subscription.",
+        });
+      }
+
+      const upgraded = await StripeService.upgradeSubscriptionPlan(
+        userId,
+        user.stripeSubscriptionId,
+        Number(amount),
+        String(currency).toUpperCase(),
+        String(plan),
+        billingType,
+      );
+
+      user.plan = String(plan);
+      user.billingType = billingType;
+      user.gateway = "stripe";
+      user.lastPaymentGateway = "stripe";
+      user.subscription = {
+        ...user.subscription,
+        status: "active",
+        startDate: user.subscription?.startDate || new Date(),
+        endDate: upgraded.currentPeriodEnd || user.subscription?.endDate || null,
+      };
+      await user.save();
+
+      await Payment.findOneAndUpdate(
+        {
+          userId: user._id,
+          gateway: "stripe",
+          subscriptionId: user.stripeSubscriptionId,
+          status: "COMPLETED",
+        },
+        {
+          $set: {
+            plan: String(plan),
+            billingType,
+            amount: Number(amount),
+            localAmount: upgraded.localAmount,
+            currency: String(currency).toUpperCase(),
+          },
+        },
+        { sort: { createdAt: -1 } },
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: "Subscription upgraded successfully",
+        data: {
+          subscriptionId: upgraded.subscriptionId,
+          plan: upgraded.plan,
+          amount: upgraded.amount,
+          currency: upgraded.currency,
+          localAmount: upgraded.localAmount,
+          localCurrency: upgraded.localCurrency,
+          billingType: upgraded.billingType,
+          subscriptionEndDate: upgraded.currentPeriodEnd,
+        },
+      });
+    } catch (err) {
+      console.error("❌ Upgrade plan error:", err);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to upgrade plan",
         error: err instanceof Error ? err.message : "Unknown error",
       });
     }
@@ -1357,8 +1472,8 @@ export default class PaymentController {
             as: "user",
           },
         },
-        // Unwind user array
-        { $unwind: "$user" },
+        // Keep payments even when user record is missing
+        { $unwind: { path: "$user", preserveNullAndEmptyArrays: true } },
       ];
 
       // Filter by country if provided
@@ -1438,7 +1553,7 @@ export default class PaymentController {
 
         return {
           _id: payment._id,
-          userId: user._id,
+          userId: user?._id || payment.userId || null,
           username,
           email: user?.email || "N/A",
           phoneNumber: user?.phoneNumber || "N/A",
@@ -1532,7 +1647,7 @@ export default class PaymentController {
             as: "user",
           },
         },
-        { $unwind: "$user" },
+        { $unwind: { path: "$user", preserveNullAndEmptyArrays: true } },
       ];
 
       if (country && country !== "all") {
@@ -1783,7 +1898,7 @@ export default class PaymentController {
           totalRevenue: parseFloat(totalRevenue.toFixed(2)),
           thisMonth: parseFloat(thisMonth.toFixed(2)),
           lastPaymentAmount,
-          totalCount: payments.length,
+          totalCount: completedPayments.length,
           completedCount: completedPayments.length,
           failedCount: failedPayments.length,
           pendingCount: pendingPayments.length,

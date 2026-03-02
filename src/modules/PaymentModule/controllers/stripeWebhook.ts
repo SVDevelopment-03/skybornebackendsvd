@@ -40,24 +40,80 @@ const getInvoiceAmount = (invoice: Stripe.Invoice): number => {
 };
 
 const getInvoiceTransactionId = (invoice: Stripe.Invoice): string | null => {
-  // Stripe API v2 (2025+): payment_intent lives on line items, not top-level
-  const lines = (invoice as any).lines?.data;
-  if (lines?.length > 0) {
-    for (const line of lines) {
-      const pi = line.payment_intent;
-      if (pi) return typeof pi === "string" ? pi : pi.id;
-    }
+  const asAny = invoice as any;
+
+  const paymentIntent = asAny.payment_intent;
+  if (typeof paymentIntent === "string" && paymentIntent.startsWith("pi_")) {
+    return paymentIntent;
   }
-  // Legacy fallback: top-level payment_intent
-  const paymentIntent = (invoice as any).payment_intent;
-  if (paymentIntent) {
-    return typeof paymentIntent === "string" ? paymentIntent : paymentIntent.id;
+  if (paymentIntent?.id?.startsWith?.("pi_")) return paymentIntent.id;
+
+  const paymentIntentFromParent = asAny.parent?.payment_intent;
+  if (
+    typeof paymentIntentFromParent === "string" &&
+    paymentIntentFromParent.startsWith("pi_")
+  ) {
+    return paymentIntentFromParent;
   }
-  // Legacy fallback: top-level charge
-  const charge = (invoice as any).charge;
-  if (charge) {
-    return typeof charge === "string" ? charge : charge.id;
+  if (paymentIntentFromParent?.id?.startsWith?.("pi_")) {
+    return paymentIntentFromParent.id;
   }
+
+  const latestCharge = paymentIntent?.latest_charge;
+  if (latestCharge?.payment_intent?.id?.startsWith?.("pi_")) {
+    return latestCharge.payment_intent.id;
+  }
+  if (
+    typeof latestCharge?.payment_intent === "string" &&
+    latestCharge.payment_intent.startsWith("pi_")
+  ) {
+    return latestCharge.payment_intent;
+  }
+
+  const charge = asAny.charge;
+  if (charge?.payment_intent?.id?.startsWith?.("pi_")) {
+    return charge.payment_intent.id;
+  }
+  if (
+    typeof charge?.payment_intent === "string" &&
+    charge.payment_intent.startsWith("pi_")
+  ) {
+    return charge.payment_intent;
+  }
+
+  const topLevelLatestCharge = asAny.latest_charge;
+  if (topLevelLatestCharge?.payment_intent?.id?.startsWith?.("pi_")) {
+    return topLevelLatestCharge.payment_intent.id;
+  }
+  if (
+    typeof topLevelLatestCharge?.payment_intent === "string" &&
+    topLevelLatestCharge.payment_intent.startsWith("pi_")
+  ) {
+    return topLevelLatestCharge.payment_intent;
+  }
+
+  const paymentRecord = asAny.payments?.data?.[0]?.payment || null;
+  if (paymentRecord?.payment_intent?.id?.startsWith?.("pi_")) {
+    return paymentRecord.payment_intent.id;
+  }
+  if (
+    typeof paymentRecord?.payment_intent === "string" &&
+    paymentRecord.payment_intent.startsWith("pi_")
+  ) {
+    return paymentRecord.payment_intent;
+  }
+
+  const paymentIntentFromPayments = asAny.payments?.data?.[0]?.payment_intent;
+  if (
+    typeof paymentIntentFromPayments === "string" &&
+    paymentIntentFromPayments.startsWith("pi_")
+  ) {
+    return paymentIntentFromPayments;
+  }
+  if (paymentIntentFromPayments?.id?.startsWith?.("pi_")) {
+    return paymentIntentFromPayments.id;
+  }
+
   return null;
 };
 
@@ -73,6 +129,80 @@ const getCheckoutTransactionId = (
   const paymentIntent = session.payment_intent;
   if (!paymentIntent) return null;
   return typeof paymentIntent === "string" ? paymentIntent : paymentIntent.id;
+};
+
+const getChargeIdFromInvoice = (invoice: Stripe.Invoice): string | null => {
+  const asAny = invoice as any;
+
+  const charge = asAny.charge;
+  if (typeof charge === "string" && charge.startsWith("ch_")) return charge;
+  if (charge?.id?.startsWith?.("ch_")) return charge.id;
+
+  const latestChargeFromPi = asAny.payment_intent?.latest_charge;
+  if (
+    typeof latestChargeFromPi === "string" &&
+    latestChargeFromPi.startsWith("ch_")
+  ) {
+    return latestChargeFromPi;
+  }
+  if (latestChargeFromPi?.id?.startsWith?.("ch_")) return latestChargeFromPi.id;
+
+  const latestCharge = asAny.latest_charge;
+  if (typeof latestCharge === "string" && latestCharge.startsWith("ch_")) {
+    return latestCharge;
+  }
+  if (latestCharge?.id?.startsWith?.("ch_")) return latestCharge.id;
+
+  return null;
+};
+
+const hydrateInvoice = async (invoice: Stripe.Invoice): Promise<Stripe.Invoice> => {
+  if (!invoice.id) return invoice;
+  try {
+    return await stripe.invoices.retrieve(invoice.id, {
+      expand: [
+        "payment_intent",
+        "payment_intent.latest_charge",
+        "charge",
+        "payments",
+      ],
+    });
+  } catch (err: any) {
+    console.warn("⚠️ Failed to hydrate invoice for transaction lookup:", {
+      invoiceId: invoice.id,
+      error: err.message,
+    });
+    return invoice;
+  }
+};
+
+const resolveInvoiceTransactionId = async (
+  invoice: Stripe.Invoice,
+): Promise<string | null> => {
+  const directId = getInvoiceTransactionId(invoice);
+  if (directId) return directId;
+
+  const chargeId = getChargeIdFromInvoice(invoice);
+  if (chargeId) {
+    try {
+      const charge = await stripe.charges.retrieve(chargeId, {
+        expand: ["payment_intent"],
+      });
+      const paymentIntent = (charge as any).payment_intent;
+      if (typeof paymentIntent === "string" && paymentIntent.startsWith("pi_")) {
+        return paymentIntent;
+      }
+      if (paymentIntent?.id?.startsWith?.("pi_")) return paymentIntent.id;
+    } catch (err: any) {
+      console.warn("⚠️ Failed charge lookup for invoice transaction id:", {
+        invoiceId: invoice.id,
+        chargeId,
+        error: err.message,
+      });
+    }
+  }
+
+  return null;
 };
 
 // ─── WEBHOOK ROUTER ───────────────────────────────────────────────────────────
@@ -155,6 +285,7 @@ router.post(
         // ── Recurring Subscription Charge Success ─────────────────────────
         case "invoice.payment_succeeded": {
           const invoice = event.data.object as Stripe.Invoice;
+          const hydratedInvoice = await hydrateInvoice(invoice);
           const billingReason = invoice.billing_reason || "";
           const isRecurringCycle = billingReason === "subscription_cycle";
 
@@ -170,22 +301,22 @@ router.post(
             break;
           }
 
-          const subscriptionId = getSubscriptionId(invoice);
-          if (!subscriptionId || !invoice.id) {
+          const subscriptionId = getSubscriptionId(hydratedInvoice);
+          if (!subscriptionId || !hydratedInvoice.id) {
             console.warn("⚠️ Missing subscriptionId or invoice.id in succeeded invoice");
             break;
           }
 
-          const transactionId = getInvoiceTransactionId(invoice);
+          const transactionId = await resolveInvoiceTransactionId(hydratedInvoice);
 
           // Idempotency: skip if already recorded
           const existingInvoicePayment = await Payment.findOne({
-            invoiceId: invoice.id,
+            invoiceId: hydratedInvoice.id,
             gateway: "stripe",
           });
           if (existingInvoicePayment) {
             console.log("ℹ️ Duplicate recurring invoice webhook ignored:", {
-              invoiceId: invoice.id,
+              invoiceId: hydratedInvoice.id,
               existingPaymentId: String(existingInvoicePayment._id),
             });
             break;
@@ -209,12 +340,12 @@ router.post(
           if (!user) {
             console.warn("⚠️ User not found for recurring invoice:", {
               subscriptionId,
-              invoiceId: invoice.id,
+              invoiceId: hydratedInvoice.id,
             });
             break;
           }
 
-          const paidLocalAmount = getInvoiceAmount(invoice);
+          const paidLocalAmount = getInvoiceAmount(hydratedInvoice);
           const amount =
             basePayment?.localAmount && basePayment.localAmount > 0
               ? Number(
@@ -225,16 +356,20 @@ router.post(
 
           const recurringPayment = await Payment.create({
             userId: user._id,
-            orderRef: `STRIPE-REC-${invoice.id}`,
-            reference: getInvoicePaymentReference(invoice),
+            orderRef: `STRIPE-REC-${hydratedInvoice.id}`,
+            reference: getInvoicePaymentReference(hydratedInvoice),
             amount,
             localAmount: paidLocalAmount,
             plan: basePayment?.plan || user.plan || "unknown",
-            currency: (invoice.currency || basePayment?.currency || "USD").toUpperCase(),
+            currency: (
+              hydratedInvoice.currency ||
+              basePayment?.currency ||
+              "USD"
+            ).toUpperCase(),
             status: "COMPLETED",
             gateway: "stripe",
             billingType: basePayment?.billingType || user.billingType || "monthly",
-            invoiceId: invoice.id,
+            invoiceId: hydratedInvoice.id,
             subscriptionId,
             transactionId: transactionId || undefined,
             paymentIntentId: transactionId || undefined,
@@ -242,12 +377,12 @@ router.post(
             isRecurring: true,
             recurringCycle: new Date().toISOString().slice(0, 7),
             verifiedAt: new Date(),
-            gatewayResponse: invoice,
+            gatewayResponse: hydratedInvoice,
           });
 
           console.log("✅ Recurring payment created:", {
             paymentId: String(recurringPayment._id),
-            invoiceId: invoice.id,
+            invoiceId: hydratedInvoice.id,
             subscriptionId,
             transactionId,
             amount: recurringPayment.amount,
@@ -261,8 +396,8 @@ router.post(
           });
 
           const periodEnd =
-            invoice.lines?.data?.[0]?.period?.end ||
-            (invoice as any).period_end;
+            hydratedInvoice.lines?.data?.[0]?.period?.end ||
+            (hydratedInvoice as any).period_end;
 
           if (periodEnd) {
             await User.findByIdAndUpdate(user._id, {
@@ -281,15 +416,16 @@ router.post(
         // ── Recurring Payment Failed ───────────────────────────────────────
         case "invoice.payment_failed": {
           const invoice = event.data.object as Stripe.Invoice;
-          const subscriptionId = getSubscriptionId(invoice);
-          const transactionId = getInvoiceTransactionId(invoice);
+          const hydratedInvoice = await hydrateInvoice(invoice);
+          const subscriptionId = getSubscriptionId(hydratedInvoice);
+          const transactionId = await resolveInvoiceTransactionId(hydratedInvoice);
 
           console.log("❌ invoice.payment_failed:", {
             eventId: event.id,
-            invoiceId: invoice.id,
+            invoiceId: hydratedInvoice.id,
             subscriptionId,
             transactionId,
-            billingReason: invoice.billing_reason || null,
+            billingReason: hydratedInvoice.billing_reason || null,
           });
 
           if (!subscriptionId) {
@@ -305,7 +441,7 @@ router.post(
           if (!payment) {
             console.warn("⚠️ No base payment found for failed invoice:", {
               subscriptionId,
-              invoiceId: invoice.id,
+              invoiceId: hydratedInvoice.id,
             });
             break;
           }
@@ -313,7 +449,7 @@ router.post(
           payment.status = "FAILED";
           payment.transactionId = transactionId || payment.transactionId;
           payment.billingAttempt = (payment.billingAttempt || 0) + 1;
-          payment.gatewayResponse = invoice;
+          payment.gatewayResponse = hydratedInvoice;
           await payment.save();
 
           console.log("🛑 Payment marked FAILED:", {

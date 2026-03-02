@@ -850,6 +850,117 @@ export class StripeService {
   }
 
   /**
+   * Upgrade/downgrade an existing Stripe subscription while keeping the same subscription ID.
+   */
+  static async upgradeSubscriptionPlan(
+    userId: string,
+    subscriptionId: string,
+    amount: number,
+    currency: string,
+    plan: string,
+    billingType: "monthly" | "yearly" = "monthly",
+  ): Promise<{
+    subscriptionId: string;
+    amount: number;
+    currency: string;
+    localAmount: number;
+    localCurrency: string;
+    plan: string;
+    billingType: "monthly" | "yearly";
+    currentPeriodEnd: Date | null;
+  }> {
+    try {
+      const stripe = this.getStripeClient();
+      const user = await User.findById(userId);
+      if (!user) throw new Error("User not found");
+
+      const existingSubscription = await stripe.subscriptions.retrieve(
+        subscriptionId,
+      );
+
+      const existingItem = existingSubscription.items?.data?.[0];
+      if (!existingItem?.id) {
+        throw new Error("Stripe subscription item not found for upgrade");
+      }
+
+      const existingPrice = existingItem.price;
+      const detectedCurrency =
+        typeof existingPrice === "string"
+          ? ""
+          : String(existingPrice?.currency || "").toLowerCase();
+      if (!detectedCurrency) {
+        throw new Error("Unable to determine existing subscription currency");
+      }
+      const existingStripeCurrency = detectedCurrency;
+      const existingCurrencyCode = existingStripeCurrency.toUpperCase();
+
+      let localAmount = amount;
+      const inputCurrencyCode = String(currency || "USD").toUpperCase();
+      if (inputCurrencyCode !== existingCurrencyCode) {
+        const result = await convertUsingDB(
+          amount,
+          inputCurrencyCode,
+          existingCurrencyCode,
+        );
+        localAmount = result.convertedAmount;
+      }
+
+      const stripeAmount = formatAmountForStripe(localAmount, existingCurrencyCode);
+      const billingInterval = this.getBillingInterval(billingType);
+
+      const newPrice = await stripe.prices.create({
+        currency: existingStripeCurrency,
+        unit_amount: stripeAmount,
+        recurring: { interval: billingInterval, interval_count: 1 },
+        product_data: {
+          name: `${plan.charAt(0).toUpperCase() + plan.slice(1)} Plan`,
+        },
+        metadata: {
+          userId,
+          subscriptionId,
+          plan,
+          billingType,
+          originalCurrency: inputCurrencyCode,
+          originalAmount: amount.toString(),
+          localCurrency: existingCurrencyCode,
+          localAmount: localAmount.toString(),
+        },
+      });
+
+      const updatedSubscription = await stripe.subscriptions.update(
+        subscriptionId,
+        {
+          items: [{ id: existingItem.id, price: newPrice.id }],
+          proration_behavior: "create_prorations",
+          metadata: {
+            userId,
+            plan,
+            billingType,
+            upgradedAt: new Date().toISOString(),
+          },
+        },
+      );
+      const currentPeriodEndUnix = (updatedSubscription as any)?.current_period_end;
+
+      return {
+        subscriptionId: updatedSubscription.id,
+        amount,
+        currency: inputCurrencyCode,
+        localAmount,
+        localCurrency: existingCurrencyCode,
+        plan,
+        billingType,
+        currentPeriodEnd: currentPeriodEndUnix
+          ? new Date(Number(currentPeriodEndUnix) * 1000)
+          : null,
+      };
+    } catch (error) {
+      console.error("❌ Error upgrading Stripe subscription plan:", error);
+      throw error;
+    }
+  }
+
+  /**
    * Charge recurring payment using saved payment method
    * Supports both monthly and yearly billing cycles
    */

@@ -14,6 +14,12 @@ export const PaymentApiRoutes = [
     action: PaymentController.createPaymentOrder,
     method: "post",
   },
+  {
+    path: "/payment/upgrade-order",
+    request: null,
+    action: PaymentController.upgradePlanOrder,
+    method: "post",
+  },
     {
     path: "/payment/verify-mobile",
     request: null,
