@@ -1720,8 +1720,11 @@ static async GetMeetingRecording(req: Request, res: Response) {
       const isLiveMode = "live";
 
       if (isLiveMode) {
-        // For live mode, use the joinUrl (meeting is currently happening)
-        accessUrl = meeting?.joinUrl;
+        // Admin/Trainer enter as host via startUrl, participants use joinUrl.
+        accessUrl =
+          isTrainerOrAdmin && meeting?.startUrl
+            ? meeting.startUrl
+            : meeting?.joinUrl;
       } else {
         // For replay mode, use the recordingUrl
         // Check if recording is available
