@@ -34,15 +34,17 @@ class CancelSubscriptionController {
 
       // Apply filter if needed
       if (filter === "cancelled") {
-        finalQuery.isCancelled = true;
+        finalQuery.status = "cancelled";
       } else if (filter === "pending") {
-        finalQuery.isCancelled = false;
+        finalQuery.status = "pending";
+      } else if (filter === "retained") {
+        finalQuery.status = "retained";
       }
 
       // Fetch cancel subscriptions with applied filters
       const cancelSubscriptions = await CancelSubscriptionModel.find(finalQuery)
         .select(
-          "_id subscriptionId firstName lastName email userId isCancelled description createdAt plan cancelledAt"
+          "_id subscriptionId firstName lastName email userId status description adminDescription createdAt plan cancelledAt"
         )
         .skip(skip)
         .limit(limit)
@@ -103,7 +105,7 @@ class CancelSubscriptionController {
       // Check if subscription already exists for this user
       const existingCancellation = await CancelSubscriptionModel.findOne({
         userId,
-        isCancelled: false,
+        status: "pending",
       });
 
       if (existingCancellation) {
@@ -124,7 +126,7 @@ class CancelSubscriptionController {
         userId,
         plan: (user as any)?.plan || "",
         description: description || "",
-        isCancelled: false,
+        status: "pending",
       });
 
       return res.status(201).json({

@@ -78,6 +78,12 @@ export const PaymentApiRoutes = [
     method: "post",
   },
   {
+    path: "/subscription/:userId/status",
+    action: PaymentController.updateCancelSubscriptionStatus,
+    request: null,
+    method: "patch",
+  },
+  {
     path: "/payment/admin/stats",
     action: PaymentController.getAdminPaymentStats,
     request: null,

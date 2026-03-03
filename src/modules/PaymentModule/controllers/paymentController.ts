@@ -331,12 +331,14 @@ export default class PaymentController {
         });
       }
 
+      // If user has no existing plan, create a fresh payment order instead of upgrading.
+      if (!user.plan) {
+        return PaymentController.createPaymentOrder(req, res);
+      }
+
+      // If plan exists but subscription reference is missing, create a fresh order.
       if (!user.stripeSubscriptionId) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "No existing Stripe subscription found. Use create-order API for new subscription.",
-        });
+        return PaymentController.createPaymentOrder(req, res);
       }
 
       const upgraded = await StripeService.upgradeSubscriptionPlan(
@@ -1936,6 +1938,7 @@ export default class PaymentController {
   static async cancelSubscription(req: Request, res: Response) {
     try {
       const { userId } = req.params;
+      const { adminDescription } = req.body;
 
       if (!userId) {
         return res.status(400).json({
@@ -2020,10 +2023,13 @@ export default class PaymentController {
         { userId },
         {
           subscriptionId: updatedUser?.stripeSubscriptionId || null,
-          isCancelled: true,
+          status: "cancelled",
           cancelledAt: new Date(),
+          ...(adminDescription !== undefined
+            ? { adminDescription: String(adminDescription).trim() }
+            : {}),
         },
-        { new: true }
+        { new: true, sort: { createdAt: -1 } }
       );
 
       return res.status(200).json({
@@ -2040,6 +2046,69 @@ export default class PaymentController {
       return res.status(500).json({
         success: false,
         message: "Failed to cancel subscription",
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  }
+
+  /**
+   * Update cancel subscription request status from admin panel
+   */
+  static async updateCancelSubscriptionStatus(req: Request, res: Response) {
+    try {
+      const { userId } = req.params;
+      const { status, adminDescription } = req.body;
+
+      if (!userId) {
+        return res.status(400).json({
+          success: false,
+          message: "User ID is required",
+        });
+      }
+
+      const allowedStatuses = ["pending", "retained", "cancelled"] as const;
+      if (!status || !allowedStatuses.includes(status)) {
+        return res.status(400).json({
+          success: false,
+          message: "status must be one of pending, retained, cancelled",
+        });
+      }
+
+      const updateData: any = {
+        status,
+      };
+
+      if (adminDescription !== undefined) {
+        updateData.adminDescription = String(adminDescription).trim();
+      }
+
+      if (status === "cancelled") {
+        updateData.cancelledAt = new Date();
+      }
+
+      const updatedCancelRequest = await CancelSubscriptionModel.findOneAndUpdate(
+        { userId },
+        updateData,
+        { new: true, sort: { createdAt: -1 } },
+      );
+
+      if (!updatedCancelRequest) {
+        return res.status(404).json({
+          success: false,
+          message: "Cancel subscription request not found",
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: "Cancel subscription status updated successfully",
+        data: updatedCancelRequest,
+      });
+    } catch (error) {
+      console.error("❌ Update cancel subscription status error:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to update cancel subscription status",
         error: error instanceof Error ? error.message : "Unknown error",
       });
     }
