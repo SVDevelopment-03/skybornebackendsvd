@@ -6,6 +6,7 @@ import { FAQRoute } from "../modules/FAQModule/FAQRoute";
 import { FeedbackRoute } from "../modules/FeedbackModule/FeedbackRoute";
 import { InvoiceRoutes } from "../modules/InvoiceModule/InvoiceRoute";
 import { MeetingRoute } from "../modules/MeetingModule/MeetingRoute";
+import { MailRoutes } from "../modules/MailModule/MailRoute";
 import { NewsLetterRoute } from "../modules/NewsLetterModule.ts/NewsLetterRoute";
 import { PaymentApiRoutes } from "../modules/PaymentModule/routes/paymentRoutes";
 import { PlanRoute } from "../modules/PlanModule/routes/PlanRoutes";
@@ -26,6 +27,7 @@ const appApiRoutes: any = [
   ...TestimonialRoute,
   ...FAQRoute,
   ...MeetingRoute,
+  ...MailRoutes,
   ...ConsultationRoute,
   ...NewsLetterRoute,
   ...TrainerRoute,

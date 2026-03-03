@@ -5,6 +5,7 @@ dotenv.config();
 import { classReminderEmailQueue } from "./queues/classReminderEmailQueue";
 import sgMail from "@sendgrid/mail";
 import { COUNTRY_TIMEZONE_MAP } from "../constants/countryTimezoneMap";
+import MailLog from "../modules/MailModule/MailModel";
 
 sgMail.setApiKey(process.env.SENDGRID_API_KEY!);
 
@@ -337,6 +338,14 @@ classReminderEmailQueue.process(async (job: any) => {
 
     // Wait for all emails to be sent
     await Promise.all(emailPromises);
+
+    await MailLog.create({
+      meetingId: String(job?.data?.meetingId || "").trim() || undefined,
+      meetingTitle: meetingTitle || "Untitled Meeting",
+      meetingTime: meetingStartDate,
+      sentAt: new Date(),
+      totalUsers: Array.isArray(userEmails) ? userEmails.length : 0,
+    });
 
     console.log(
       `✅ Class reminder emails sent to ${userEmails.length} users for class: ${meetingTitle}`,
