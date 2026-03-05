@@ -414,62 +414,62 @@ router.post(
         }
 
         // ── Recurring Payment Failed ───────────────────────────────────────
-        case "invoice.payment_failed": {
-          const invoice = event.data.object as Stripe.Invoice;
-          const hydratedInvoice = await hydrateInvoice(invoice);
-          const subscriptionId = getSubscriptionId(hydratedInvoice);
-          const transactionId = await resolveInvoiceTransactionId(hydratedInvoice);
+        // case "invoice.payment_failed": {
+        //   const invoice = event.data.object as Stripe.Invoice;
+        //   const hydratedInvoice = await hydrateInvoice(invoice);
+        //   const subscriptionId = getSubscriptionId(hydratedInvoice);
+        //   const transactionId = await resolveInvoiceTransactionId(hydratedInvoice);
 
-          console.log("❌ invoice.payment_failed:", {
-            eventId: event.id,
-            invoiceId: hydratedInvoice.id,
-            subscriptionId,
-            transactionId,
-            billingReason: hydratedInvoice.billing_reason || null,
-          });
+        //   console.log("❌ invoice.payment_failed:", {
+        //     eventId: event.id,
+        //     invoiceId: hydratedInvoice.id,
+        //     subscriptionId,
+        //     transactionId,
+        //     billingReason: hydratedInvoice.billing_reason || null,
+        //   });
 
-          if (!subscriptionId) {
-            console.warn("⚠️ Missing subscriptionId in failed invoice");
-            break;
-          }
+        //   if (!subscriptionId) {
+        //     console.warn("⚠️ Missing subscriptionId in failed invoice");
+        //     break;
+        //   }
 
-          const payment = await Payment.findOne({
-            gateway: "stripe",
-            subscriptionId,
-          });
+        //   const payment = await Payment.findOne({
+        //     gateway: "stripe",
+        //     subscriptionId,
+        //   });
 
-          if (!payment) {
-            console.warn("⚠️ No base payment found for failed invoice:", {
-              subscriptionId,
-              invoiceId: hydratedInvoice.id,
-            });
-            break;
-          }
+        //   if (!payment) {
+        //     console.warn("⚠️ No base payment found for failed invoice:", {
+        //       subscriptionId,
+        //       invoiceId: hydratedInvoice.id,
+        //     });
+        //     break;
+        //   }
 
-          payment.status = "FAILED";
-          payment.transactionId = transactionId || payment.transactionId;
-          payment.billingAttempt = (payment.billingAttempt || 0) + 1;
-          payment.gatewayResponse = hydratedInvoice;
-          await payment.save();
+        //   payment.status = "FAILED";
+        //   payment.transactionId = transactionId || payment.transactionId;
+        //   payment.billingAttempt = (payment.billingAttempt || 0) + 1;
+        //   payment.gatewayResponse = hydratedInvoice;
+        //   await payment.save();
 
-          console.log("🛑 Payment marked FAILED:", {
-            paymentId: String(payment._id),
-            orderRef: payment.orderRef,
-            billingAttempt: payment.billingAttempt,
-            subscriptionId: payment.subscriptionId,
-          });
+        //   console.log("🛑 Payment marked FAILED:", {
+        //     paymentId: String(payment._id),
+        //     orderRef: payment.orderRef,
+        //     billingAttempt: payment.billingAttempt,
+        //     subscriptionId: payment.subscriptionId,
+        //   });
 
-          await User.findByIdAndUpdate(payment.userId, {
-            "subscription.status": "suspended",
-            "subscription.suspendedAt": new Date(),
-          });
+        //   await User.findByIdAndUpdate(payment.userId, {
+        //     "subscription.status": "suspended",
+        //     "subscription.suspendedAt": new Date(),
+        //   });
 
-          console.log("👤 User subscription suspended:", {
-            userId: payment.userId.toString(),
-          });
+        //   console.log("👤 User subscription suspended:", {
+        //     userId: payment.userId.toString(),
+        //   });
 
-          break;
-        }
+        //   break;
+        // }
 
         default:
           console.log("ℹ️ Unhandled Stripe event:", {
