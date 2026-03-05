@@ -861,7 +861,7 @@ static async GetUpcomingMeetings(req: Request, res: Response) {
     }
 
     const now = new Date();
-    const fifteenMinutesAgo = new Date(now.getTime() - 15 * 60 * 1000);
+    const sixtyMinutesAgo = new Date(now.getTime() - 60 * 60 * 1000);
 
     let serviceTitles: string[] = [];
 
@@ -880,7 +880,8 @@ static async GetUpcomingMeetings(req: Request, res: Response) {
 
     // Build filter
     const filter: any = {
-      localTime: { $gte: fifteenMinutesAgo },
+      // Keep meetings visible in upcoming list for 60 minutes after start time
+      localTime: { $gte: sixtyMinutesAgo },
       title: { $regex: search, $options: "i" },
     };
 
