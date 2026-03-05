@@ -77,7 +77,124 @@ class CancelSubscriptionController {
     }
   }
 
-  // 2️⃣ POST: Create a new cancel subscription request
+  // 2️⃣ GET: Export cancel subscriptions as CSV
+  static async exportCancelSubscriptionsCSV(req: Request, res: Response) {
+    try {
+      const search = (req.query.search as string) || "";
+      const filter = (req.query.filter as string) || "";
+
+      const query: any = {};
+      let finalQuery: any = query;
+
+      if (search) {
+        const searchLower = search.toLowerCase();
+        finalQuery = {
+          ...query,
+          $or: [
+            { firstName: { $regex: searchLower, $options: "i" } },
+            { lastName: { $regex: searchLower, $options: "i" } },
+            { email: { $regex: searchLower, $options: "i" } },
+            { userId: { $regex: searchLower, $options: "i" } },
+          ],
+        };
+      }
+
+      if (filter === "cancelled") {
+        finalQuery.status = "cancelled";
+      } else if (filter === "pending") {
+        finalQuery.status = "pending";
+      } else if (filter === "retained") {
+        finalQuery.status = "retained";
+      }
+
+      const cancelSubscriptions = await CancelSubscriptionModel.find(finalQuery)
+        .select(
+          "_id subscriptionId firstName lastName email userId status description adminDescription createdAt plan cancelledAt",
+        )
+        .sort({ createdAt: -1 })
+        .lean();
+
+      const headers = [
+        "Subscription Id",
+        "Name",
+        "Email",
+        "User Id",
+        "Plan",
+        "Status",
+        "Description",
+        "Admin Comment",
+        "Cancelled At",
+        "Created At",
+      ];
+
+      const formatDate = (dateValue: any) => {
+        if (!dateValue) return "N/A";
+
+        const date = new Date(dateValue);
+        if (Number.isNaN(date.getTime())) return "N/A";
+
+        return date.toLocaleDateString("en-US", {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+        });
+      };
+
+      const formatStatus = (status: string) =>
+        status.charAt(0).toUpperCase() + status.slice(1).toLowerCase();
+
+      const rows = cancelSubscriptions.map((subscription: any) => {
+        const name =
+          `${subscription.firstName || ""} ${subscription.lastName || ""}`.trim() ||
+          "N/A";
+
+        return [
+          subscription.subscriptionId || "N/A",
+          name,
+          subscription.email || "N/A",
+          subscription.userId || "N/A",
+          subscription.plan || "N/A",
+          subscription.status ? formatStatus(subscription.status) : "N/A",
+          subscription.description || "N/A",
+          subscription.adminDescription || "N/A",
+          formatDate(subscription.cancelledAt),
+          formatDate(subscription.createdAt),
+        ];
+      });
+
+      const escapeCSV = (value: string): string => {
+        const escaped = String(value).replace(/"/g, '""');
+        return escaped.includes(",") ||
+          escaped.includes('"') ||
+          escaped.includes("\n")
+          ? `"${escaped}"`
+          : escaped;
+      };
+
+      const csvContent = [
+        headers.join(","),
+        ...rows.map((row) => row.map(escapeCSV).join(",")),
+      ].join("\n");
+
+      const filename = `cancel_subscriptions_${new Date().toISOString().split("T")[0]}.csv`;
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${filename}"`,
+      );
+
+      return res.status(200).send(csvContent);
+    } catch (error) {
+      console.error("❌ Error exporting cancel subscriptions CSV:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to export cancel subscriptions CSV",
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  }
+
+  // 3️⃣ POST: Create a new cancel subscription request
   static async create(req: Request, res: Response) {
     try {
       const { userId, description } = req.body;
