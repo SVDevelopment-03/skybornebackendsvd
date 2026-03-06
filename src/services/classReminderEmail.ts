@@ -287,10 +287,10 @@ classReminderEmailQueue.process(async (job: any) => {
     duration,
     trainerName,
   } = job.data;
+  const meetingStartDate = new Date(classStartAt || startDate);
 
   try {
     // Send email to all users in the region
-    const meetingStartDate = new Date(classStartAt || startDate);
     if (isNaN(meetingStartDate.getTime())) {
       throw new Error("Invalid class start time in reminder job payload");
     }
@@ -345,6 +345,7 @@ classReminderEmailQueue.process(async (job: any) => {
       meetingTime: meetingStartDate,
       sentAt: new Date(),
       totalUsers: Array.isArray(userEmails) ? userEmails.length : 0,
+      status: "success",
     });
 
     console.log(
@@ -355,6 +356,22 @@ classReminderEmailQueue.process(async (job: any) => {
   } catch (err: any) {
     console.error(`❌ Email send failed for class reminder`);
     console.error("Error Message:", err.message);
+
+    try {
+      await MailLog.create({
+        meetingId: String(job?.data?.meetingId || "").trim() || undefined,
+        meetingTitle: meetingTitle || "Untitled Meeting",
+        meetingTime: isNaN(meetingStartDate.getTime()) ? new Date() : meetingStartDate,
+        sentAt: new Date(),
+        totalUsers: Array.isArray(userEmails) ? userEmails.length : 0,
+        status: "failed",
+      });
+    } catch (mailLogError: any) {
+      console.error(
+        "❌ Failed to store failed mail log:",
+        mailLogError?.message || mailLogError,
+      );
+    }
 
     if (err.response?.body) {
       console.error(

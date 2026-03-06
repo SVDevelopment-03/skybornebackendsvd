@@ -13,6 +13,16 @@ export default class MailController {
       if (search) {
         query.meetingTitle = { $regex: search, $options: "i" };
       }
+      if (req.query.status && req.query.status !== "all") {
+        const normalizedStatus = String(req.query.status).trim().toLowerCase();
+        if (!["success", "failed"].includes(normalizedStatus)) {
+          return res.status(400).json({
+            success: false,
+            message: "status must be success, failed, or all",
+          });
+        }
+        query.status = normalizedStatus;
+      }
 
       const [logs, totalCount] = await Promise.all([
         MailLog.find(query)
@@ -33,6 +43,7 @@ export default class MailController {
           meetingTime: log.meetingTime,
           sentAt: log.sentAt,
           totalUsers: log.totalUsers,
+          status: log.status || "success",
         })),
         pagination: {
           currentPage: page,

@@ -1,11 +1,14 @@
 import { Document, Schema, model } from "mongoose";
 
+export type MailLogStatus = "success" | "failed";
+
 export interface IMailLog extends Document {
   meetingId?: string;
   meetingTitle: string;
   meetingTime: Date;
   sentAt: Date;
   totalUsers: number;
+  status: MailLogStatus;
 }
 
 const MailLogSchema = new Schema<IMailLog>(
@@ -36,6 +39,13 @@ const MailLogSchema = new Schema<IMailLog>(
       required: true,
       min: 0,
       default: 0,
+    },
+    status: {
+      type: String,
+      enum: ["success", "failed"],
+      required: true,
+      default: "success",
+      index: true,
     },
   },
   { timestamps: true },
