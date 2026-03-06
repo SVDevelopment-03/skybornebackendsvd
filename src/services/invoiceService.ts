@@ -12,6 +12,7 @@ export interface InvoiceData {
   plan: string;
   amount: number;
   currency: string;
+  transactionId?: string;
   date: Date;
   subscriptionEndDate: Date;
   paymentMethod: string;
@@ -34,6 +35,7 @@ export const generateInvoicePDF = (invoiceData: InvoiceData): Promise<Buffer> =>
     doc.font("Helvetica").fontSize(10)
       .text(`Invoice ID: ${invoiceData.invoiceId}`)
       .text(`Order Reference: ${invoiceData.orderRef}`)
+      .text(`Transaction ID: ${invoiceData.transactionId || "N/A"}`)
       .text(`Date: ${invoiceData.date.toLocaleDateString()}`)
       .text(`User ID: ${invoiceData.userId}`);
 
@@ -108,7 +110,8 @@ export const generateInvoicePDF = (invoiceData: InvoiceData): Promise<Buffer> =>
     doc.font("Helvetica").fontSize(10)
       .text(`Plan: ${invoiceData.plan}`)
       .text(`Subscription End Date: ${invoiceData.subscriptionEndDate.toLocaleDateString()}`)
-      .text(`Payment Method: ${invoiceData.paymentMethod}`);
+      .text(`Payment Method: ${invoiceData.paymentMethod}`)
+      .text(`Transaction ID: ${invoiceData.transactionId || "N/A"}`);
 
     doc.moveDown(3);
     doc.fontSize(8).font("Helvetica")
@@ -151,6 +154,10 @@ export const sendInvoiceEmail = async (
         <tr>
           <td><strong>Date:</strong></td>
           <td>${invoiceData.date.toLocaleDateString()}</td>
+        </tr>
+        <tr>
+          <td><strong>Transaction ID:</strong></td>
+          <td>${invoiceData.transactionId || "N/A"}</td>
         </tr>
         <tr>
           <td><strong>Plan:</strong></td>

@@ -47,6 +47,7 @@ export default class InvoiceController {
       const invoicePDF = await generateInvoicePDF({
         invoiceId: payment.invoiceId!,
         orderRef: payment.orderRef,
+        transactionId: payment?.transactionId,
         userId: user._id.toString(),
         userEmail: user.email,
         userName: `${user.firstName} ${user.lastName}`,
@@ -116,6 +117,7 @@ export default class InvoiceController {
         invoice: {
           invoiceId: payment.invoiceId,
           orderRef: payment.orderRef,
+          transactionId: payment?.transactionId,
           userName: `${user.firstName} ${user.lastName}`,
           userEmail: user.email,
           plan: payment.plan,
