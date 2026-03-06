@@ -523,10 +523,44 @@ export class StripeService {
       throw new Error("Stripe customer not found");
     }
 
-    const defaultPaymentMethodId =
+    let defaultPaymentMethodId =
       typeof customer.invoice_settings?.default_payment_method === "string"
         ? customer.invoice_settings.default_payment_method
         : customer.invoice_settings?.default_payment_method?.id || null;
+
+    // Fallback 1: subscription-level default payment method
+    if (!defaultPaymentMethodId && user?.stripeSubscriptionId) {
+      try {
+        const subscription = await stripe.subscriptions.retrieve(
+          user.stripeSubscriptionId,
+        );
+        const subPm = (subscription as any)?.default_payment_method;
+        defaultPaymentMethodId =
+          typeof subPm === "string" ? subPm : subPm?.id || null;
+      } catch (error: any) {
+        console.warn(
+          `⚠️ Failed to resolve default payment method from subscription (${user?.stripeSubscriptionId}) for user ${user?._id}:`,
+          error?.message || error,
+        );
+      }
+    }
+
+    // Fallback 2: any attached card payment method
+    if (!defaultPaymentMethodId) {
+      try {
+        const paymentMethods = await stripe.paymentMethods.list({
+          customer: customerId,
+          type: "card",
+          limit: 1,
+        });
+        defaultPaymentMethodId = paymentMethods?.data?.[0]?.id || null;
+      } catch (error: any) {
+        console.warn(
+          `⚠️ Failed to list card payment methods for customer ${customerId}:`,
+          error?.message || error,
+        );
+      }
+    }
 
     if (!defaultPaymentMethodId) {
       return {
