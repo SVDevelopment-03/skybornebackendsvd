@@ -1850,26 +1850,42 @@ static async GetMeetingRecording(req: Request, res: Response) {
   }
 
   static async getSessionsWithPagination(req: Request, res: Response) {
-    const { userId, status, page, limit } = req.query as {
-      userId: string;
-      status?: "registered" | "joined" | "completed" | "missed";
-      page?: string;
-      limit?: string;
-    };
-
     try {
-      const skip = (Number(page) - 1) * Number(limit);
+      const userId = req.user?.id;
+      const page = Math.max(parseInt(req.query.page as string) || 1, 1);
+      const limit = Math.max(parseInt(req.query.limit as string) || 10, 1);
+      const search = String(req.query.search || "").trim();
+      const skip = (page - 1) * limit;
 
-      // Build filter object - only add status if provided
-      const filter: any = {
-        user: new Types.ObjectId(userId),
-      };
-
-      if (status) {
-        filter.status = status;
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated",
+        });
       }
 
-      const [data, total] = await Promise.all([
+      const attendedStatuses: Array<"joined" | "completed"> = [
+        "joined",
+        "completed",
+      ];
+
+      const filter: any = {
+        user: new Types.ObjectId(userId),
+        status: { $in: attendedStatuses },
+      };
+
+      const meetingPopulate: any = {
+        path: "meeting",
+        select: "title description startDate localTime duration trainer",
+      };
+
+      if (search) {
+        meetingPopulate.match = {
+          title: { $regex: search, $options: "i" },
+        };
+      }
+
+      const [records, totalBeforeSearch] = await Promise.all([
         MeetingAttendance.find(filter, {
           meeting: 1,
           user: 1,
@@ -1881,28 +1897,65 @@ static async GetMeetingRecording(req: Request, res: Response) {
           region: 1,
           progress: 1,
           status: 1,
+          createdAt: 1,
         })
-          .populate("meeting", "title description startTime duration")
-          .sort({ completedAt: -1, joinedAt: -1 })
+          .populate(meetingPopulate)
+          .sort({ completedAt: -1, joinedAt: -1, createdAt: -1 })
           .skip(skip)
-          .limit(Number(limit))
+          .limit(limit)
           .lean(),
         MeetingAttendance.countDocuments(filter),
       ]);
 
+      const sessions = records.filter((record: any) => Boolean(record?.meeting));
+
+      let total = totalBeforeSearch;
+      if (search) {
+        total = await MeetingAttendance.aggregate([
+          {
+            $match: {
+              user: new Types.ObjectId(userId),
+              status: { $in: attendedStatuses },
+            },
+          },
+          {
+            $lookup: {
+              from: "meetings",
+              localField: "meeting",
+              foreignField: "_id",
+              as: "meetingDoc",
+            },
+          },
+          { $unwind: "$meetingDoc" },
+          {
+            $match: {
+              "meetingDoc.title": { $regex: search, $options: "i" },
+            },
+          },
+          { $count: "total" },
+        ]).then((result) => result?.[0]?.total || 0);
+      }
+
       return res.json({
         success: true,
-        data,
-        pagination: {
-          total,
-          page,
-          limit,
-          pages: Math.ceil(total / Number(limit)),
+        data: {
+          sessions,
+          pagination: {
+            currentPage: page,
+            totalPages: Math.ceil(total / limit) || 1,
+            total,
+            limit,
+            hasNextPage: page * limit < total,
+            hasPrevPage: page > 1,
+          },
         },
       });
-    } catch (error) {
-      console.error(`Error fetching sessions with status ${status}:`, error);
-      throw error;
+    } catch (error: any) {
+      console.error("Error fetching completed attended sessions:", error);
+      return res.status(500).json({
+        success: false,
+        message: error?.message || "Error fetching completed sessions",
+      });
     }
   }
 

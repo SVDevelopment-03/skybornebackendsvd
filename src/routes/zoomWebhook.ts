@@ -152,17 +152,61 @@ router.post("/zoom-webhook", async (req, res) => {
       if (participantEmail) participantRecord.email = participantEmail;
       await participantRecord.save();
 
-      const attendance = await MeetingAttendance.findOne({
+      let attendance = await MeetingAttendance.findOne({
         meeting: meetingDoc._id,
         user: participantRecord.userId,
       });
 
-      if (attendance && attendance.sessions.length > 0) {
+      if (!attendance) {
+        attendance = await MeetingAttendance.create({
+          meeting: meetingDoc._id,
+          user: participantRecord.userId,
+          sessions: [
+            {
+              joinTime: participantRecord.joinedAt || now,
+              leaveTime: null,
+              duration: 0,
+              progress: 0,
+              mode: "live",
+              region: null,
+              zoomParticipantId: zoomParticipantId || undefined,
+            },
+          ],
+          status: "joined",
+          joinedAt: participantRecord.joinedAt || now,
+          totalDuration: 0,
+          progress: 0,
+        });
+      } else {
         const lastSession = attendance.sessions[attendance.sessions.length - 1];
-        if (!lastSession.leaveTime && !lastSession.zoomParticipantId) {
+
+        if (
+          !lastSession ||
+          lastSession.leaveTime ||
+          (zoomParticipantId &&
+            String(lastSession.zoomParticipantId || "") !==
+              String(zoomParticipantId))
+        ) {
+          attendance.sessions.push({
+            joinTime: participantRecord.joinedAt || now,
+            leaveTime: null,
+            duration: 0,
+            progress: 0,
+            mode: "live",
+            region: null,
+            zoomParticipantId: zoomParticipantId || undefined,
+          } as any);
+        } else if (!lastSession.zoomParticipantId && zoomParticipantId) {
           lastSession.zoomParticipantId = zoomParticipantId || undefined;
-          await attendance.save();
         }
+
+        if (!attendance.joinedAt) {
+          attendance.joinedAt = participantRecord.joinedAt || now;
+        }
+        if (attendance.status === "registered" || attendance.status === "missed") {
+          attendance.status = "joined";
+        }
+        await attendance.save();
       }
     }
 
@@ -194,6 +238,20 @@ router.post("/zoom-webhook", async (req, res) => {
       resolvedUserId = emailUser?._id || null;
     }
 
+    let attendanceByParticipantId: any = null;
+    if (!resolvedUserId && zoomParticipantId) {
+      attendanceByParticipantId = await MeetingAttendance.findOne({
+        meeting: meetingDoc._id,
+        sessions: {
+          $elemMatch: {
+            zoomParticipantId: String(zoomParticipantId),
+            leaveTime: null,
+          },
+        },
+      }).sort({ updatedAt: -1 });
+      resolvedUserId = attendanceByParticipantId?.user || null;
+    }
+
     if (!resolvedUserId) return res.status(200).send("OK");
 
     if (participantRecord && !participantRecord.leftAt) {
@@ -204,10 +262,10 @@ router.post("/zoom-webhook", async (req, res) => {
     const user = await User.findById(resolvedUserId);
     if (!user) return res.status(200).send("OK");
 
-    let attendance = await MeetingAttendance.findOne({
+    let attendance = attendanceByParticipantId || (await MeetingAttendance.findOne({
       meeting: meetingDoc._id,
       user: user._id,
-    });
+    }));
 
     if (!attendance) {
       attendance = await MeetingAttendance.create({
