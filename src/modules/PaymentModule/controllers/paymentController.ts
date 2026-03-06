@@ -17,6 +17,7 @@ import {
 } from "../../../config/paymentGatewayConfig";
 import { getIO } from "../../../config/socket";
 import CancelSubscriptionModel from "../../CancelSubscriptionModule/CancelSubscriptionModel";
+import RecurringPaymentFailure from "../models/RecurringPaymentFailure";
 
 type PreferedType = "stripe" | "ngenius";
 
@@ -697,6 +698,10 @@ export default class PaymentController {
         paymentMethodId,
         billingDetails,
       );
+
+      await RecurringPaymentFailure.deleteMany({
+        $or: [{ userId: user._id }, { email: String(user.email || "").toLowerCase() }],
+      });
 
       return res.status(200).json({
         success: true,
@@ -1601,6 +1606,129 @@ export default class PaymentController {
       return res.status(500).json({
         success: false,
         message: "Failed to fetch payments",
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  }
+
+  /**
+   * Get all recurring payment failures (Admin)
+   */
+  static async getAllRecurringPaymentFailures(req: Request, res: Response) {
+    try {
+      const { search, status, page = 1, limit = 10 } = req.query;
+
+      const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
+      const limitNum = Math.max(1, parseInt(String(limit), 10) || 10);
+      const skip = (pageNum - 1) * limitNum;
+
+      const matchQuery: any = {};
+      const andConditions: any[] = [];
+      const validStatuses = ["processing", "cancelled"];
+
+      if (status && status !== "all") {
+        const normalizedStatus = String(status).trim().toLowerCase();
+        if (!validStatuses.includes(normalizedStatus)) {
+          return res.status(400).json({
+            success: false,
+            message: `Invalid status. Allowed: ${validStatuses.join(", ")}, all`,
+          });
+        }
+        if (normalizedStatus === "processing") {
+          andConditions.push({
+            $or: [{ status: "processing" }, { status: { $exists: false } }],
+          });
+        } else {
+          andConditions.push({ status: "cancelled" });
+        }
+      }
+
+      if (search && String(search).trim()) {
+        const escapedSearch = String(search)
+          .trim()
+          .replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+        andConditions.push({
+          $or: [
+            { email: { $regex: escapedSearch, $options: "i" } },
+            { phoneNumber: { $regex: escapedSearch, $options: "i" } },
+            { subscriptionId: { $regex: escapedSearch, $options: "i" } },
+            { invoiceId: { $regex: escapedSearch, $options: "i" } },
+            {
+              $expr: {
+                $regexMatch: {
+                  input: { $toString: "$_id" },
+                  regex: escapedSearch,
+                  options: "i",
+                },
+              },
+            },
+          ],
+        });
+      }
+
+      if (andConditions.length === 1) {
+        Object.assign(matchQuery, andConditions[0]);
+      } else if (andConditions.length > 1) {
+        matchQuery.$and = andConditions;
+      }
+
+      const [totalCount, failures] = await Promise.all([
+        RecurringPaymentFailure.countDocuments(matchQuery),
+        RecurringPaymentFailure.find(matchQuery)
+          .sort({ failedAt: -1, createdAt: -1 })
+          .skip(skip)
+          .limit(limitNum)
+          .populate({
+            path: "userId",
+            select: "firstName lastName email phoneNumber dialingCode localNumber",
+          })
+          .lean(),
+      ]);
+
+      const formattedFailures = failures.map((entry: any) => {
+        const user = entry.userId && typeof entry.userId === "object" ? entry.userId : null;
+        const fallbackPhone = String(
+          user?.phoneNumber || `${user?.dialingCode || ""}${user?.localNumber || ""}`,
+        )
+          .trim()
+          .replace(/\s+/g, "");
+
+        return {
+          _id: entry._id,
+          userId: user?._id || entry.userId || null,
+          fullName: user
+            ? `${user.firstName || ""} ${user.lastName || ""}`.trim() || null
+            : null,
+          email: entry.email || user?.email || null,
+          phoneNumber: entry.phoneNumber || fallbackPhone || null,
+          subscriptionId: entry.subscriptionId || null,
+          invoiceId: entry.invoiceId || null,
+          status: entry.status || "processing",
+          failedAt: entry.failedAt,
+          createdAt: entry.createdAt,
+          updatedAt: entry.updatedAt,
+        };
+      });
+
+      return res.status(200).json({
+        success: true,
+        failures: formattedFailures,
+        total: totalCount,
+        filteredCount: totalCount,
+        page: pageNum,
+        limit: limitNum,
+        totalPages: Math.ceil(totalCount / limitNum),
+        currentFilters: {
+          status: status || "all",
+          search: search || "",
+        },
+      });
+    } catch (error) {
+      console.error("❌ Error fetching recurring payment failures:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to fetch recurring payment failures",
         error: error instanceof Error ? error.message : "Unknown error",
       });
     }

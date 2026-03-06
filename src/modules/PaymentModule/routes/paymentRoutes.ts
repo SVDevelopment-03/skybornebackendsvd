@@ -66,6 +66,12 @@ export const PaymentApiRoutes = [
     method: "get",
   },
   {
+    path: "/payment/admin/recurring-failures",
+    action: PaymentController.getAllRecurringPaymentFailures,
+    request: null,
+    method: "get",
+  },
+  {
   path: "/payment/admin/export",
   request: null,
   action: PaymentController.exportPaymentsCSV,

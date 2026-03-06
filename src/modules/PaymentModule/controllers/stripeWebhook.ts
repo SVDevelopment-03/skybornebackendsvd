@@ -3,14 +3,14 @@ import Stripe from "stripe";
 import Payment from "../models/Payment";
 import User from "../../UserModule/models/User";
 import PaymentController from "./paymentController";
+import { sendRecurringPaymentFailureEmail } from "../../../services/recurringPaymentFailureEmail";
+import RecurringPaymentFailure from "../models/RecurringPaymentFailure";
 
 const router = express.Router();
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: "2025-12-15.clover",
 });
-
-const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!;
 
 const ZERO_DECIMAL_CURRENCIES = new Set([
   "bif", "clp", "djf", "gnf", "jpy", "kmf", "krw",
@@ -212,7 +212,20 @@ router.post(
   express.raw({ type: "application/json" }),
   async (req, res) => {
     const sig = req.headers["stripe-signature"] as string;
+    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
     let event: Stripe.Event;
+
+    if (!sig) {
+      console.error("❌ Missing stripe-signature header");
+      return res.status(400).send("Webhook Error: Missing stripe-signature header");
+    }
+
+    if (!webhookSecret) {
+      console.error("❌ STRIPE_WEBHOOK_SECRET is not configured");
+      return res
+        .status(500)
+        .json({ error: "Webhook misconfigured: STRIPE_WEBHOOK_SECRET missing" });
+    }
 
     try {
       event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
@@ -421,66 +434,149 @@ router.post(
             });
           }
 
+          await RecurringPaymentFailure.deleteMany({
+            $or: [
+              { userId: user._id },
+              { email: String(user.email || "").toLowerCase() },
+              { subscriptionId },
+            ],
+          });
+
           break;
         }
 
         // ── Recurring Payment Failed ───────────────────────────────────────
-        // case "invoice.payment_failed": {
-        //   const invoice = event.data.object as Stripe.Invoice;
-        //   const hydratedInvoice = await hydrateInvoice(invoice);
-        //   const subscriptionId = getSubscriptionId(hydratedInvoice);
-        //   const transactionId = await resolveInvoiceTransactionId(hydratedInvoice);
+        case "invoice.payment_failed": {
+          const invoice = event.data.object as Stripe.Invoice;
+          const hydratedInvoice = await hydrateInvoice(invoice);
+          const billingReason = hydratedInvoice.billing_reason || "";
+          const isRecurringCycle = billingReason === "subscription_cycle";
+          const subscriptionId = getSubscriptionId(hydratedInvoice);
+          const transactionId = await resolveInvoiceTransactionId(hydratedInvoice);
 
-        //   console.log("❌ invoice.payment_failed:", {
-        //     eventId: event.id,
-        //     invoiceId: hydratedInvoice.id,
-        //     subscriptionId,
-        //     transactionId,
-        //     billingReason: hydratedInvoice.billing_reason || null,
-        //   });
+          console.log("❌ invoice.payment_failed:", {
+            eventId: event.id,
+            invoiceId: hydratedInvoice.id,
+            subscriptionId,
+            transactionId,
+            billingReason: hydratedInvoice.billing_reason || null,
+          });
 
-        //   if (!subscriptionId) {
-        //     console.warn("⚠️ Missing subscriptionId in failed invoice");
-        //     break;
-        //   }
+          if (!isRecurringCycle) {
+            console.log("ℹ️ Skipping non-recurring invoice.payment_failed");
+            break;
+          }
 
-        //   const payment = await Payment.findOne({
-        //     gateway: "stripe",
-        //     subscriptionId,
-        //   });
+          if (!subscriptionId) {
+            console.warn("⚠️ Missing subscriptionId in failed invoice");
+            break;
+          }
 
-        //   if (!payment) {
-        //     console.warn("⚠️ No base payment found for failed invoice:", {
-        //       subscriptionId,
-        //       invoiceId: hydratedInvoice.id,
-        //     });
-        //     break;
-        //   }
+          const basePayment = await Payment.findOne({
+            gateway: "stripe",
+            subscriptionId,
+          })
+            .sort({ createdAt: -1 })
+            .select("userId");
 
-        //   payment.status = "FAILED";
-        //   payment.transactionId = transactionId || payment.transactionId;
-        //   payment.billingAttempt = (payment.billingAttempt || 0) + 1;
-        //   payment.gatewayResponse = hydratedInvoice;
-        //   await payment.save();
+          const failedUser =
+            (basePayment?.userId
+              ? await User.findById(basePayment.userId).select(
+                  "email firstName phoneNumber dialingCode localNumber",
+                )
+              : null) ||
+            (await User.findOne({ stripeSubscriptionId: subscriptionId }).select(
+              "email firstName phoneNumber dialingCode localNumber",
+            ));
 
-        //   console.log("🛑 Payment marked FAILED:", {
-        //     paymentId: String(payment._id),
-        //     orderRef: payment.orderRef,
-        //     billingAttempt: payment.billingAttempt,
-        //     subscriptionId: payment.subscriptionId,
-        //   });
+          const recipientEmail = String(
+            failedUser?.email || (hydratedInvoice as any).customer_email || "",
+          )
+            .trim()
+            .toLowerCase();
 
-        //   await User.findByIdAndUpdate(payment.userId, {
-        //     "subscription.status": "suspended",
-        //     "subscription.suspendedAt": new Date(),
-        //   });
+          if (!recipientEmail) {
+            console.warn("⚠️ Failed recurring user email not found for storing");
+            break;
+          }
 
-        //   console.log("👤 User subscription suspended:", {
-        //     userId: payment.userId.toString(),
-        //   });
+          const recipientPhoneNumber = String(
+            failedUser?.phoneNumber ||
+              `${failedUser?.dialingCode || ""}${failedUser?.localNumber || ""}`,
+          )
+            .trim()
+            .replace(/\s+/g, "");
 
-        //   break;
-        // }
+          const failedAt = new Date();
+          const payload = {
+            userId: failedUser?._id || undefined,
+            email: recipientEmail,
+            phoneNumber: recipientPhoneNumber || undefined,
+            subscriptionId: subscriptionId || undefined,
+            invoiceId: hydratedInvoice.id || undefined,
+            status: "processing" as const,
+            failedAt,
+          };
+
+          let shouldSendFailureEmail = true;
+
+          if (hydratedInvoice.id) {
+            const upsertResult = await RecurringPaymentFailure.updateOne(
+              { invoiceId: hydratedInvoice.id },
+              { $setOnInsert: payload },
+              { upsert: true },
+            );
+
+            shouldSendFailureEmail = upsertResult.upsertedCount > 0;
+          } else {
+            await RecurringPaymentFailure.create(payload);
+          }
+
+          console.log("📝 Recurring failure stored:", {
+            userId: failedUser?._id?.toString() || null,
+            email: recipientEmail,
+            phoneNumber: recipientPhoneNumber || null,
+            invoiceId: hydratedInvoice.id || null,
+            status: "processing",
+            shouldSendFailureEmail,
+          });
+
+          if (shouldSendFailureEmail) {
+            try {
+              await sendRecurringPaymentFailureEmail({
+                to: recipientEmail,
+                firstName: (failedUser as any)?.firstName || undefined,
+                failedAt,
+                subscriptionId: subscriptionId || undefined,
+                invoiceId: hydratedInvoice.id || undefined,
+                gracePeriodHours: 48,
+              });
+
+              console.log("📧 Recurring failure email sent:", {
+                userId: failedUser?._id?.toString() || null,
+                email: recipientEmail,
+                invoiceId: hydratedInvoice.id || null,
+              });
+            } catch (emailError: any) {
+              console.error("❌ Failed to send recurring failure email:", {
+                userId: failedUser?._id?.toString() || null,
+                email: recipientEmail,
+                invoiceId: hydratedInvoice.id || null,
+                error: emailError?.message || emailError,
+              });
+            }
+          } else {
+            console.log("ℹ️ Recurring failure email already sent for invoice:", {
+              invoiceId: hydratedInvoice.id || null,
+            });
+          }
+
+          console.log("👤 User retained for 48-hour grace period after failure:", {
+            userId: failedUser?._id?.toString() || null,
+          });
+
+          break;
+        }
 
         default:
           console.log("ℹ️ Unhandled Stripe event:", {
