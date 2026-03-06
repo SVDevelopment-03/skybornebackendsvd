@@ -273,6 +273,17 @@ router.post(
             status: payment.status,
           });
 
+          const sessionCustomer = session.customer;
+          const customerId =
+            typeof sessionCustomer === "string"
+              ? sessionCustomer
+              : sessionCustomer?.id || "";
+          if (customerId && payment.userId) {
+            await User.findByIdAndUpdate(payment.userId, {
+              stripeCustomerId: customerId,
+            });
+          }
+
           await PaymentController.handleSuccessfulPayment(payment);
           console.log("🚀 Subscription activation handler executed:", {
             paymentId: String(payment._id),

@@ -405,6 +405,66 @@ export class StripeService {
   /**
    * Get or create a Stripe customer for a user
    */
+  private static async getExistingCustomer(user: any): Promise<string | null> {
+    const stripe = this.getStripeClient();
+    const setAndReturnCustomerId = async (customerId: string) => {
+      if (!customerId) return customerId;
+      if (user.stripeCustomerId !== customerId) {
+        user.stripeCustomerId = customerId;
+        await user.save();
+      }
+      return customerId;
+    };
+
+    if (user.stripeCustomerId) {
+      try {
+        const existing = await stripe.customers.retrieve(user.stripeCustomerId);
+        if (!existing.deleted) {
+          return user.stripeCustomerId;
+        }
+      } catch (error: any) {
+        const notFound =
+          error?.statusCode === 404 ||
+          error?.code === "resource_missing" ||
+          String(error?.message || "").toLowerCase().includes("no such customer");
+        if (!notFound) {
+          throw error;
+        }
+        console.warn(
+          `⚠️ Invalid Stripe customerId (${user.stripeCustomerId}) for user ${user._id}.`,
+        );
+      }
+    }
+
+    // Recover customer from subscription if available (find existing only).
+    if (user.stripeSubscriptionId) {
+      try {
+        const subscription = await stripe.subscriptions.retrieve(
+          user.stripeSubscriptionId,
+        );
+        const subscriptionCustomer = subscription.customer;
+        const customerId =
+          typeof subscriptionCustomer === "string"
+            ? subscriptionCustomer
+            : subscriptionCustomer?.id || "";
+
+        if (customerId) {
+          const existing = await stripe.customers.retrieve(customerId);
+          if (!existing.deleted) {
+            return await setAndReturnCustomerId(customerId);
+          }
+        }
+      } catch (error: any) {
+        console.warn(
+          `⚠️ Unable to recover customer from subscription (${user.stripeSubscriptionId}) for user ${user._id}:`,
+          error?.message || error,
+        );
+      }
+    }
+
+    return null;
+  }
+
   static async getOrCreateCustomer(user: any): Promise<string> {
     try {
       const stripe = this.getStripeClient();
@@ -421,27 +481,11 @@ export class StripeService {
         await user.save();
         return customer.id;
       };
-
-      // If customer ID exists, verify it is valid in current Stripe account.
-      if (user.stripeCustomerId) {
-        try {
-          const existing = await stripe.customers.retrieve(user.stripeCustomerId);
-          if (!existing.deleted) {
-            return user.stripeCustomerId;
-          }
-        } catch (error: any) {
-          const notFound =
-            error?.statusCode === 404 ||
-            error?.code === "resource_missing" ||
-            String(error?.message || "").toLowerCase().includes("no such customer");
-          if (!notFound) {
-            throw error;
-          }
-          console.warn(
-            `⚠️ Invalid Stripe customerId (${user.stripeCustomerId}) for user ${user._id}. Recreating customer...`,
-          );
-        }
+      const existingCustomerId = await this.getExistingCustomer(user);
+      if (existingCustomerId) {
+        return existingCustomerId;
       }
+
       return await createNewCustomer();
     } catch (error) {
       console.error("❌ Error creating Stripe customer:", error);
@@ -451,7 +495,28 @@ export class StripeService {
 
   static async getDefaultCardDetails(user: any) {
     const stripe = this.getStripeClient();
-    const customerId = await this.getOrCreateCustomer(user);
+    const customerId = await this.getExistingCustomer(user);
+
+    if (!customerId) {
+      return {
+        customerId: "",
+        hasCard: false,
+        card: null,
+        billingDetails: {
+          name: "",
+          email: "",
+          phone: "",
+          address: {
+            line1: "",
+            line2: "",
+            city: "",
+            state: "",
+            postal_code: "",
+            country: "",
+          },
+        },
+      };
+    }
 
     const customer = await stripe.customers.retrieve(customerId);
     if (customer.deleted) {
@@ -520,7 +585,10 @@ export class StripeService {
 
   static async createCardSetupIntent(user: any) {
     const stripe = this.getStripeClient();
-    const customerId = await this.getOrCreateCustomer(user);
+    const customerId = await this.getExistingCustomer(user);
+    if (!customerId) {
+      throw new Error("No existing Stripe customer found for this user");
+    }
     const setupIntent = await stripe.setupIntents.create({
       customer: customerId,
       payment_method_types: ["card"],
@@ -535,7 +603,10 @@ export class StripeService {
 
   static async createCardUpdatePortalSession(user: any, returnUrl?: string) {
     const stripe = this.getStripeClient();
-    const customerId = await this.getOrCreateCustomer(user);
+    const customerId = await this.getExistingCustomer(user);
+    if (!customerId) {
+      throw new Error("No existing Stripe customer found for this user");
+    }
     const fallbackReturnUrl = `${process.env.FRONTEND_URL || ""}/payments`;
     const safeReturnUrl =
       typeof returnUrl === "string" && /^https?:\/\//i.test(returnUrl)
@@ -571,7 +642,10 @@ export class StripeService {
     },
   ) {
     const stripe = this.getStripeClient();
-    const customerId = await this.getOrCreateCustomer(user);
+    const customerId = await this.getExistingCustomer(user);
+    if (!customerId) {
+      throw new Error("No existing Stripe customer found for this user");
+    }
 
     // Ensure payment method is attached to this customer.
     const existingPaymentMethod = await stripe.paymentMethods.retrieve(paymentMethodId);
