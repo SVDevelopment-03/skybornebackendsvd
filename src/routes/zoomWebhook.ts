@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import express from "express";
 import MeetingAttendance from "../modules/MeetingModule/MeetingModels/MeetingAttendance";
+import type { ISession } from "../modules/MeetingModule/MeetingModels/MeetingAttendance";
 import Meeting from "../modules/MeetingModule/MeetingModels/Meeting";
 import User from "../modules/UserModule/models/User";
 import MeetingParticipant from "../modules/MeetingModule/MeetingModels/MeetingParticipant"; // New model
@@ -316,7 +317,7 @@ router.post("/zoom-webhook", async (req, res) => {
     }
 
     attendance.totalDuration = attendance.sessions.reduce(
-      (total, session) => total + Number(session.duration || 0),
+      (total: number, session: ISession) => total + Number(session.duration || 0),
       0,
     );
     if (!attendance.joinedAt && attendance.sessions[0]?.joinTime) {
@@ -327,7 +328,7 @@ router.post("/zoom-webhook", async (req, res) => {
     }
 
     const hasClosedSession = attendance.sessions.some(
-      (session) => !!session.leaveTime,
+      (session: ISession) => !!session.leaveTime,
     );
 
     if (attendance.status !== "completed" && hasClosedSession) {
