@@ -252,7 +252,7 @@ const getClassReminderEmailHTML = (
             
             <!-- Call to Action Button -->
             <div class="cta-section">
-                <a href="${process.env.DASHBOARD_URL}/class" class="cta-button">
+                <a href="${process.env.DASHBOARD_URL}" class="cta-button">
                     Join Class Now
                 </a>
             </div>
