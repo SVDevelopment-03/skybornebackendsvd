@@ -519,26 +519,47 @@ router.post(
           };
 
           let shouldSendFailureEmail = true;
+          let dedupeReason = "none";
 
           if (hydratedInvoice.id) {
+            const existingFailureByInvoice = await RecurringPaymentFailure.findOne({
+              invoiceId: hydratedInvoice.id,
+            })
+              .select("_id")
+              .lean();
+
+            if (existingFailureByInvoice) {
+              shouldSendFailureEmail = false;
+              dedupeReason = "invoice_already_recorded";
+            }
+          }
+
+          if (shouldSendFailureEmail) {
             const upsertResult = await RecurringPaymentFailure.updateOne(
-              { invoiceId: hydratedInvoice.id },
+              {
+                subscriptionId,
+                status: "processing",
+              },
               { $setOnInsert: payload },
               { upsert: true },
             );
 
             shouldSendFailureEmail = upsertResult.upsertedCount > 0;
-          } else {
-            await RecurringPaymentFailure.create(payload);
+
+            if (!shouldSendFailureEmail) {
+              dedupeReason = "active_subscription_failure";
+            }
           }
 
           console.log("📝 Recurring failure stored:", {
             userId: failedUser?._id?.toString() || null,
             email: recipientEmail,
+            subscriptionId,
             phoneNumber: recipientPhoneNumber || null,
             invoiceId: hydratedInvoice.id || null,
             status: "processing",
             shouldSendFailureEmail,
+            dedupeReason,
           });
 
           if (shouldSendFailureEmail) {
@@ -566,8 +587,10 @@ router.post(
               });
             }
           } else {
-            console.log("ℹ️ Recurring failure email already sent for invoice:", {
+            console.log("ℹ️ Recurring failure email already sent for subscription:", {
+              subscriptionId,
               invoiceId: hydratedInvoice.id || null,
+              dedupeReason,
             });
           }
 
