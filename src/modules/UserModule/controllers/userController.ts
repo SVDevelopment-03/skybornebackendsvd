@@ -60,7 +60,7 @@ export class UserController {
       // Fetch users with applied filters
       const users = await User.find(finalQuery)
         .select(
-          "_id firstName lastName email phoneNumber country countryCode state plan isActive createdAt",
+          "_id firstName lastName email phoneNumber country countryCode state plan subscription isActive createdAt",
         )
         .skip(skip)
         .limit(limit)

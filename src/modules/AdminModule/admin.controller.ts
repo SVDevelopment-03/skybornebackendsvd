@@ -661,9 +661,34 @@ getRevenueByCountry = async (req: Request, res: Response): Promise<void> => {
       },
     ]);
 
+    // Aggregate active users by country
+    const activeUsersByCountry = await User.aggregate([
+      {
+        $match: {
+          role: "user",
+          "subscription.status": "active",
+        },
+      },
+      {
+        $group: {
+          _id: "$country",
+          activeUsers: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const activeUsersMap = new Map<string, number>();
+    activeUsersByCountry.forEach((item) => {
+      activeUsersMap.set(item._id || "N/A", item.activeUsers || 0);
+    });
+
     // Calculate grand total
     const grandTotal = revenueByCountry.reduce(
       (sum, item) => sum + item.totalAmount,
+      0
+    );
+    const totalActiveUsers = activeUsersByCountry.reduce(
+      (sum, item) => sum + (item.activeUsers || 0),
       0
     );
 
@@ -672,6 +697,7 @@ getRevenueByCountry = async (req: Request, res: Response): Promise<void> => {
       country: item._id || "N/A",
       count: item.count,
       amount: item.totalAmount,
+      activeUsers: activeUsersMap.get(item._id || "N/A") || 0,
     }));
 
     // Add grand total row
@@ -681,6 +707,7 @@ getRevenueByCountry = async (req: Request, res: Response): Promise<void> => {
         country: "Grand Total",
         count: formattedData.reduce((sum, row) => sum + row.count, 0),
         amount: grandTotal,
+        activeUsers: totalActiveUsers,
       },
     };
 
