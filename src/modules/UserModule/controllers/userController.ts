@@ -138,7 +138,7 @@ export class UserController {
       // Fetch ALL users with applied filters
       const users = await User.find(finalQuery)
         .select(
-          "_id firstName lastName email phoneNumber country countryCode plan isActive createdAt",
+          "_id firstName lastName email phoneNumber country countryCode state city plan isActive createdAt",
         )
         .sort({ createdAt: -1 })
         .lean();
@@ -149,6 +149,8 @@ export class UserController {
         "Email",
         "Phone",
         "Country",
+        "State",
+        "City",
         "Plan",
         "Status",
         "Created Date",
@@ -160,6 +162,8 @@ export class UserController {
         const email = user?.email || "N/A";
         const phone = user?.phoneNumber || "N/A";
         const country = user?.country || user?.countryCode || "N/A";
+        const state = user?.state || "N/A";
+        const city = user?.city || "N/A";
         const plan = user.plan || "N/A";
         const status = user.isActive ? "Active" : "Inactive";
         const createdDate = new Date(user.createdAt).toLocaleDateString(
@@ -171,7 +175,7 @@ export class UserController {
           },
         );
 
-        return [name, email, phone, country, plan, status, createdDate];
+        return [name, email, phone, country, state, city, plan, status, createdDate];
       });
 
       // Escape CSV values
