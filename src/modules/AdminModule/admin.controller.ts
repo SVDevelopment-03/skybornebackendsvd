@@ -110,15 +110,19 @@ export class AdminController {
    */
 getOverviewStats = async (req: Request, res: Response): Promise<void> => {
     try {
-      // ===== ACTIVE USERS =====
-      const activeUsers = await User.countDocuments({
+      const activeUserMatch = {
+        role: "user",
+        isActive: true,
         onboardingCompleted: true,
-        role: "user"
-      });
+        "subscription.status": "active",
+      };
+
+      // ===== ACTIVE USERS =====
+      const activeUsers = await User.countDocuments(activeUserMatch);
 
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
       const previousMonthUsers = await User.countDocuments({
-        onboardingCompleted: true,
+        ...activeUserMatch,
         createdAt: { $lt: thirtyDaysAgo },
       });
 
@@ -623,6 +627,13 @@ getOverviewStats = async (req: Request, res: Response): Promise<void> => {
 
 getRevenueByCountry = async (req: Request, res: Response): Promise<void> => {
   try {
+    const activeUserMatch = {
+      role: "user",
+      isActive: true,
+      onboardingCompleted: true,
+      "subscription.status": "active",
+    };
+
     // Aggregate payments by country
     const revenueByCountry = await Payment.aggregate([
       {
@@ -665,8 +676,7 @@ getRevenueByCountry = async (req: Request, res: Response): Promise<void> => {
     const activeUsersByCountry = await User.aggregate([
       {
         $match: {
-          role: "user",
-          "subscription.status": "active",
+          ...activeUserMatch,
         },
       },
       {
