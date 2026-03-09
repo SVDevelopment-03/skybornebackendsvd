@@ -832,7 +832,7 @@ static async GetUpcomingMeetings(req: Request, res: Response) {
     }
 
     const user = await User.findById(userId).select(
-      "plan country countryCode role"
+      "plan country countryCode role trainer"
     );
 
     if (!user) {
@@ -884,6 +884,22 @@ static async GetUpcomingMeetings(req: Request, res: Response) {
       localTime: { $gte: sixtyMinutesAgo },
       title: { $regex: search, $options: "i" },
     };
+
+    // ✅ Trainer should only see assigned classes
+    if (userRole === "trainer") {
+      if (!user.trainer) {
+        return res.json({
+          success: true,
+          count: 0,
+          totalCount: 0,
+          hasMore: false,
+          meetings: [],
+          userPlan: user.plan,
+          message: "No trainer assigned to this user",
+        });
+      }
+      filter.trainer = user.trainer;
+    }
 
     // ✅ Service filter - only add for regular users
     if (!isAdminOrTrainer && serviceTitles.length > 0) {
@@ -959,7 +975,7 @@ static async GetUpcomingMeetings(req: Request, res: Response) {
     }
 
     const user = await User.findById(userId).select(
-      "plan country countryCode role"
+      "plan country countryCode role trainer"
     );
 
     if (!user) {
@@ -1006,6 +1022,22 @@ static async GetUpcomingMeetings(req: Request, res: Response) {
     const filter: any = {
       title: { $regex: search, $options: "i" },
     };
+
+    // ✅ Trainer should only see assigned classes
+    if (userRole === "trainer") {
+      if (!user.trainer) {
+        return res.json({
+          success: true,
+          count: 0,
+          totalCount: 0,
+          hasMore: false,
+          meetings: [],
+          userPlan: user.plan,
+          message: "No trainer assigned to this user",
+        });
+      }
+      filter.trainer = user.trainer;
+    }
 
     // ✅ Service filter - only add for regular users
     if (!isAdminOrTrainer && serviceTitles.length > 0) {
