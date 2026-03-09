@@ -194,7 +194,9 @@ getOverviewStats = async (req: Request, res: Response): Promise<void> => {
         : 0;
 
       // ===== ACTIVE TRAINERS =====
-      const activeTrainers = await TrainerModel.countDocuments();
+      const activeTrainers = await TrainerModel.countDocuments({
+        status: "active",
+      });
 
       // ===== PENDING APPROVALS =====
       const pendingApprovals = await Payment.countDocuments({

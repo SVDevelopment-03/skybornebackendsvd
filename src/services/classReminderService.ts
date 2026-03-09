@@ -57,6 +57,7 @@ static async getCountriesByRegion(regionName: string) {
         countryCode: { $in: countryCodes },
         isActive: true,
         isEmailVerified: true,
+        "subscription.status": "active",
       }).select("email firstName lastName countryCode");
 
       return users;
