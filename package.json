@@ -18,6 +18,8 @@
     "seed:user": "ts-node --transpile-only src/seeders/user.seeder.ts",
     "seed:countries": "ts-node --transpile-only src/seeders/country.seeder.ts",
     "seed:trainerspecific": "ts-node --transpile-only src/seeders/trainer4-attendance.seeder.ts",
+    "test:webhook:stripe-failed": "ts-node --transpile-only src/scripts/testStripeInvoicePaymentFailedWebhook.ts",
+    "test:webhook:stripe-failed:idempotent": "ts-node --transpile-only src/scripts/testStripeInvoicePaymentFailedWebhook.ts --twice --check-db",
     "build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
