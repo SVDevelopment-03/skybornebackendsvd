@@ -69,6 +69,14 @@ const userSchema = new Schema<IUser>(
       type: String,
       required: true,
     },
+    state: {
+      type: String,
+      trim: true,
+    },
+    city: {
+      type: String,
+      trim: true,
+    },
     localNumber: {
       type: String,
     },

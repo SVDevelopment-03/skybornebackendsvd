@@ -1087,20 +1087,60 @@ static async GetMeetingRecording(req: Request, res: Response) {
     );
     console.log(`[${requestId}] ✅ Recordings API response received`);
     console.log(`[${requestId}] Total recording files: ${recordingsData.recording_files?.length || 0}`);
+    const getFileDurationSeconds = (file: any): number => {
+      const startMs = new Date(file?.recording_start || "").getTime();
+      const endMs = new Date(file?.recording_end || "").getTime();
+      if (Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs) {
+        return Math.floor((endMs - startMs) / 1000);
+      }
+      return 0;
+    };
+
     recordingsData.recording_files?.forEach((f: any, idx: number) => {
-      console.log(`[${requestId}]   [${idx}] Type: ${f.file_type}, Size: ${f.file_size}, Name: ${f.file_name}`);
+      console.log(
+        `[${requestId}]   [${idx}] Type: ${f.file_type}, Size: ${f.file_size}, Name: ${f.file_name}, Duration: ${getFileDurationSeconds(f)}s`,
+      );
     });
 
-    // Step 4: Find MP4 file
-    console.log(`[${requestId}] 🎯 Step 4: Finding MP4 file...`);
-    const file = recordingsData.recording_files?.find((f: any) => f.file_type === "MP4");
-    if (!file) {
+    // Step 4: Find best MP4 file
+    console.log(`[${requestId}] 🎯 Step 4: Finding best MP4 file...`);
+    const minDurationSeconds = 10 * 60;
+    const mp4Candidates = (recordingsData.recording_files || [])
+      .filter((f: any) => f.file_type === "MP4" && f.download_url)
+      .map((f: any) => ({
+        file: f,
+        durationSeconds: getFileDurationSeconds(f),
+        fileSize: Number(f.file_size || 0),
+      }));
+
+    if (!mp4Candidates.length) {
       console.log(`[${requestId}] ❌ No MP4 file found`);
       return res.status(404).json({ error: "Recording file not found" });
     }
+
+    const byBestCandidate = (a: any, b: any) =>
+      b.durationSeconds - a.durationSeconds ||
+      b.fileSize - a.fileSize ||
+      new Date(b.file?.recording_start || 0).getTime() -
+        new Date(a.file?.recording_start || 0).getTime();
+
+    const longCandidates = mp4Candidates
+      .filter((entry: any) => entry.durationSeconds >= minDurationSeconds)
+      .sort(byBestCandidate);
+
+    const selected = longCandidates[0] || mp4Candidates.sort(byBestCandidate)[0];
+    const file = selected.file;
+
+    if (!longCandidates.length) {
+      console.log(
+        `[${requestId}] ⚠️ No MP4 >= ${minDurationSeconds}s. Falling back to longest MP4 (${selected.durationSeconds}s).`,
+      );
+    }
+
     console.log(`[${requestId}] ✅ MP4 file found`);
     console.log(`[${requestId}]   File name: ${file.file_name}`);
     console.log(`[${requestId}]   File size: ${file.file_size} bytes`);
+    console.log(`[${requestId}]   Duration: ${selected.durationSeconds}s`);
     console.log(`[${requestId}]   Download URL: ${file.download_url.substring(0, 80)}...`);
 
     // Step 5: Prepare download URL

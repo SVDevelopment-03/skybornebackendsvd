@@ -23,6 +23,8 @@ export interface IUser extends Document {
   lastPaymentGateway?: "stripe" | "ngenius";
   password?: string;
   country: string;
+  state?: string;
+  city?: string;
   billingType?: string;
   countryCode: string;
   dialingCode: string;

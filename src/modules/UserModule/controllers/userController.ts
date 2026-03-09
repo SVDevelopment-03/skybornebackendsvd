@@ -15,6 +15,7 @@ export class UserController {
       const limit = parseInt(req.query.limit as string) || 10;
       const search = (req.query.search as string) || "";
       const country = (req.query.country as string) || "";
+      const state = (req.query.state as string) || "";
       const plan = (req.query.plan as string) || "";
       const filter = (req.query.filter as string) || "";
 
@@ -27,6 +28,12 @@ export class UserController {
       // Filter by country code
       if (country && country !== "all") {
         query.countryCode = country.toUpperCase();
+      }
+
+      // Filter by state
+      if (state && state.toLowerCase() !== "all") {
+        const escapedState = state.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        query.state = { $regex: `^${escapedState}$`, $options: "i" };
       }
 
       // Filter by plan
@@ -53,7 +60,7 @@ export class UserController {
       // Fetch users with applied filters
       const users = await User.find(finalQuery)
         .select(
-          "_id firstName lastName email phoneNumber country countryCode plan isActive createdAt",
+          "_id firstName lastName email phoneNumber country countryCode state plan isActive createdAt",
         )
         .skip(skip)
         .limit(limit)

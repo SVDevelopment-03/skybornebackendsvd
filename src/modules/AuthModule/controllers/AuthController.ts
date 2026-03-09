@@ -69,6 +69,8 @@ export class AuthController {
             lastName: result.user.lastName,
             email: result.user.email,
             country: result.user.country,
+            state: result.user.state,
+            city: result.user.city,
             countryCode: result.user.countryCode,
             role: result.user.role,
             motivation: result.user.motivation,
