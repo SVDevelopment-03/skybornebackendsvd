@@ -131,6 +131,14 @@ const getCheckoutTransactionId = (
   return typeof paymentIntent === "string" ? paymentIntent : paymentIntent.id;
 };
 
+const getCheckoutInvoiceId = (
+  session: Stripe.Checkout.Session,
+): string | null => {
+  const invoice = session.invoice;
+  if (!invoice) return null;
+  return typeof invoice === "string" ? invoice : invoice.id;
+};
+
 const getChargeIdFromInvoice = (invoice: Stripe.Invoice): string | null => {
   const asAny = invoice as any;
 
@@ -205,6 +213,40 @@ const resolveInvoiceTransactionId = async (
   return null;
 };
 
+const resolveCheckoutPaymentIntentId = async (
+  session: Stripe.Checkout.Session,
+): Promise<string | null> => {
+  const directCheckoutPi = getCheckoutTransactionId(session);
+  if (directCheckoutPi?.startsWith("pi_")) {
+    return directCheckoutPi;
+  }
+
+  const checkoutInvoiceId = getCheckoutInvoiceId(session);
+  if (!checkoutInvoiceId) {
+    return null;
+  }
+
+  try {
+    const invoice = await stripe.invoices.retrieve(checkoutInvoiceId, {
+      expand: [
+        "payment_intent",
+        "payment_intent.latest_charge",
+        "charge",
+        "payments",
+      ],
+    });
+
+    return await resolveInvoiceTransactionId(invoice as Stripe.Invoice);
+  } catch (err: any) {
+    console.warn("⚠️ Failed to resolve checkout payment_intent from invoice:", {
+      sessionId: session.id,
+      invoiceId: checkoutInvoiceId,
+      error: err.message,
+    });
+    return null;
+  }
+};
+
 // ─── WEBHOOK ROUTER ───────────────────────────────────────────────────────────
 
 router.post(
@@ -246,12 +288,26 @@ router.post(
         case "checkout.session.completed": {
           const session = event.data.object as Stripe.Checkout.Session;
           const { orderRef } = session.metadata || {};
+          const sessionInvoiceId = getCheckoutInvoiceId(session);
+          const resolvedPaymentIntentId =
+            await resolveCheckoutPaymentIntentId(session);
+
           console.log("📦 checkout.session.completed:", {
             eventId: event.id,
             orderRef,
             sessionId: session.id,
             subscriptionId: session.subscription || null,
-            invoiceId: session.invoice || null,
+            invoiceId: sessionInvoiceId,
+            paymentIntentId: resolvedPaymentIntentId,
+          });
+
+          console.log("🔎 checkout.session.completed raw ids:", {
+            eventId: event.id,
+            sessionId: session.id,
+            sessionInvoice: session.invoice || null,
+            sessionPaymentIntent: session.payment_intent || null,
+            sessionSubscription: session.subscription || null,
+            resolvedPaymentIntentId,
           });
 
           if (!orderRef) {
@@ -266,13 +322,21 @@ router.post(
           }
 
           payment.status = "COMPLETED";
-          const transactionId = getCheckoutTransactionId(session) || session.id;
 
           payment.reference = session.id;
           payment.subscriptionId = session.subscription as string;
-          payment.transactionId = transactionId;
-          payment.paymentIntentId = transactionId || payment.paymentIntentId;
-          payment.invoiceId = session.invoice as string;
+          if (resolvedPaymentIntentId?.startsWith("pi_")) {
+            payment.transactionId = resolvedPaymentIntentId;
+            payment.paymentIntentId = resolvedPaymentIntentId;
+          } else {
+            console.warn("⚠️ No pi_ payment intent resolved for checkout session", {
+              eventId: event.id,
+              orderRef,
+              sessionId: session.id,
+              resolvedPaymentIntentId: resolvedPaymentIntentId || null,
+            });
+          }
+          payment.invoiceId = sessionInvoiceId || payment.invoiceId;
           payment.gateway = "stripe";
           payment.gatewayResponse = session;
           payment.verifiedAt = new Date();

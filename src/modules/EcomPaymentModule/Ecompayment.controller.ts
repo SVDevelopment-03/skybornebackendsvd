@@ -4,7 +4,6 @@ import { EcomStripeService } from "../../services/EcomStripe.service";
 import User from "../UserModule/models/User";
 import EcomPayment from "./Ecompayment.model";
 import Cart from "../ServiceModule/CartModule/Cart.model";
-
 export class EcomPaymentController {
   /**
    * POST /ecom-payments/create-checkout-session
