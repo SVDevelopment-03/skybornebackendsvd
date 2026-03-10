@@ -11,15 +11,20 @@ class CancelSubscriptionController {
     return fallbackPhone;
   }
 
-  private static async hydratePhoneNumbersFromUserEmail(cancelSubscriptions: any[]) {
+  private static resolveUserSubscribedAt(user: any): Date | null {
+    const startDate = user?.subscription?.startDate;
+    if (!startDate) return null;
+
+    const parsed = new Date(startDate);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return parsed;
+  }
+
+  private static async hydrateUserDetailsFromUserEmail(cancelSubscriptions: any[]) {
     const emailsToLookup = Array.from(
       new Set(
         cancelSubscriptions
-          .filter(
-            (subscription) =>
-              !String(subscription?.phoneNumber || "").trim() &&
-              String(subscription?.email || "").trim(),
-          )
+          .filter((subscription) => String(subscription?.email || "").trim())
           .map((subscription) => String(subscription.email).trim().toLowerCase()),
       ),
     );
@@ -29,32 +34,66 @@ class CancelSubscriptionController {
     }
 
     const users = await User.find({ email: { $in: emailsToLookup } })
-      .select("email phoneNumber dialingCode localNumber")
+      .select("email phoneNumber dialingCode localNumber country subscription.startDate")
       .lean();
 
-    const phoneByEmail = new Map<string, string>();
+    const userDetailsByEmail = new Map<
+      string,
+      {
+        phoneNumber?: string;
+        country?: string;
+        subscribedAt?: Date;
+      }
+    >();
+
     for (const user of users) {
       const emailKey = String((user as any)?.email || "").trim().toLowerCase();
       if (!emailKey) continue;
 
       const resolvedPhone = CancelSubscriptionController.resolveUserPhone(user);
-      if (resolvedPhone) {
-        phoneByEmail.set(emailKey, resolvedPhone);
+      const resolvedCountry = String((user as any)?.country || "").trim();
+      const resolvedSubscribedAt =
+        CancelSubscriptionController.resolveUserSubscribedAt(user);
+
+      const detail: {
+        phoneNumber?: string;
+        country?: string;
+        subscribedAt?: Date;
+      } = {};
+
+      if (resolvedPhone) detail.phoneNumber = resolvedPhone;
+      if (resolvedCountry) detail.country = resolvedCountry;
+      if (resolvedSubscribedAt) detail.subscribedAt = resolvedSubscribedAt;
+
+      if (Object.keys(detail).length) {
+        userDetailsByEmail.set(emailKey, detail);
       }
     }
 
     return cancelSubscriptions.map((subscription) => {
-      const currentPhone = String(subscription?.phoneNumber || "").trim();
-      if (currentPhone) return subscription;
-
       const emailKey = String(subscription?.email || "").trim().toLowerCase();
-      const fallbackPhone = phoneByEmail.get(emailKey);
-      if (!fallbackPhone) return subscription;
+      const details = userDetailsByEmail.get(emailKey);
+      if (!details) return subscription;
 
-      return {
-        ...subscription,
-        phoneNumber: fallbackPhone,
-      };
+      const patch: any = {};
+
+      if (!String(subscription?.phoneNumber || "").trim() && details.phoneNumber) {
+        patch.phoneNumber = details.phoneNumber;
+      }
+
+      // Always use User.country when available (resolved via email).
+      if (details.country) {
+        patch.country = details.country;
+      }
+
+      // Always use User.subscription.startDate when available (resolved via email).
+      if (details.subscribedAt) {
+        patch.subscribedAt = details.subscribedAt;
+      }
+
+      if (!Object.keys(patch).length) return subscription;
+
+      return { ...subscription, ...patch };
     });
   }
 
@@ -83,6 +122,7 @@ class CancelSubscriptionController {
             { lastName: { $regex: searchLower, $options: "i" } },
             { email: { $regex: searchLower, $options: "i" } },
             { phoneNumber: { $regex: searchLower, $options: "i" } },
+            { country: { $regex: searchLower, $options: "i" } },
             { userId: { $regex: searchLower, $options: "i" } },
           ],
         };
@@ -100,7 +140,7 @@ class CancelSubscriptionController {
       // Fetch cancel subscriptions with applied filters
       const cancelSubscriptionsRaw = await CancelSubscriptionModel.find(finalQuery)
         .select(
-          "_id subscriptionId firstName lastName email phoneNumber userId status description adminDescription createdAt plan cancelledAt"
+          "_id subscriptionId firstName lastName email phoneNumber country subscribedAt userId status description adminDescription createdAt plan cancelledAt"
         )
         .skip(skip)
         .limit(limit)
@@ -108,7 +148,7 @@ class CancelSubscriptionController {
         .lean();
 
       const cancelSubscriptions =
-        await CancelSubscriptionController.hydratePhoneNumbersFromUserEmail(
+        await CancelSubscriptionController.hydrateUserDetailsFromUserEmail(
           cancelSubscriptionsRaw,
         );
 
@@ -156,6 +196,7 @@ class CancelSubscriptionController {
             { lastName: { $regex: searchLower, $options: "i" } },
             { email: { $regex: searchLower, $options: "i" } },
             { phoneNumber: { $regex: searchLower, $options: "i" } },
+            { country: { $regex: searchLower, $options: "i" } },
             { userId: { $regex: searchLower, $options: "i" } },
           ],
         };
@@ -171,13 +212,13 @@ class CancelSubscriptionController {
 
       const cancelSubscriptionsRaw = await CancelSubscriptionModel.find(finalQuery)
         .select(
-          "_id subscriptionId firstName lastName email phoneNumber userId status description adminDescription createdAt plan cancelledAt",
+          "_id subscriptionId firstName lastName email phoneNumber country subscribedAt userId status description adminDescription createdAt plan cancelledAt",
         )
         .sort({ createdAt: -1 })
         .lean();
 
       const cancelSubscriptions =
-        await CancelSubscriptionController.hydratePhoneNumbersFromUserEmail(
+        await CancelSubscriptionController.hydrateUserDetailsFromUserEmail(
           cancelSubscriptionsRaw,
         );
 
@@ -186,6 +227,8 @@ class CancelSubscriptionController {
         "Name",
         "Email",
         "Phone Number",
+        "Country",
+        "Subscribed At",
         "User Id",
         "Plan",
         "Status",
@@ -221,6 +264,8 @@ class CancelSubscriptionController {
           name,
           subscription.email || "N/A",
           subscription.phoneNumber || "N/A",
+          subscription.country || "N/A",
+          formatDate(subscription.subscribedAt),
           subscription.userId || "N/A",
           subscription.plan || "N/A",
           subscription.status ? formatStatus(subscription.status) : "N/A",
@@ -278,7 +323,7 @@ class CancelSubscriptionController {
 
       // Find user by userId
       const user = await User.findById(userId).select(
-        "_id firstName lastName email phoneNumber dialingCode localNumber stripeSubscriptionId plan"
+        "_id firstName lastName email phoneNumber dialingCode localNumber stripeSubscriptionId plan country subscription.startDate"
       );
 
       if (!user) {
@@ -305,6 +350,9 @@ class CancelSubscriptionController {
       const subscriptionId = user.stripeSubscriptionId || null;
       const fallbackPhone = `${(user as any)?.dialingCode || ""}${(user as any)?.localNumber || ""}`.trim();
       const phoneNumber = (user as any)?.phoneNumber || fallbackPhone || "";
+      const country = String((user as any)?.country || "").trim();
+      const subscribedAt =
+        CancelSubscriptionController.resolveUserSubscribedAt(user);
 
       // Create new cancel subscription record
       const newCancelSubscription = await CancelSubscriptionModel.create({
@@ -313,6 +361,8 @@ class CancelSubscriptionController {
         lastName: user.lastName,
         email: user.email,
         phoneNumber,
+        country,
+        subscribedAt,
         userId,
         plan: (user as any)?.plan || "",
         description: description || "",

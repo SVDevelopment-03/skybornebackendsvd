@@ -8,6 +8,8 @@ export interface ICancelSubscription extends Document {
   lastName: string;
   email: string;
   phoneNumber?: string;
+  country?: string;
+  subscribedAt?: Date;
   userId: string;
   status: CancelSubscriptionStatus;
   cancelledAt?: Date;
@@ -54,6 +56,15 @@ const cancelSubscriptionSchema = new Schema<ICancelSubscription>(
       type: String,
       required: false,
       trim: true,
+    },
+    country: {
+      type: String,
+      required: false,
+      trim: true,
+    },
+    subscribedAt: {
+      type: Date,
+      required: false,
     },
     userId: {
       type: String,
