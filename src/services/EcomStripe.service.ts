@@ -12,6 +12,21 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
 
 export class EcomStripeService {
   /**
+   * Resolve a Stripe hosted receipt URL from a payment intent.
+   */
+  static async getReceiptUrl(paymentIntentId: string): Promise<string | null> {
+    const intent = await stripe.paymentIntents.retrieve(paymentIntentId, {
+      expand: ["latest_charge"],
+    });
+
+    const charge = intent.latest_charge as Stripe.Charge | string | null;
+    if (!charge || typeof charge === "string") {
+      return null;
+    }
+
+    return charge.receipt_url || null;
+  }
+  /**
    * Create a Stripe Checkout Session for ecom product purchase.
    * Completely separate from subscription checkout sessions.
    */

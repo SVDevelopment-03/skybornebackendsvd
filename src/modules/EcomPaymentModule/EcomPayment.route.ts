@@ -60,4 +60,16 @@ export const EcomPaymentRoute = [
     method: "get",
     roles: ["admin"],
   },
+
+  /**
+   * Admin: Download receipt
+   * GET /ecom-payments/:paymentId/receipt
+   */
+  {
+    path: "/ecom-payments/:paymentId/receipt",
+    request: null,
+    action: _ecomPaymentController.downloadReceipt,
+    method: "get",
+    roles: ["admin"],
+  },
 ];

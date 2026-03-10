@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
-import { EcomStripeService } from "../../services/EcomStripe.service"; 
+import { generateInvoicePDF } from "../../services/invoiceService";
+import User from "../UserModule/models/User";
 import EcomPayment from "./Ecompayment.model";
 import Cart from "../ServiceModule/CartModule/Cart.model";
 import User from "../UserModule/models/User";
@@ -252,6 +253,62 @@ export class EcomPaymentController {
         success: false,
         message: error.message || "Failed to fetch ecom payment stats",
       });
+    }
+  };
+
+  /**
+   * GET /ecom-payments/:paymentId/receipt
+   * Admin: Download receipt file (proxy from Stripe).
+   */
+  downloadReceipt = async (req: Request, res: Response) => {
+    try {
+      const { paymentId } = req.params;
+      const payment = await EcomPayment.findById(paymentId)
+        .populate("orderId", "orderNumber totalAmount orderStatus")
+        .lean();
+
+      if (!payment) {
+        return res.status(404).json({ success: false, message: "Payment not found" });
+      }
+
+      const user = await User.findById(payment.userId).lean();
+
+      if (!user) {
+        return res.status(404).json({ success: false, message: "User not found" });
+      }
+
+      const orderRef =
+        (payment.orderId as any)?.orderNumber ||
+        payment.orderRef ||
+        payment.stripePaymentIntentId ||
+        payment._id.toString();
+
+      const receiptPDF = await generateInvoicePDF({
+        invoiceId: payment._id.toString(),
+        orderRef,
+        transactionId: payment.stripePaymentIntentId,
+        userId: user._id.toString(),
+        userEmail: user.email,
+        userName: `${user.firstName} ${user.lastName}`,
+        plan: "Ecom Order",
+        amount: payment.amount,
+        currency: payment.currency || "USD",
+        date: payment.createdAt,
+        subscriptionEndDate: payment.createdAt,
+        paymentMethod: "Stripe",
+      });
+
+      const safeRef = orderRef.replace(/[^a-zA-Z0-9_-]/g, "_");
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename=\"receipt-${safeRef}.pdf\"`
+      );
+
+      return res.status(200).send(receiptPDF);
+    } catch (error: any) {
+      console.error("❌ [EcomPayment] downloadReceipt error:", error.message);
+      return res.status(500).json({ success: false, message: "Failed to download receipt" });
     }
   };
 }
