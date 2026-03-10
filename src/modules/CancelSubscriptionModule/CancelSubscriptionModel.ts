@@ -7,6 +7,7 @@ export interface ICancelSubscription extends Document {
   firstName: string;
   lastName: string;
   email: string;
+  phoneNumber?: string;
   userId: string;
   status: CancelSubscriptionStatus;
   cancelledAt?: Date;
@@ -48,6 +49,11 @@ const cancelSubscriptionSchema = new Schema<ICancelSubscription>(
       required: true,
       trim: true,
       lowercase: true,
+    },
+    phoneNumber: {
+      type: String,
+      required: false,
+      trim: true,
     },
     userId: {
       type: String,

@@ -114,9 +114,17 @@ export const runRecurringFailureSubscriptionInactiveOnce = async () => {
 };
 
 export const startRecurringFailureSubscriptionInactiveCron = () => {
-  // Every hour at minute 10 (IST), so inactivity is applied near the 48-hour mark
+  // Run once on startup so pending entries are handled immediately.
+  runRecurringFailureSubscriptionInactiveOnce().catch((error: any) => {
+    console.error(
+      "[RecurringFailureInactiveCron] startup run failed",
+      error?.message || error,
+    );
+  });
+
+  // Run twice a day at 12:10 AM and 12:10 PM (IST)
   cron.schedule(
-    "10 * * * *",
+    "10 0,12 * * *",
     async () => {
       await runRecurringFailureSubscriptionInactiveOnce();
     },
@@ -125,5 +133,5 @@ export const startRecurringFailureSubscriptionInactiveCron = () => {
     },
   );
 
-  console.log("[RecurringFailureInactiveCron] started (hourly at minute 10 IST)");
+  console.log("[RecurringFailureInactiveCron] started (twice daily at 00:10 and 12:10 IST)");
 };

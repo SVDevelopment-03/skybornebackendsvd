@@ -3,6 +3,61 @@ import CancelSubscriptionModel from "./CancelSubscriptionModel";
 import User from "../UserModule/models/User"; 
 
 class CancelSubscriptionController {
+  private static resolveUserPhone(user: any): string {
+    const directPhone = String(user?.phoneNumber || "").trim();
+    if (directPhone) return directPhone;
+
+    const fallbackPhone = `${user?.dialingCode || ""}${user?.localNumber || ""}`.trim();
+    return fallbackPhone;
+  }
+
+  private static async hydratePhoneNumbersFromUserEmail(cancelSubscriptions: any[]) {
+    const emailsToLookup = Array.from(
+      new Set(
+        cancelSubscriptions
+          .filter(
+            (subscription) =>
+              !String(subscription?.phoneNumber || "").trim() &&
+              String(subscription?.email || "").trim(),
+          )
+          .map((subscription) => String(subscription.email).trim().toLowerCase()),
+      ),
+    );
+
+    if (!emailsToLookup.length) {
+      return cancelSubscriptions;
+    }
+
+    const users = await User.find({ email: { $in: emailsToLookup } })
+      .select("email phoneNumber dialingCode localNumber")
+      .lean();
+
+    const phoneByEmail = new Map<string, string>();
+    for (const user of users) {
+      const emailKey = String((user as any)?.email || "").trim().toLowerCase();
+      if (!emailKey) continue;
+
+      const resolvedPhone = CancelSubscriptionController.resolveUserPhone(user);
+      if (resolvedPhone) {
+        phoneByEmail.set(emailKey, resolvedPhone);
+      }
+    }
+
+    return cancelSubscriptions.map((subscription) => {
+      const currentPhone = String(subscription?.phoneNumber || "").trim();
+      if (currentPhone) return subscription;
+
+      const emailKey = String(subscription?.email || "").trim().toLowerCase();
+      const fallbackPhone = phoneByEmail.get(emailKey);
+      if (!fallbackPhone) return subscription;
+
+      return {
+        ...subscription,
+        phoneNumber: fallbackPhone,
+      };
+    });
+  }
+
   // 1️⃣ GET: Fetch all cancel subscriptions with pagination
   static async getAll(req: Request, res: Response) {
     try {
@@ -27,6 +82,7 @@ class CancelSubscriptionController {
             { firstName: { $regex: searchLower, $options: "i" } },
             { lastName: { $regex: searchLower, $options: "i" } },
             { email: { $regex: searchLower, $options: "i" } },
+            { phoneNumber: { $regex: searchLower, $options: "i" } },
             { userId: { $regex: searchLower, $options: "i" } },
           ],
         };
@@ -42,14 +98,19 @@ class CancelSubscriptionController {
       }
 
       // Fetch cancel subscriptions with applied filters
-      const cancelSubscriptions = await CancelSubscriptionModel.find(finalQuery)
+      const cancelSubscriptionsRaw = await CancelSubscriptionModel.find(finalQuery)
         .select(
-          "_id subscriptionId firstName lastName email userId status description adminDescription createdAt plan cancelledAt"
+          "_id subscriptionId firstName lastName email phoneNumber userId status description adminDescription createdAt plan cancelledAt"
         )
         .skip(skip)
         .limit(limit)
         .sort({ createdAt: -1 })
         .lean();
+
+      const cancelSubscriptions =
+        await CancelSubscriptionController.hydratePhoneNumbersFromUserEmail(
+          cancelSubscriptionsRaw,
+        );
 
       // Get total count for pagination
       const total = await CancelSubscriptionModel.countDocuments(finalQuery);
@@ -94,6 +155,7 @@ class CancelSubscriptionController {
             { firstName: { $regex: searchLower, $options: "i" } },
             { lastName: { $regex: searchLower, $options: "i" } },
             { email: { $regex: searchLower, $options: "i" } },
+            { phoneNumber: { $regex: searchLower, $options: "i" } },
             { userId: { $regex: searchLower, $options: "i" } },
           ],
         };
@@ -107,17 +169,23 @@ class CancelSubscriptionController {
         finalQuery.status = "retained";
       }
 
-      const cancelSubscriptions = await CancelSubscriptionModel.find(finalQuery)
+      const cancelSubscriptionsRaw = await CancelSubscriptionModel.find(finalQuery)
         .select(
-          "_id subscriptionId firstName lastName email userId status description adminDescription createdAt plan cancelledAt",
+          "_id subscriptionId firstName lastName email phoneNumber userId status description adminDescription createdAt plan cancelledAt",
         )
         .sort({ createdAt: -1 })
         .lean();
+
+      const cancelSubscriptions =
+        await CancelSubscriptionController.hydratePhoneNumbersFromUserEmail(
+          cancelSubscriptionsRaw,
+        );
 
       const headers = [
         "Subscription Id",
         "Name",
         "Email",
+        "Phone Number",
         "User Id",
         "Plan",
         "Status",
@@ -152,6 +220,7 @@ class CancelSubscriptionController {
           subscription.subscriptionId || "N/A",
           name,
           subscription.email || "N/A",
+          subscription.phoneNumber || "N/A",
           subscription.userId || "N/A",
           subscription.plan || "N/A",
           subscription.status ? formatStatus(subscription.status) : "N/A",
@@ -209,7 +278,7 @@ class CancelSubscriptionController {
 
       // Find user by userId
       const user = await User.findById(userId).select(
-        "_id firstName lastName email stripeSubscriptionId plan"
+        "_id firstName lastName email phoneNumber dialingCode localNumber stripeSubscriptionId plan"
       );
 
       if (!user) {
@@ -233,13 +302,17 @@ class CancelSubscriptionController {
       }
 
       // Generate subscriptionId (can be customized as per your needs)
-        const subscriptionId = user.stripeSubscriptionId || null;
+      const subscriptionId = user.stripeSubscriptionId || null;
+      const fallbackPhone = `${(user as any)?.dialingCode || ""}${(user as any)?.localNumber || ""}`.trim();
+      const phoneNumber = (user as any)?.phoneNumber || fallbackPhone || "";
+
       // Create new cancel subscription record
       const newCancelSubscription = await CancelSubscriptionModel.create({
         subscriptionId,
         firstName: user.firstName,
         lastName: user.lastName,
         email: user.email,
+        phoneNumber,
         userId,
         plan: (user as any)?.plan || "",
         description: description || "",

@@ -12,6 +12,7 @@ import app from "./app"; // Imported Express app
 import { initializeSocket, setIOInstance } from "./config/socket";
 import { startCurrencyCron } from "./modules/CurrencyModule/CurrencyCron";
 import { initializeEmailServices } from "./services/initializeEmailService"; 
+import { startRecurringFailureSubscriptionInactiveCron } from "./cron/RecurringFailureSubscriptionInactiveCron";
 
 
 const PORT = process.env.PORT || 8000;
@@ -42,6 +43,7 @@ const startServer = async () => {
       () => {
         console.log(`🌐 Server running on port ${PORT}`);
         startCurrencyCron();
+        startRecurringFailureSubscriptionInactiveCron();
       },
     );
 
