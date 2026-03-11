@@ -18,6 +18,7 @@ import { AuthService } from "../services/authService";
 import TempUser from "../../UserModule/models/TempUser";
 import extractPhoneDetails from "../../../utils/extractPhoneDetail";
 import { request } from "http";
+import { getName } from "country-list";
 
 // Helper function for logging auth events
 
@@ -32,11 +33,21 @@ export class AuthController {
       if (req?.body?.phoneNumber) {
         const { dialingCode, localNumber, countryCode, country } =
           extractPhoneDetails(req?.body?.phoneNumber);
+        const countryFromRequest = String(req?.body?.country || "").trim();
+        const requestedCountryCode =
+          /^[a-z]{2}$/i.test(countryFromRequest)
+            ? countryFromRequest.toUpperCase()
+            : "";
+        const requestedCountryName = countryFromRequest
+          ? getName(requestedCountryCode || countryFromRequest) ||
+            countryFromRequest
+          : "";
+
         payload = {
           ...req.body,
           dialingCode,
-          country,
-          countryCode,
+          country: requestedCountryName || country,
+          countryCode: requestedCountryCode || countryCode,
           localNumber,
           ip,
           userAgent,

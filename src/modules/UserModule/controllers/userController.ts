@@ -4,10 +4,53 @@ import User from "../models/User";
 import MeetingAttendance from "../../MeetingModule/MeetingModels/MeetingAttendance";
 import Meeting from "../../MeetingModule/MeetingModels/Meeting";
 import extractPhoneDetails from "../../../utils/extractPhoneDetail";
+import CancelSubscriptionModel from "../../CancelSubscriptionModule/CancelSubscriptionModel";
 
 const userService = new UserService();
 
 export class UserController {
+  private static async attachCancelledAtFromCancellationRequests(users: any[]) {
+    if (!users.length) return users;
+
+    const emails = Array.from(
+      new Set(
+        users
+          .map((user: any) => String(user?.email || "").trim().toLowerCase())
+          .filter(Boolean),
+      ),
+    );
+
+    if (!emails.length) return users;
+
+    const cancelledRequests = await CancelSubscriptionModel.find({
+      email: { $in: emails },
+      status: "cancelled",
+      cancelledAt: { $ne: null },
+    })
+      .select("email cancelledAt createdAt")
+      .sort({ cancelledAt: -1, createdAt: -1 })
+      .lean();
+
+    const cancelledAtByEmail = new Map<string, Date>();
+
+    for (const request of cancelledRequests) {
+      const emailKey = String((request as any)?.email || "")
+        .trim()
+        .toLowerCase();
+      const cancelledAt = (request as any)?.cancelledAt;
+      if (!emailKey || cancelledAtByEmail.has(emailKey) || !cancelledAt)
+        continue;
+
+      cancelledAtByEmail.set(emailKey, cancelledAt);
+    }
+
+    return users.map((user: any) => {
+      const emailKey = String(user?.email || "").trim().toLowerCase();
+      const cancelledAt = cancelledAtByEmail.get(emailKey) || null;
+      return { ...user, cancelledAt };
+    });
+  }
+
   // Original pagination endpoint
   static async getAll(req: Request, res: Response) {
     try {
@@ -67,6 +110,9 @@ export class UserController {
         .sort({ createdAt: -1 })
         .lean();
 
+      const usersWithCancelledAt =
+        await UserController.attachCancelledAtFromCancellationRequests(users);
+
       // Get total count for pagination
       const total = await User.countDocuments(finalQuery);
 
@@ -74,7 +120,7 @@ export class UserController {
         success: true,
         message: "Users fetched successfully",
         data: {
-          users,
+          users: usersWithCancelledAt,
           pagination: {
             currentPage: page,
             totalPages: Math.ceil(total / limit),
@@ -138,10 +184,13 @@ export class UserController {
       // Fetch ALL users with applied filters
       const users = await User.find(finalQuery)
         .select(
-          "_id firstName lastName email phoneNumber country countryCode state city plan isActive createdAt",
+          "_id firstName lastName email phoneNumber country countryCode state city plan subscription isActive createdAt",
         )
         .sort({ createdAt: -1 })
         .lean();
+
+      const usersWithCancelledAt =
+        await UserController.attachCancelledAtFromCancellationRequests(users);
 
       // Generate CSV
       const headers = [
@@ -152,11 +201,25 @@ export class UserController {
         "State",
         "City",
         "Plan",
+        "Subscription Status",
+        "Cancelled At",
         "Status",
         "Created Date",
       ];
 
-      const rows = users.map((user: any) => {
+      const formatDate = (dateValue: any) => {
+        if (!dateValue) return "N/A";
+        const parsedDate = new Date(dateValue);
+        if (Number.isNaN(parsedDate.getTime())) return "N/A";
+
+        return parsedDate.toLocaleDateString("en-US", {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+        });
+      };
+
+      const rows = usersWithCancelledAt.map((user: any) => {
         const name =
           `${user.firstName || ""} ${user.lastName || ""}`.trim() || "N/A";
         const email = user?.email || "N/A";
@@ -165,17 +228,24 @@ export class UserController {
         const state = user?.state || "N/A";
         const city = user?.city || "N/A";
         const plan = user.plan || "N/A";
+        const subscriptionStatus = user?.subscription?.status || "N/A";
+        const cancelledAt = formatDate(user?.cancelledAt);
         const status = user.isActive ? "Active" : "Inactive";
-        const createdDate = new Date(user.createdAt).toLocaleDateString(
-          "en-US",
-          {
-            year: "numeric",
-            month: "short",
-            day: "numeric",
-          },
-        );
+        const createdDate = formatDate(user.createdAt);
 
-        return [name, email, phone, country, state, city, plan, status, createdDate];
+        return [
+          name,
+          email,
+          phone,
+          country,
+          state,
+          city,
+          plan,
+          subscriptionStatus,
+          cancelledAt,
+          status,
+          createdDate,
+        ];
       });
 
       // Escape CSV values
