@@ -47,13 +47,10 @@ export const startClassReminderCron = () => {
               reminder.minutesBefore,
             );
 
-            const updateData: Record<string, boolean> = {
-              [reminder.flag]: true,
-            };
-
-            if (reminder.flag === "reminder30MinSent") {
-              updateData.reminderSent = true;
-            }
+            const updateData: Record<string, boolean> =
+              reminder.flag === "reminder24HourSent"
+                ? { reminder24HourSent: true }
+                : { reminder30MinSent: true };
 
             await Meeting.updateOne({ _id: meeting._id }, updateData);
 

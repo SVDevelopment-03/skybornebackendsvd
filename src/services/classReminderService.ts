@@ -13,8 +13,10 @@ export class ClassReminderService {
    * @returns Array of country codes that belong to this region
    */
 static async getCountriesByRegion(regionName: string) {
+  console.log("[ClassReminderService] getCountriesByRegion:start", { regionName });
+  
   try {
-    console.log("region started")
+    console.log("[ClassReminderService] getCountriesByRegion:query-region", { regionName });
     // 1️⃣ Find region document
     const regionDoc = await regionModel.findOne({ name: regionName });
 
@@ -23,11 +25,22 @@ static async getCountriesByRegion(regionName: string) {
       return [];
     }
 
+    console.log("[ClassReminderService] getCountriesByRegion:region-found", {
+      regionId: regionDoc._id?.toString?.(),
+      regionName: regionDoc.name,
+    });
+
     // 2️⃣ Use ObjectId to fetch countries
     const countries = await countryModel.find({
       region: regionDoc._id,
       status: "active",
     }).select("code name");
+
+    console.log("[ClassReminderService] getCountriesByRegion:done", {
+      regionName,
+      countriesCount: countries.length,
+      countryCodes: countries.map((country: any) => country.code),
+    });
 
     return countries;
   } catch (error) {
@@ -43,9 +56,17 @@ static async getCountriesByRegion(regionName: string) {
    */
   static async getUsersByRegion(region: string) {
     try {
+      console.log("[ClassReminderService] getUsersByRegion:start", { region });
+
       // First, get all countries in this region
       const countries = await this.getCountriesByRegion(region);
       const countryCodes = countries.map((c:any) => c.code);
+
+      console.log("[ClassReminderService] getUsersByRegion:countries", {
+        region,
+        countriesCount: countries.length,
+        countryCodes,
+      });
 
       if (countryCodes.length === 0) {
         console.warn(`⚠️ No countries found for region: ${region}`);
@@ -59,6 +80,11 @@ static async getCountriesByRegion(regionName: string) {
         isEmailVerified: true,
         "subscription.status": "active",
       }).select("email firstName lastName countryCode");
+
+      console.log("[ClassReminderService] getUsersByRegion:done", {
+        region,
+        usersCount: users.length,
+      });
 
       return users;
     } catch (error) {
@@ -74,6 +100,11 @@ static async getCountriesByRegion(regionName: string) {
    */
   static async sendClassReminder(meetingId: string, minutesBefore: number = 10) {
     try {
+      console.log("[ClassReminderService] sendClassReminder:start", {
+        meetingId,
+        minutesBefore,
+      });
+
       // Fetch the meeting with populated fields
      const meeting = (await Meeting.findById(meetingId)
         .populate("trainer", "name")
@@ -85,11 +116,26 @@ static async getCountriesByRegion(regionName: string) {
         return { success: false, message: "Meeting not found" };
       }
 
+      console.log("[ClassReminderService] sendClassReminder:meeting-found", {
+        meetingId: (meeting._id as string)?.toString?.() || meetingId,
+        title: meeting.title,
+        region: meeting.liveRegion,
+        localTime: meeting.localTime,
+      });
+
       // Check if it's time to send the reminder
       const now = new Date();
       const classStartTime = new Date(meeting.localTime);
       const timeDifference = classStartTime.getTime() - now.getTime();
       const minutesDifference = timeDifference / (1000 * 60);
+
+      console.log("[ClassReminderService] sendClassReminder:timing-check", {
+        now: now.toISOString(),
+        classStartAt: classStartTime.toISOString(),
+        minutesDifference,
+        windowStart: minutesBefore - 5,
+        windowEnd: minutesBefore + 5,
+      });
 
       // Send reminder only if we're within the specified window (e.g., 10-15 minutes before)
       if (minutesDifference < minutesBefore - 5 || minutesDifference > minutesBefore + 5) {
@@ -107,6 +153,11 @@ static async getCountriesByRegion(regionName: string) {
 
       // Find all users in this region
       const users = await this.getUsersByRegion(region);
+
+      console.log("[ClassReminderService] sendClassReminder:users-fetched", {
+        region,
+        usersCount: users.length,
+      });
 
       if (users.length === 0) {
         console.warn(`⚠️ No users found in region: ${region}`);
@@ -126,6 +177,13 @@ static async getCountriesByRegion(regionName: string) {
 
       // Get trainer name
       const trainerName = (meeting.trainer as any)?.name || "Your Trainer";
+
+      console.log("[ClassReminderService] sendClassReminder:queue-job", {
+        meetingId: (meeting._id as string).toString(),
+        region,
+        usersCount: userEmails.length,
+        trainerName,
+      });
 
       await addClassReminderEmailJob({
         meetingId: (meeting._id as string).toString(),
@@ -161,6 +219,8 @@ static async getCountriesByRegion(regionName: string) {
    */
   static async sendImmediateClassReminder(meetingId: string) {
     try {
+      console.log("[ClassReminderService] sendImmediateClassReminder:start", { meetingId });
+
       const meeting = (await Meeting.findById(meetingId)
         .populate("trainer", "name")
         .populate("service", "title")) as IMeeting & {
@@ -173,7 +233,19 @@ static async getCountriesByRegion(regionName: string) {
       }
 
       const region = meeting.liveRegion;
+      console.log("[ClassReminderService] sendImmediateClassReminder:meeting-found", {
+        meetingId: (meeting._id as string)?.toString?.() || meetingId,
+        title: meeting.title,
+        region,
+        localTime: meeting.localTime,
+      });
+
       const users = await this.getUsersByRegion(region);
+
+      console.log("[ClassReminderService] sendImmediateClassReminder:users-fetched", {
+        region,
+        usersCount: users.length,
+      });
 
       if (users.length === 0) {
         return {
@@ -191,6 +263,13 @@ static async getCountriesByRegion(regionName: string) {
 
       const trainerName = (meeting.trainer as any)?.name || "Your Trainer";
 
+      console.log("[ClassReminderService] sendImmediateClassReminder:queue-job", {
+        meetingId: (meeting._id as string).toString(),
+        region,
+        usersCount: userEmails.length,
+        trainerName,
+      });
+
       await addClassReminderEmailJob({
         meetingId: (meeting._id as string).toString(),
         meetingTitle: meeting.title,
@@ -201,6 +280,11 @@ static async getCountriesByRegion(regionName: string) {
         duration: meeting.duration,
         trainerName: trainerName,
         userEmails: userEmails,
+      });
+
+      console.log("[ClassReminderService] sendImmediateClassReminder:queued", {
+        meetingId: (meeting._id as string).toString(),
+        usersCount: userEmails.length,
       });
 
       return {
