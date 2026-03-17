@@ -1999,10 +1999,12 @@ export default class PaymentController {
           ? parseFloat((totalRevenue / completedPayments.length).toFixed(2))
           : 0;
 
-      // Get unique active subscriptions
+      // Match active subscriptions the same way as admin overview stats
       const activeUsers = await User.countDocuments({
-        onboardingCompleted: true,
         role: "user",
+        isActive: true,
+        onboardingCompleted: true,
+        "subscription.status": "active",
       });
 
       // Revenue by gateway
