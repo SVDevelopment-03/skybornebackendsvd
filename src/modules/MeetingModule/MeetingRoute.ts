@@ -81,6 +81,12 @@ export const MeetingRoute = [
     method: "get",
   },
   {
+    path: "/meetings/session-history",
+    request: null,
+    action: MeetingController.GetSessionHistory,
+    method: "get",
+  },
+  {
     path: "/meetings/completed-sessions",
     request: null,
     action: MeetingController.getSessionsWithPagination,

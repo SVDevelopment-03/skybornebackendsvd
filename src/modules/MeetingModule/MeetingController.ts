@@ -1452,7 +1452,6 @@ static async GetMeetingRecording(req: Request, res: Response) {
         });
       }
 
-      // Get user with plan info
       const user = await User.findById(userId).select(
         "plan country countryCode",
       );
@@ -1464,76 +1463,121 @@ static async GetMeetingRecording(req: Request, res: Response) {
         });
       }
 
-      // Determine services based on user plan
-      let serviceTitles: string[] = [];
-
-      if (user.plan === "gold-yoga") {
-        serviceTitles = ["Yoga"];
-      } else if (user.plan === "gold-zumba") {
-        serviceTitles = ["Zumba Dance"];
-      } else if (user.plan === "gold-mixed") {
-        serviceTitles = ["Yoga", "Zumba Dance"];
-      } else if (user.plan === "diamond" || user.plan === "platinum") {
-        serviceTitles = ["Yoga", "Zumba Dance", "Diet & Nutrition"];
-      }
-
-      const services = await Service.find({
-        title: { $in: serviceTitles },
-      }).select("_id");
-
-      const serviceIds = services.map((service) => service._id);
-
       // Get current time - only show sessions that have already completed
       const now = new Date();
 
-      // Build search query
-      const searchQuery: any = {
-        // Sessions that have occurred (localTime is in the past)
-        localTime: { $lt: now },
-        service: { $in: serviceIds },
-        // Only show completed sessions or sessions with attendance
-        status: { $in: ["completed", "pending"] },
+      const escapeRegex = (value: string) =>
+        value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+      const attendanceMatch: any = {
+        user: new mongoose.Types.ObjectId(userId),
+        $or: [
+          { totalDuration: { $gt: 0 } },
+          { status: { $in: ["joined", "completed"] } },
+        ],
       };
 
-      // Add search filter if provided
+      const pipeline: any[] = [
+        { $match: attendanceMatch },
+        {
+          $lookup: {
+            from: "meetings",
+            localField: "meeting",
+            foreignField: "_id",
+            as: "meeting",
+          },
+        },
+        { $unwind: "$meeting" },
+        {
+          $match: {
+            "meeting.localTime": { $lt: now },
+            "meeting.status": { $in: ["completed", "pending"] },
+          },
+        },
+        {
+          $lookup: {
+            from: "services",
+            localField: "meeting.service",
+            foreignField: "_id",
+            as: "service",
+          },
+        },
+        { $unwind: { path: "$service", preserveNullAndEmptyArrays: true } },
+        {
+          $lookup: {
+            from: "coaches",
+            localField: "meeting.trainer",
+            foreignField: "_id",
+            as: "trainer",
+          },
+        },
+        { $unwind: { path: "$trainer", preserveNullAndEmptyArrays: true } },
+        {
+          $lookup: {
+            from: "users",
+            localField: "meeting.createdBy",
+            foreignField: "_id",
+            as: "createdBy",
+          },
+        },
+        { $unwind: { path: "$createdBy", preserveNullAndEmptyArrays: true } },
+      ];
+
       if (search && (search as string)?.trim()) {
-        searchQuery.$or = [
-          { title: { $regex: search, $options: "i" } },
-          { "service.title": { $regex: search, $options: "i" } },
-          { "trainer.name": { $regex: search, $options: "i" } },
-        ];
+        const searchRegex = new RegExp(escapeRegex(search as string), "i");
+        pipeline.push({
+          $match: {
+            $or: [
+              { "meeting.title": searchRegex },
+              { "service.title": searchRegex },
+              { "trainer.name": searchRegex },
+            ],
+          },
+        });
       }
 
-      // Get total count for pagination
-      const totalCount = await Meeting.countDocuments(searchQuery);
+      const totalCountAgg = await MeetingAttendance.aggregate([
+        ...pipeline,
+        { $count: "totalCount" },
+      ]);
+      const totalCount = totalCountAgg[0]?.totalCount || 0;
 
-      // Fetch paginated meetings sorted by most recent first
-      const meetings = await Meeting.find(searchQuery)
-        .sort({ localTime: -1 }) // Most recent first
-        .skip(skipNum)
-        .limit(limitNum)
-        .populate("service", "title name _id")
-        .populate("trainer", "name email _id")
-        .populate("createdBy", "firstName lastName email _id")
-        .lean();
-
-      // For each meeting, fetch attendance data if available
-      const enrichedMeetings = await Promise.all(
-        meetings.map(async (meeting) => {
-          const attendance = await MeetingAttendance.findOne({
-            meeting: meeting._id,
-            user: userId,
-          }).lean();
-
-          return {
-            ...meeting,
-            attendance: attendance || {
-              totalDuration: 0,
-              status: "missed",
+      const enrichedMeetings = await MeetingAttendance.aggregate([
+        ...pipeline,
+        { $sort: { "meeting.localTime": -1 } },
+        { $skip: skipNum },
+        { $limit: limitNum },
+        {
+          $project: {
+            _id: "$meeting._id",
+            title: "$meeting.title",
+            localTime: "$meeting.localTime",
+            duration: "$meeting.duration",
+            recordingUrl: "$meeting.recordingUrl",
+            status: "$meeting.status",
+            service: {
+              _id: "$service._id",
+              title: "$service.title",
+              name: "$service.name",
             },
-          };
-        }),
-      );
+            trainer: {
+              _id: "$trainer._id",
+              name: "$trainer.name",
+              email: "$trainer.email",
+            },
+            createdBy: {
+              _id: "$createdBy._id",
+              firstName: "$createdBy.firstName",
+              lastName: "$createdBy.lastName",
+              email: "$createdBy.email",
+            },
+            attendance: {
+              totalDuration: "$totalDuration",
+              status: "$status",
+            },
+          },
+        },
+      ]);
 
       res.setHeader("Cache-Control", "no-store");
 
@@ -1550,6 +1594,170 @@ static async GetMeetingRecording(req: Request, res: Response) {
       return res.status(500).json({
         success: false,
         message: error.message || "Error fetching past sessions",
+      });
+    }
+  }
+
+  /**
+   * Get user session history (attended sessions only)
+   * Uses MeetingAttendance as the source of truth for the current user
+   */
+  static async GetSessionHistory(req: Request, res: Response) {
+    try {
+      const { search = "", skip = 0, limit = 10 } = req?.query;
+      const skipNum = parseInt(skip as string) || 0;
+      const limitNum = parseInt(limit as string) || 10;
+
+      const userId = req.user?.id;
+
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated",
+        });
+      }
+
+      const user = await User.findById(userId).select(
+        "plan country countryCode",
+      );
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found",
+        });
+      }
+
+      const now = new Date();
+
+      const escapeRegex = (value: string) =>
+        value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+      const attendanceMatch: any = {
+        user: new mongoose.Types.ObjectId(userId),
+        $or: [
+          { totalDuration: { $gt: 0 } },
+          { status: { $in: ["joined", "completed"] } },
+        ],
+      };
+
+      const pipeline: any[] = [
+        { $match: attendanceMatch },
+        {
+          $lookup: {
+            from: "meetings",
+            localField: "meeting",
+            foreignField: "_id",
+            as: "meeting",
+          },
+        },
+        { $unwind: "$meeting" },
+        {
+          $match: {
+            "meeting.localTime": { $lt: now },
+            "meeting.status": { $in: ["completed", "pending"] },
+          },
+        },
+        {
+          $lookup: {
+            from: "services",
+            localField: "meeting.service",
+            foreignField: "_id",
+            as: "service",
+          },
+        },
+        { $unwind: { path: "$service", preserveNullAndEmptyArrays: true } },
+        {
+          $lookup: {
+            from: "coaches",
+            localField: "meeting.trainer",
+            foreignField: "_id",
+            as: "trainer",
+          },
+        },
+        { $unwind: { path: "$trainer", preserveNullAndEmptyArrays: true } },
+        {
+          $lookup: {
+            from: "users",
+            localField: "meeting.createdBy",
+            foreignField: "_id",
+            as: "createdBy",
+          },
+        },
+        { $unwind: { path: "$createdBy", preserveNullAndEmptyArrays: true } },
+      ];
+
+      if (search && (search as string)?.trim()) {
+        const searchRegex = new RegExp(escapeRegex(search as string), "i");
+        pipeline.push({
+          $match: {
+            $or: [
+              { "meeting.title": searchRegex },
+              { "service.title": searchRegex },
+              { "trainer.name": searchRegex },
+            ],
+          },
+        });
+      }
+
+      const totalCountAgg = await MeetingAttendance.aggregate([
+        ...pipeline,
+        { $count: "totalCount" },
+      ]);
+      const totalCount = totalCountAgg[0]?.totalCount || 0;
+
+      const meetings = await MeetingAttendance.aggregate([
+        ...pipeline,
+        { $sort: { "meeting.localTime": -1 } },
+        { $skip: skipNum },
+        { $limit: limitNum },
+        {
+          $project: {
+            _id: "$meeting._id",
+            title: "$meeting.title",
+            localTime: "$meeting.localTime",
+            duration: "$meeting.duration",
+            recordingUrl: "$meeting.recordingUrl",
+            status: "$meeting.status",
+            service: {
+              _id: "$service._id",
+              title: "$service.title",
+              name: "$service.name",
+            },
+            trainer: {
+              _id: "$trainer._id",
+              name: "$trainer.name",
+              email: "$trainer.email",
+            },
+            createdBy: {
+              _id: "$createdBy._id",
+              firstName: "$createdBy.firstName",
+              lastName: "$createdBy.lastName",
+              email: "$createdBy.email",
+            },
+            attendance: {
+              totalDuration: "$totalDuration",
+              status: "$status",
+            },
+          },
+        },
+      ]);
+
+      res.setHeader("Cache-Control", "no-store");
+
+      return res.json({
+        success: true,
+        count: meetings?.length,
+        totalCount,
+        hasMore: skipNum + limitNum < totalCount,
+        meetings,
+        userPlan: user.plan,
+      });
+    } catch (error: any) {
+      console.error("Error fetching session history:", error.message);
+      return res.status(500).json({
+        success: false,
+        message: error.message || "Error fetching session history",
       });
     }
   }
