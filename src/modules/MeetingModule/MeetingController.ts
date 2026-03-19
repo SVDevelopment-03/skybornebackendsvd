@@ -843,8 +843,11 @@ static async GetUpcomingMeetings(req: Request, res: Response) {
     }
 
     // ✅ Check if user is admin or trainer
-    const isAdminOrTrainer = userRole === "admin" || userRole === "trainer";
-
+    const effectiveRole = user.role || userRole;
+    const isAdminOrTrainer =
+      effectiveRole === "admin" || effectiveRole === "trainer";
+    const now = new Date();
+    const sixtyMinutesAgo = new Date(now.getTime() - 60 * 60 * 1000);
 	    // ✅ Region validation - only required for regular users
 	    if (!isAdminOrTrainer) {
 	      if (!hasValidRegionFilter) {
@@ -859,9 +862,6 @@ static async GetUpcomingMeetings(req: Request, res: Response) {
         });
       }
     }
-
-    const now = new Date();
-    const sixtyMinutesAgo = new Date(now.getTime() - 60 * 60 * 1000);
 
     let serviceTitles: string[] = [];
 
@@ -886,7 +886,7 @@ static async GetUpcomingMeetings(req: Request, res: Response) {
     };
 
     // ✅ Trainer should only see assigned classes
-    if (userRole === "trainer") {
+    if (effectiveRole === "trainer") {
       if (!user.trainer) {
         return res.json({
           success: true,
@@ -911,10 +911,10 @@ static async GetUpcomingMeetings(req: Request, res: Response) {
       filter.service = { $in: serviceIds };
     }
 
-	    // ✅ Region filter: only for regular users
-	    if (!isAdminOrTrainer) {
-	      filter.liveRegion = normalizedRegion;
-	    }
+    // ✅ Region filter: only for regular users
+    if (!isAdminOrTrainer) {
+      filter.liveRegion = normalizedRegion;
+    }
 
     console.log("📍 [GetUpcomingMeetings] User role:", userRole, "Is Admin/Trainer:", isAdminOrTrainer);
     console.log("📍 [GetUpcomingMeetings] Filter:", filter);
@@ -951,8 +951,8 @@ static async GetUpcomingMeetings(req: Request, res: Response) {
   }
 }
 
-	static async GetAllMeetings(req: Request, res: Response) {
-	  try {
+static async GetAllMeetings(req: Request, res: Response) {
+  try {
 	    const { search = "", skip = 0, limit = 10, region } = req?.query;
 	    const skipNum = parseInt(skip as string) || 0;
 	    const limitNum = parseInt(limit as string) || 10;
@@ -965,6 +965,8 @@ static async GetUpcomingMeetings(req: Request, res: Response) {
       );
 
     const userId = req.user?.id;
+    console.log("user id ", userId);
+
     const userRole = (req as any).user?.role;
 
     if (!userId) {
@@ -986,7 +988,11 @@ static async GetUpcomingMeetings(req: Request, res: Response) {
     }
 
     // ✅ Check if user is admin or trainer
-    const isAdminOrTrainer = userRole === "admin" || userRole === "trainer";
+    const effectiveRole = user.role || userRole;
+    const isAdminOrTrainer =
+      effectiveRole === "admin" || effectiveRole === "trainer";
+    const now = new Date();
+    const sixtyMinutesAgo = new Date(now.getTime() - 60 * 60 * 1000);
 
 	    // ✅ Region validation - only required for regular users
 	    if (!isAdminOrTrainer) {
@@ -1024,7 +1030,7 @@ static async GetUpcomingMeetings(req: Request, res: Response) {
     };
 
     // ✅ Trainer should only see assigned classes
-    if (userRole === "trainer") {
+    if (effectiveRole === "trainer") {
       if (!user.trainer) {
         return res.json({
           success: true,
@@ -1054,13 +1060,32 @@ static async GetUpcomingMeetings(req: Request, res: Response) {
 	      filter.liveRegion = normalizedRegion;
 	    }
 
-    console.log("📍 [GetAllMeetings] User role:", userRole, "Is Admin/Trainer:", isAdminOrTrainer);
+    // ✅ For regular users, show upcoming classes + past classes they attended
+    if (!isAdminOrTrainer) {
+      const attendedMeetingIds = await MeetingAttendance.distinct("meeting", {
+        user: userId,
+      });
+
+      filter.$or = [
+        // Upcoming (keep visible up to 60 minutes after start)
+        { localTime: { $gte: sixtyMinutesAgo } },
+        // Past sessions only if user attended
+        { localTime: { $lt: sixtyMinutesAgo }, _id: { $in: attendedMeetingIds } },
+      ];
+    }
+
+    console.log(
+      "📍 [GetAllMeetings] User role:",
+      effectiveRole,
+      "Is Admin/Trainer:",
+      isAdminOrTrainer,
+    );
     console.log("📍 [GetAllMeetings] Filter:", filter);
 
-    // Get total count - no time filter, includes all meetings
+    // Get total count for the filtered meetings
     const totalCount = await Meeting.countDocuments(filter);
 
-    // Fetch paginated meetings - no time filter, includes all meetings
+    // Fetch paginated meetings
     const meetings = await Meeting.find(filter)
       .sort({ localTime: -1 }) // Sort by most recent first
       .skip(skipNum)
@@ -1474,6 +1499,7 @@ static async GetMeetingRecording(req: Request, res: Response) {
         $or: [
           { totalDuration: { $gt: 0 } },
           { status: { $in: ["joined", "completed"] } },
+          { "sessions.0": { $exists: true } },
         ],
       };
 
@@ -1638,6 +1664,7 @@ static async GetMeetingRecording(req: Request, res: Response) {
         $or: [
           { totalDuration: { $gt: 0 } },
           { status: { $in: ["joined", "completed"] } },
+          { "sessions.0": { $exists: true } },
         ],
       };
 
@@ -2042,7 +2069,9 @@ static async GetMeetingRecording(req: Request, res: Response) {
           meeting: meetingId,
           user: userId,
           region, // Store which region user is accessing from
+          status: "joined",
           joinedAt: new Date(),
+          totalSessions: 1,
           sessions: [{ joinTime: new Date(), mode: isLiveMode }],
         });
       } else {
@@ -2051,6 +2080,11 @@ static async GetMeetingRecording(req: Request, res: Response) {
           joinTime: new Date(),
           mode: isLiveMode,
         });
+        if (attendance.status === "registered") {
+          attendance.status = "joined";
+        }
+        attendance.joinedAt = attendance.joinedAt || new Date();
+        attendance.totalSessions = (attendance.totalSessions || 0) + 1;
         await attendance.save();
       }
 

@@ -342,6 +342,17 @@ export default class PaymentController {
         return PaymentController.createPaymentOrder(req, res);
       }
 
+      // If subscription exists but is not active, create a fresh order.
+      const subscriptionStatus = user.subscription?.status;
+
+      console.log("Subscription status:", subscriptionStatus);
+      if (
+        !subscriptionStatus ||
+        String(subscriptionStatus).toLowerCase() !== "active"
+      ) {
+        return PaymentController.createPaymentOrder(req, res);
+      }
+
       const upgraded = await StripeService.upgradeSubscriptionPlan(
         userId,
         user.stripeSubscriptionId,
@@ -363,24 +374,24 @@ export default class PaymentController {
       };
       await user.save();
 
-      await Payment.findOneAndUpdate(
-        {
-          userId: user._id,
-          gateway: "stripe",
-          subscriptionId: user.stripeSubscriptionId,
-          status: "COMPLETED",
-        },
-        {
-          $set: {
-            plan: String(plan),
-            billingType,
-            amount: Number(amount),
-            localAmount: upgraded.localAmount,
-            currency: String(currency).toUpperCase(),
-          },
-        },
-        { sort: { createdAt: -1 } },
-      );
+      // await Payment.findOneAndUpdate(
+      //   {
+      //     userId: user._id,
+      //     gateway: "stripe",
+      //     subscriptionId: user.stripeSubscriptionId,
+      //     status: "COMPLETED",
+      //   },
+      //   {
+      //     $set: {
+      //       plan: String(plan),
+      //       billingType,
+      //       amount: Number(amount),
+      //       localAmount: upgraded.localAmount,
+      //       currency: String(currency).toUpperCase(),
+      //     },
+      //   },
+      //   { sort: { createdAt: -1 } },
+      // );
 
       return res.status(200).json({
         success: true,
