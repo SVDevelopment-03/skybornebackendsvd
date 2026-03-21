@@ -4,6 +4,7 @@ import User from "../models/User";
 import MeetingAttendance from "../../MeetingModule/MeetingModels/MeetingAttendance";
 import Meeting from "../../MeetingModule/MeetingModels/Meeting";
 import extractPhoneDetails from "../../../utils/extractPhoneDetail";
+import { getCode, getName } from "country-list";
 import CancelSubscriptionModel from "../../CancelSubscriptionModule/CancelSubscriptionModel";
 
 const userService = new UserService();
@@ -398,6 +399,8 @@ export class UserController {
         "lastName",
         "phone",
         "country",
+        "state",
+        "city",
         "status",
       ];
 
@@ -415,6 +418,24 @@ export class UserController {
             updateData.localNumber = localNumber;     
             updateData.countryCode = countryCode;     
             updateData.country = country;             
+          } else if (field === "country") {
+            const rawCountry = String(payload.country || "").trim();
+            if (rawCountry) {
+              const isIsoCode = /^[a-z]{2}$/i.test(rawCountry);
+              const normalizedCode = isIsoCode
+                ? rawCountry.toUpperCase()
+                : getCode(rawCountry) || "";
+              const normalizedName = isIsoCode
+                ? getName(rawCountry.toUpperCase()) || rawCountry
+                : rawCountry;
+
+              updateData.country = normalizedName;
+              if (normalizedCode) {
+                updateData.countryCode = normalizedCode;
+              }
+            } else {
+              updateData.country = rawCountry;
+            }
           } else {
             updateData[field] = payload[field];
           }
