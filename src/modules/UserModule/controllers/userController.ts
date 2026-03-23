@@ -399,6 +399,7 @@ export class UserController {
         "lastName",
         "phone",
         "country",
+        "email", 
         "state",
         "city",
         "status",

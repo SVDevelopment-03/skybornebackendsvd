@@ -1,5 +1,6 @@
 import { NextFunction, Request, Response } from "express";
 import axios from "axios";
+import jwt from "jsonwebtoken";
 import Meeting, { IMeeting, IService } from "./MeetingModels/Meeting";
 import MeetingAttendance from "./MeetingModels/MeetingAttendance";
 import { clearZoomTokenCache, getZoomAccessToken } from "../../utils/zoomAuth";
@@ -2453,6 +2454,145 @@ static async GetMeetingRecording(req: Request, res: Response) {
     } catch (error: any) {
       console.error("Error fetching monthly attendance:", error.message);
       next();
+    }
+  }
+
+
+  static async CreateShareLink(req: Request, res: Response) {
+    try {
+      const { meetingId } = req.body;
+
+      if (!meetingId || !mongoose.Types.ObjectId.isValid(meetingId)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid meeting ID",
+        });
+      }
+
+      const meeting = await Meeting.findById(meetingId).select(
+        "localTime duration joinUrl",
+      );
+
+      if (!meeting) {
+        return res.status(404).json({
+          success: false,
+          message: "Meeting not found",
+        });
+      }
+
+      const nowSec = Math.floor(Date.now() / 1000);
+      const meetingEndMs =
+        new Date(meeting.localTime).getTime() + meeting.duration * 60000;
+      const graceMs = 2 * 60 * 60 * 1000;
+      let expSec = Math.floor((meetingEndMs + graceMs) / 1000);
+
+      if (!Number.isFinite(expSec)) {
+        expSec = nowSec + 7 * 24 * 60 * 60;
+      }
+
+      const ttlSec = Math.max(expSec - nowSec, 15 * 60);
+      const secret =
+        process.env.MEETING_SHARE_SECRET ||
+        process.env.JWT_ACCESS_SECRET ||
+        "meeting-share-secret";
+
+      const token = jwt.sign(
+        { meetingId: meeting._id.toString(), typ: "meeting_share" },
+        secret,
+        { expiresIn: ttlSec },
+      );
+
+      const expiresAt = new Date((nowSec + ttlSec) * 1000).toISOString();
+      const frontendUrl = process.env.FRONTEND_URL || process.env.WEB_URL || "";
+      const shareUrl = frontendUrl
+        ? `${frontendUrl.replace(/\/$/, "")}/zoom-redirect?token=${token}`
+        : null;
+
+      return res.json({
+        success: true,
+        data: {
+          token,
+          expiresAt,
+          shareUrl,
+        },
+      });
+    } catch (error: any) {
+      console.error("Error creating share link:", error.message);
+      return res.status(500).json({
+        success: false,
+        message: error.message || "Error creating share link",
+      });
+    }
+  }
+
+  static async RedirectMeeting(req: Request, res: Response) {
+    try {
+      const { token } = req.body;
+
+      if (!token) {
+        return res.status(400).json({
+          success: false,
+          message: "Token is required",
+        });
+      }
+
+      const secret =
+        process.env.MEETING_SHARE_SECRET ||
+        process.env.JWT_ACCESS_SECRET ||
+        "meeting-share-secret";
+
+      let decoded: any;
+
+      try {
+        decoded = jwt.verify(token, secret);
+      } catch (error: any) {
+        return res.status(401).json({
+          success: false,
+          message: "Invalid or expired token",
+        });
+      }
+
+      if (
+        !decoded ||
+        typeof decoded !== "object" ||
+        decoded.typ !== "meeting_share" ||
+        !decoded.meetingId
+      ) {
+        return res.status(401).json({
+          success: false,
+          message: "Invalid token",
+        });
+      }
+
+      const meeting = await Meeting.findById(decoded.meetingId).select(
+        "joinUrl",
+      );
+
+      if (!meeting) {
+        return res.status(404).json({
+          success: false,
+          message: "Meeting not found",
+        });
+      }
+
+      if (!meeting.joinUrl) {
+        return res.status(400).json({
+          success: false,
+          message: "Join URL not available",
+        });
+      }
+
+      return res.json({
+        success: true,
+        joinUrl: meeting.joinUrl,
+        meetingId: meeting._id,
+      });
+    } catch (error: any) {
+      console.error("Error redirecting meeting:", error.message);
+      return res.status(500).json({
+        success: false,
+        message: error.message || "Error redirecting meeting",
+      });
     }
   }
 

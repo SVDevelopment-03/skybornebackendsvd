@@ -4,6 +4,8 @@ import {
   JoinMeetingSchema,
   LeaveMeetingSchema,
   UpcomingMeetingsSchema,
+  ShareMeetingLinkSchema,
+  RedirectMeetingSchema,
 } from "./MeetingModels/MeetingValidation";
 
 export const MeetingRoute = [
@@ -17,6 +19,19 @@ export const MeetingRoute = [
     path: "/meetings/join",
     request: JoinMeetingSchema,
     action: MeetingController.JoinMeeting,
+    method: "post",
+  },
+  {
+    path: "/meetings/share-link",
+    request: ShareMeetingLinkSchema,
+    action: MeetingController.CreateShareLink,
+    method: "post",
+    roles: ["admin"],
+  },
+  {
+    path: "/meetings/redirect",
+    request: RedirectMeetingSchema,
+    action: MeetingController.RedirectMeeting,
     method: "post",
   },
   {
