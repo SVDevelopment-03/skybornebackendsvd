@@ -2497,7 +2497,7 @@ static async GetMeetingRecording(req: Request, res: Response) {
         "meeting-share-secret";
 
       const token = jwt.sign(
-        { meetingId: meeting._id.toString(), typ: "meeting_share" },
+        { meetingId: (meeting._id as number).toString(), typ: "meeting_share" },
         secret,
         { expiresIn: ttlSec },
       );
