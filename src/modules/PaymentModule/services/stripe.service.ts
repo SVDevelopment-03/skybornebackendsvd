@@ -265,8 +265,11 @@ export class StripeService {
       const successUrl = source === "app" ? appSuccessUrl : webSuccessUrl;
       const cancelUrl = source === "app" ? appCancelUrl : webCancelUrl;
 
-      // Create checkout session with LOCAL CURRENCY
-      const session = await this.stripe.checkout.sessions.create({
+      const existingCustomerId = await this.getExistingCustomer(user);
+
+      // Reuse existing Stripe customer for re-subscribe flows.
+      // If none exists, preserve current behavior via customer_email.
+      const sessionCreateParams: Stripe.Checkout.SessionCreateParams = {
         payment_method_types: ["card"],
         mode: "subscription",
         line_items: [
@@ -286,7 +289,6 @@ export class StripeService {
             quantity: 1,
           },
         ],
-        customer_email: user.email,
         metadata: {
           userId,
           plan,
@@ -300,7 +302,15 @@ export class StripeService {
         },
         success_url: successUrl,
         cancel_url: cancelUrl,
-      } as Stripe.Checkout.SessionCreateParams);
+        ...(existingCustomerId
+          ? { customer: existingCustomerId }
+          : { customer_email: user.email }),
+      };
+
+      // Create checkout session with LOCAL CURRENCY
+      const session = await this.stripe.checkout.sessions.create(
+        sessionCreateParams,
+      );
 
       // Create payment record with both amounts
       const payment = await Payment.create({
