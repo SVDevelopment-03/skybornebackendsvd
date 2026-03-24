@@ -552,11 +552,10 @@ static async CreateMeeting(req: Request, res: Response) {
         allow_multiple_audio_unmute: false,
         allow_participants_to_unmute_themselves: false,
         allow_participants_to_unmute: false,
-        auto_recording: "none",
-       // auto_recording: "cloud",
+        auto_recording: "cloud",
         host_video: true,
         participant_video: true,
-      //  join_before_host: false,
+        join_before_host: false,
         waiting_room: false,
       },
     };
