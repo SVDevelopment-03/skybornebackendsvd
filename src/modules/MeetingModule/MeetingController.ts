@@ -552,9 +552,11 @@ static async CreateMeeting(req: Request, res: Response) {
         allow_multiple_audio_unmute: false,
         allow_participants_to_unmute_themselves: false,
         allow_participants_to_unmute: false,
-        auto_recording: "cloud",
+        auto_recording: "none",
+       // auto_recording: "cloud",
         host_video: true,
         participant_video: true,
+      //  join_before_host: false,
         waiting_room: false,
       },
     };
@@ -1975,8 +1977,8 @@ static async GetMeetingRecording(req: Request, res: Response) {
       console.log("meeting", meeting);
 
       // Check if user is a trainer or admin
-      const isTrainer = userData.trainer ? true : false;
-      const isAdmin = userData.role === "admin" ? true : false;
+      const isTrainer = userData.role === "trainer";
+      const isAdmin = userData.role === "admin";
       const isTrainerOrAdmin = isTrainer || isAdmin;
 
       // Determine service type
@@ -2781,6 +2783,7 @@ static async UpdateMeeting(req: Request, res: Response) {
 	            auto_recording: autoRecording ? "cloud" : "none",
 	            host_video: true,
 	            participant_video: true,
+	            join_before_host: false,
 	            waiting_room: false,
 	          },
 	        };
@@ -2868,6 +2871,7 @@ static async UpdateMeeting(req: Request, res: Response) {
 	                  auto_recording: autoRecording ? "cloud" : "none",
 	                  host_video: true,
 	                  participant_video: true,
+	                  join_before_host: false,
 	                  waiting_room: false,
 	                },
 	              },
@@ -3053,6 +3057,7 @@ static async UpdateMeeting(req: Request, res: Response) {
           auto_recording: autoRecording ? "cloud" : "none",
           host_video: true,
           participant_video: true,
+          join_before_host: false,
           waiting_room: false,
         },
       };
@@ -3251,6 +3256,7 @@ static async UpdateMeeting(req: Request, res: Response) {
               auto_recording: autoRecording ? "cloud" : "none",
               host_video: true,
               participant_video: true,
+              join_before_host: false,
               waiting_room: false,
             },
           };
