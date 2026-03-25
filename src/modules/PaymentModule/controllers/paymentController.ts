@@ -206,6 +206,8 @@ export default class PaymentController {
         });
       }
 
+      let resolvedSubscriptionId: string | null = user.stripeSubscriptionId || null;
+
       if (
         user.stripeSubscriptionId &&
         user.subscription?.status === "active"
@@ -2112,11 +2114,50 @@ export default class PaymentController {
         });
       }
 
+      let resolvedSubscriptionId: string | null = user.stripeSubscriptionId || null;
+
       // Check if user has an active subscription
       if (!user.subscription || user.subscription.status !== "active") {
-        return res.status(400).json({
-          success: false,
-          message: "No active subscription found to cancel",
+        const cancelSubscriptionId = resolvedSubscriptionId || "N/A";
+        const fallbackPhone =
+          String((user as any)?.dialingCode || "") +
+          String((user as any)?.localNumber || "");
+        const phoneNumber = (user as any)?.phoneNumber || fallbackPhone.trim() || "";
+
+        await CancelSubscriptionModel.findOneAndUpdate(
+          { userId: String(user._id) },
+          {
+            $set: {
+              subscriptionId: cancelSubscriptionId,
+              status: "cancelled",
+              cancelledAt: new Date(),
+              ...(adminDescription !== undefined
+                ? { adminDescription: String(adminDescription).trim() }
+                : {}),
+            },
+            $setOnInsert: {
+              firstName: user.firstName || "",
+              lastName: user.lastName || "",
+              email: user.email || "",
+              phoneNumber,
+              country: user.country || "",
+              subscribedAt: user.subscription?.startDate || undefined,
+              userId: String(user._id),
+              plan: user.plan || "",
+              description: "",
+            },
+          },
+          { new: true, sort: { createdAt: -1 }, upsert: true }
+        );
+
+        return res.status(200).json({
+          success: true,
+          message: "Subscription cancelled successfully",
+          subscription: {
+            status: user.subscription?.status || "inactive",
+            cancelledAt: user.subscription?.cancelledAt || null,
+            plan: user.plan,
+          },
         });
       }
 
@@ -2140,6 +2181,7 @@ export default class PaymentController {
             });
           }
 
+          resolvedSubscriptionId = payment.subscriptionId;
           await StripeService.cancelSubscription(payment.subscriptionId);
         } else {
           await StripeService.cancelSubscription(user.stripeSubscriptionId);
@@ -2176,17 +2218,36 @@ export default class PaymentController {
         { new: true },
       );
 
+      const cancelSubscriptionId = resolvedSubscriptionId || "N/A";
+      const fallbackPhone =
+        String((user as any)?.dialingCode || "") +
+        String((user as any)?.localNumber || "");
+      const phoneNumber = (user as any)?.phoneNumber || fallbackPhone.trim() || "";
+
       const updateCancelRequest = await CancelSubscriptionModel.findOneAndUpdate(
-        { userId },
+        { userId: String(user._id) },
         {
-          subscriptionId: updatedUser?.stripeSubscriptionId || null,
-          status: "cancelled",
-          cancelledAt: new Date(),
-          ...(adminDescription !== undefined
-            ? { adminDescription: String(adminDescription).trim() }
-            : {}),
+          $set: {
+            subscriptionId: cancelSubscriptionId,
+            status: "cancelled",
+            cancelledAt: new Date(),
+            ...(adminDescription !== undefined
+              ? { adminDescription: String(adminDescription).trim() }
+              : {}),
+          },
+          $setOnInsert: {
+            firstName: user.firstName || "",
+            lastName: user.lastName || "",
+            email: user.email || "",
+            phoneNumber,
+            country: user.country || "",
+            subscribedAt: user.subscription?.startDate || undefined,
+            userId: String(user._id),
+            plan: user.plan || "",
+            description: "",
+          },
         },
-        { new: true, sort: { createdAt: -1 } }
+        { new: true, sort: { createdAt: -1 }, upsert: true }
       );
 
       return res.status(200).json({
