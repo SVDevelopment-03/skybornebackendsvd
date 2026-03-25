@@ -1317,7 +1317,9 @@ export default class PaymentController {
         });
       }
 
-      const payments = await Payment.find({ userId })
+      const payments = await Payment.find({ 
+        userId,
+        status: "COMPLETED" })
         .sort({ createdAt: -1 })
         .lean();
 

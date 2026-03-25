@@ -3,6 +3,7 @@ import RecurringPaymentFailure from "../modules/PaymentModule/models/RecurringPa
 import Payment from "../modules/PaymentModule/models/Payment";
 import User from "../modules/UserModule/models/User";
 import { StripeService } from "../modules/PaymentModule/services/stripe.service";
+import CancelSubscriptionModel from "../modules/CancelSubscriptionModule/CancelSubscriptionModel";
 
 const FORTY_EIGHT_HOURS_MS = 48 * 60 * 60 * 1000;
 
@@ -209,6 +210,19 @@ export const runRecurringFailureSubscriptionInactiveOnce = async () => {
         }
 
         if (didCancelStripeSubscription) {
+          if (user?._id) {
+            await CancelSubscriptionModel.findOneAndUpdate(
+              { userId: String(user._id), status: "pending" },
+              {
+                status: "cancelled",
+                adminDescription: "cancelled by system",
+              },
+              {
+                sort: { createdAt: -1 },
+              },
+            );
+          }
+
           await RecurringPaymentFailure.deleteOne({ _id: entry._id });
           console.log(
             "[RecurringFailureInactiveCron] entry removed after stripe cancellation",
