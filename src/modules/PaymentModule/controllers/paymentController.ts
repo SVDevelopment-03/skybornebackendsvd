@@ -10,7 +10,7 @@ import { PLAN_CONFIG } from "../../../config/planConfig";
 import { PlanType } from "../../UserModule/interface/userInterface";
 import PlanModel from "../../PlanModule/models/Plan";
 import { generateInvoicePDF } from "../../../services/invoiceService";
-import { calculateVatFromBase, getVatRateForCountry } from "../../../utils/vat";
+import { getVatRateForCountry } from "../../../utils/vat";
 import { v4 as uuidv4 } from "uuid";
 import {
   getPreferredGateway,
@@ -219,11 +219,6 @@ export default class PaymentController {
         });
       }
 
-      const vatRate = getVatRateForCountry(user.country, user.countryCode);
-      const vatBreakdown = calculateVatFromBase(userAmount, vatRate);
-      userAmount = vatBreakdown.total;
-      amount = vatBreakdown.total;
-
       // Determine preferred gateway based on country
       const countryCode = user.country || user.countryCode;
       const preferredGateway =
@@ -361,14 +356,12 @@ export default class PaymentController {
       }
 
       
-      const vatRate = getVatRateForCountry(user.country, user.countryCode);
-      const vatBreakdown = calculateVatFromBase(Number(amount), vatRate);
-      const amountWithVat = vatBreakdown.total;
+      const amountNumber = Number(amount);
 
       const upgraded = await StripeService.upgradeSubscriptionPlan(
         userId,
         resolvedSubscriptionId,
-        amountWithVat,
+        amountNumber,
         String(currency).toUpperCase(),
         String(plan),
         billingType,
@@ -2175,16 +2168,28 @@ export default class PaymentController {
           }).sort({ createdAt: -1 });
 
           if (!payment?.subscriptionId) {
-            return res.status(400).json({
-              success: false,
-              message: "No active Stripe subscription found",
-            });
+            // No Stripe subscription found; proceed with local cancellation
+            resolvedSubscriptionId = resolvedSubscriptionId || "N/A";
+          } else {
+            resolvedSubscriptionId = payment.subscriptionId;
+            try {
+              await StripeService.cancelSubscription(payment.subscriptionId);
+            } catch (stripeErr: any) {
+              const msg = String(stripeErr?.message || "");
+              if (!msg.includes("No such subscription")) {
+                throw stripeErr;
+              }
+            }
           }
-
-          resolvedSubscriptionId = payment.subscriptionId;
-          await StripeService.cancelSubscription(payment.subscriptionId);
         } else {
-          await StripeService.cancelSubscription(user.stripeSubscriptionId);
+          try {
+            await StripeService.cancelSubscription(user.stripeSubscriptionId);
+          } catch (stripeErr: any) {
+            const msg = String(stripeErr?.message || "");
+            if (!msg.includes("No such subscription")) {
+              throw stripeErr;
+            }
+          }
         }
       } else if (gateway === "ngenius") {
         // For nGenius, mark payments as cancelled

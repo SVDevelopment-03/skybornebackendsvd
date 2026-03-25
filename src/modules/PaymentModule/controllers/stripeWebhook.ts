@@ -432,7 +432,6 @@ router.post(
             });
             break;
           }
-
           const paidLocalAmount = getInvoiceAmount(hydratedInvoice);
           const amount =
             basePayment?.localAmount && basePayment.localAmount > 0
