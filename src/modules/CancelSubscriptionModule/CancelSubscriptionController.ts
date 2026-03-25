@@ -1,8 +1,78 @@
 import { Request, Response } from "express";
 import CancelSubscriptionModel from "./CancelSubscriptionModel";
 import User from "../UserModule/models/User"; 
+import mongoose from "mongoose";
+import PlanModel from "../PlanModule/models/Plan";
 
 class CancelSubscriptionController {
+  private static async resolvePlanDisplayName(planValue: string): Promise<string> {
+    const rawPlan = String(planValue || "").trim();
+    if (!rawPlan) return "";
+
+    const query: any = {
+      $or: [{ uuid: rawPlan }, { name: rawPlan }],
+    };
+
+    if (mongoose.Types.ObjectId.isValid(rawPlan)) {
+      query.$or.push({ _id: rawPlan });
+    }
+
+    const plan = await PlanModel.findOne(query).select("name").lean();
+    return String((plan as any)?.name || rawPlan).trim();
+  }
+
+  private static async hydratePlanNames(cancelSubscriptions: any[]) {
+    const planValues = Array.from(
+      new Set(
+        cancelSubscriptions
+          .map((subscription) => String(subscription?.plan || "").trim())
+          .filter(Boolean),
+      ),
+    );
+
+    if (!planValues.length) {
+      return cancelSubscriptions;
+    }
+
+    const objectIdPlans = planValues.filter((plan) =>
+      mongoose.Types.ObjectId.isValid(plan),
+    );
+
+    const plans = await PlanModel.find({
+      $or: [
+        { uuid: { $in: planValues } },
+        { name: { $in: planValues } },
+        ...(objectIdPlans.length ? [{ _id: { $in: objectIdPlans } }] : []),
+      ],
+    })
+      .select("_id uuid name")
+      .lean();
+
+    const planNameByKey = new Map<string, string>();
+    for (const plan of plans) {
+      const planName = String((plan as any)?.name || "").trim();
+      if (!planName) continue;
+
+      const idKey = String((plan as any)?._id || "").trim();
+      const uuidKey = String((plan as any)?.uuid || "").trim();
+      const nameKey = String((plan as any)?.name || "").trim();
+
+      if (idKey) planNameByKey.set(idKey, planName);
+      if (uuidKey) planNameByKey.set(uuidKey, planName);
+      if (nameKey) planNameByKey.set(nameKey, planName);
+    }
+
+    return cancelSubscriptions.map((subscription) => {
+      const planKey = String(subscription?.plan || "").trim();
+      if (!planKey) return subscription;
+
+      const resolvedPlan = planNameByKey.get(planKey);
+      if (!resolvedPlan) return subscription;
+
+      return { ...subscription, plan: resolvedPlan };
+    });
+  }
+
   private static resolveUserPhone(user: any): string {
     const directPhone = String(user?.phoneNumber || "").trim();
     if (directPhone) return directPhone;
@@ -151,6 +221,8 @@ class CancelSubscriptionController {
         await CancelSubscriptionController.hydrateUserDetailsFromUserEmail(
           cancelSubscriptionsRaw,
         );
+      const cancelSubscriptionsWithPlanNames =
+        await CancelSubscriptionController.hydratePlanNames(cancelSubscriptions);
 
       // Get total count for pagination
       const total = await CancelSubscriptionModel.countDocuments(finalQuery);
@@ -159,7 +231,7 @@ class CancelSubscriptionController {
         success: true,
         message: "Cancel subscriptions fetched successfully",
         data: {
-          cancelSubscriptions,
+          cancelSubscriptions: cancelSubscriptionsWithPlanNames,
           pagination: {
             currentPage: page,
             totalPages: Math.ceil(total / limit),
@@ -221,6 +293,8 @@ class CancelSubscriptionController {
         await CancelSubscriptionController.hydrateUserDetailsFromUserEmail(
           cancelSubscriptionsRaw,
         );
+      const cancelSubscriptionsWithPlanNames =
+        await CancelSubscriptionController.hydratePlanNames(cancelSubscriptions);
 
       const headers = [
         "Subscription Id",
@@ -254,7 +328,7 @@ class CancelSubscriptionController {
       const formatStatus = (status: string) =>
         status.charAt(0).toUpperCase() + status.slice(1).toLowerCase();
 
-      const rows = cancelSubscriptions.map((subscription: any) => {
+      const rows = cancelSubscriptionsWithPlanNames.map((subscription: any) => {
         const name =
           `${subscription.firstName || ""} ${subscription.lastName || ""}`.trim() ||
           "N/A";
@@ -353,6 +427,10 @@ class CancelSubscriptionController {
       const country = String((user as any)?.country || "").trim();
       const subscribedAt =
         CancelSubscriptionController.resolveUserSubscribedAt(user);
+      const resolvedPlanName =
+        await CancelSubscriptionController.resolvePlanDisplayName(
+          String((user as any)?.plan || ""),
+        );
 
       // Create new cancel subscription record
       const newCancelSubscription = await CancelSubscriptionModel.create({
@@ -364,7 +442,7 @@ class CancelSubscriptionController {
         country,
         subscribedAt,
         userId,
-        plan: (user as any)?.plan || "",
+        plan: resolvedPlanName || String((user as any)?.plan || ""),
         description: description || "",
         status: "pending",
       });
