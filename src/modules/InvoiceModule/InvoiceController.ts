@@ -3,6 +3,7 @@ import { Request, Response } from "express";
 import { generateInvoicePDF } from "../../services/invoiceService";
 import Payment from "../PaymentModule/models/Payment";
 import User from "../UserModule/models/User";
+import { getVatRateForCountry } from "../../utils/vat";
 
 export default class InvoiceController {
   /**
@@ -44,6 +45,8 @@ export default class InvoiceController {
       );
 
       // Generate PDF
+      const vatRate = getVatRateForCountry(user.country, user.countryCode);
+
       const invoicePDF = await generateInvoicePDF({
         invoiceId: payment.invoiceId!,
         orderRef: payment.orderRef,
@@ -57,6 +60,7 @@ export default class InvoiceController {
         date: payment.createdAt,
         subscriptionEndDate,
         paymentMethod: `${payment.gateway.toUpperCase()} Payment Gateway`,
+        taxRate: vatRate,
       });
 
       // Set response headers for PDF download

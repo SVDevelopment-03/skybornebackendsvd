@@ -475,6 +475,13 @@ export class StripeService {
     return null;
   }
 
+  /**
+   * Resolve an existing Stripe customer id for a user without creating a new customer.
+   */
+  static async resolveExistingCustomerId(user: any): Promise<string | null> {
+    return this.getExistingCustomer(user);
+  }
+
   static async getOrCreateCustomer(user: any): Promise<string> {
     try {
       const stripe = this.getStripeClient();

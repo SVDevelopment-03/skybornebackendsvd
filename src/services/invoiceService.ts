@@ -2,6 +2,7 @@
 import PDFDocument from "pdfkit";
 import { Readable } from "stream";
 import sgMail from "@sendgrid/mail";
+import { calculateVatFromTotal } from "../utils/vat";
 
 export interface InvoiceData {
   invoiceId: string;
@@ -16,6 +17,7 @@ export interface InvoiceData {
   date: Date;
   subscriptionEndDate: Date;
   paymentMethod: string;
+  taxRate?: number;
 }
 
 export const generateInvoicePDF = (invoiceData: InvoiceData): Promise<Buffer> => {
@@ -28,6 +30,9 @@ export const generateInvoicePDF = (invoiceData: InvoiceData): Promise<Buffer> =>
     doc.on("error", reject);
 
     const PAGE_WIDTH = 545;
+    const taxRate = Number.isFinite(invoiceData.taxRate) ? invoiceData.taxRate! : 0;
+    const totals = calculateVatFromTotal(invoiceData.amount, taxRate);
+    const taxLabel = taxRate > 0 ? `VAT (${Math.round(taxRate * 100)}%)` : "Tax (0%)";
 
     doc.font("Helvetica-Bold").fontSize(24).text("INVOICE");
     doc.moveDown(0.8);
@@ -86,23 +91,23 @@ export const generateInvoicePDF = (invoiceData: InvoiceData): Promise<Buffer> =>
     doc.font("Helvetica").fontSize(10)
       .text("Subscription Plan", col.desc, rowY)
       .text(invoiceData.plan, col.plan, rowY)
-      .text(`${invoiceData.currency} ${invoiceData.amount.toFixed(2)}`, col.amt, rowY)
-      .text(`${invoiceData.currency} ${invoiceData.amount.toFixed(2)}`, col.total, rowY);
+      .text(`${invoiceData.currency} ${totals.subtotal.toFixed(2)}`, col.amt, rowY)
+      .text(`${invoiceData.currency} ${totals.subtotal.toFixed(2)}`, col.total, rowY);
 
     doc.moveDown(2);
 
     const sumX = 350;
 
     doc.font("Helvetica-Bold").fontSize(11).text("Subtotal:", sumX);
-    doc.font("Helvetica").fontSize(10).text(`${invoiceData.currency} ${invoiceData.amount.toFixed(2)}`, sumX);
+    doc.font("Helvetica").fontSize(10).text(`${invoiceData.currency} ${totals.subtotal.toFixed(2)}`, sumX);
 
     doc.moveDown(0.3);
-    doc.font("Helvetica-Bold").fontSize(11).text("Tax (0%):", sumX);
-    doc.font("Helvetica").fontSize(10).text(`${invoiceData.currency} 0.00`, sumX);
+    doc.font("Helvetica-Bold").fontSize(11).text(`${taxLabel}:`, sumX);
+    doc.font("Helvetica").fontSize(10).text(`${invoiceData.currency} ${totals.vatAmount.toFixed(2)}`, sumX);
 
     doc.moveDown(0.3);
     doc.font("Helvetica-Bold").fontSize(12).text("Total:", sumX);
-    doc.font("Helvetica-Bold").fontSize(12).text(`${invoiceData.currency} ${invoiceData.amount.toFixed(2)}`, sumX);
+    doc.font("Helvetica-Bold").fontSize(12).text(`${invoiceData.currency} ${totals.total.toFixed(2)}`, sumX);
 
     doc.moveDown(2);
 

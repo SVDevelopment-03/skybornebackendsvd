@@ -10,6 +10,7 @@ import { PLAN_CONFIG } from "../../../config/planConfig";
 import { PlanType } from "../../UserModule/interface/userInterface";
 import PlanModel from "../../PlanModule/models/Plan";
 import { generateInvoicePDF } from "../../../services/invoiceService";
+import { calculateVatFromBase, getVatRateForCountry } from "../../../utils/vat";
 import { v4 as uuidv4 } from "uuid";
 import {
   getPreferredGateway,
@@ -171,7 +172,7 @@ export default class PaymentController {
         successUrl || process.env.APP_PAYMENT_SUCCESS_URL;
       const appCancelUrl =
         cancelUrl || process.env.APP_PAYMENT_CANCEL_URL;
-      const userAmount = amount;
+      let userAmount = Number(amount) || 0;
 
       if (paymentSource === "app" && (!appSuccessUrl || !appCancelUrl)) {
         return res.status(500).json({
@@ -215,6 +216,11 @@ export default class PaymentController {
             "Active Stripe subscription already exists. Use upgrade plan API instead of create-order.",
         });
       }
+
+      const vatRate = getVatRateForCountry(user.country, user.countryCode);
+      const vatBreakdown = calculateVatFromBase(userAmount, vatRate);
+      userAmount = vatBreakdown.total;
+      amount = vatBreakdown.total;
 
       // Determine preferred gateway based on country
       const countryCode = user.country || user.countryCode;
@@ -332,32 +338,35 @@ export default class PaymentController {
         });
       }
 
-      // If user has no existing plan, create a fresh payment order instead of upgrading.
-      if (!user.plan) {
-        return PaymentController.createPaymentOrder(req, res);
+      // Resolve an active Stripe subscription before falling back to a new order.
+      let resolvedSubscriptionId = user.stripeSubscriptionId || "";
+
+      try {
+        const customerId = await StripeService.resolveExistingCustomerId(user);
+        if (customerId) {
+          const activeSubscriptions =
+            await StripeService.getCustomerSubscriptions(customerId);
+          if (activeSubscriptions.length > 0) {
+            resolvedSubscriptionId = activeSubscriptions[0].id;
+          }
+        }
+      } catch (error) {
+        console.warn("Warning: unable to resolve Stripe subscriptions for upgrade:", error);
       }
 
-      // If plan exists but subscription reference is missing, create a fresh order.
-      if (!user.stripeSubscriptionId) {
-        return PaymentController.createPaymentOrder(req, res);
-      }
-
-      // If subscription exists but is not active, create a fresh order.
-      const subscriptionStatus = user.subscription?.status;
-
-      console.log("Subscription status:", subscriptionStatus);
-      if (
-        !subscriptionStatus ||
-        String(subscriptionStatus).toLowerCase() !== "active"
-      ) {
+      if (!resolvedSubscriptionId) {
         return PaymentController.createPaymentOrder(req, res);
       }
 
       
+      const vatRate = getVatRateForCountry(user.country, user.countryCode);
+      const vatBreakdown = calculateVatFromBase(Number(amount), vatRate);
+      const amountWithVat = vatBreakdown.total;
+
       const upgraded = await StripeService.upgradeSubscriptionPlan(
         userId,
-        user.stripeSubscriptionId,
-        Number(amount),
+        resolvedSubscriptionId,
+        amountWithVat,
         String(currency).toUpperCase(),
         String(plan),
         billingType,
@@ -367,6 +376,7 @@ export default class PaymentController {
       user.billingType = billingType;
       user.gateway = "stripe";
       user.lastPaymentGateway = "stripe";
+      user.stripeSubscriptionId = resolvedSubscriptionId;
       user.subscription = {
         ...user.subscription,
         status: "active",
@@ -1102,6 +1112,8 @@ export default class PaymentController {
           try {
             const subscriptionEndDate = new Date(Date.now() + subscriptionDuration);
             
+            const vatRate = getVatRateForCountry(user.country, user.countryCode);
+
             const invoicePDF = await generateInvoicePDF({
               invoiceId,
               orderRef: payment!.orderRef,
@@ -1114,6 +1126,7 @@ export default class PaymentController {
               date: new Date(),
               subscriptionEndDate: subscriptionEndDate,
               paymentMethod: `${payment.gateway.toUpperCase()} Payment Gateway`,
+              taxRate: vatRate,
             });
 
             const invoicePDFBase64 = invoicePDF.toString("base64");
