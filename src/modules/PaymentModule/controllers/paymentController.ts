@@ -1139,6 +1139,7 @@ export default class PaymentController {
                 date: new Date(),
                 subscriptionEndDate: subscriptionEndDate,
                 paymentMethod: `${payment.gateway.toUpperCase()} Payment Gateway`,
+                taxRate: vatRate,
               },
               invoicePDFBase64,
             ).catch((err) =>

@@ -137,6 +137,9 @@ export const sendInvoiceEmail = async (
   sgMail.setApiKey(process.env.SENDGRID_API_KEY!);
 
   const fileName = `invoice-${invoiceData.invoiceId}.pdf`;
+  const taxRate = Number.isFinite(invoiceData.taxRate) ? invoiceData.taxRate! : 0;
+  const totals = calculateVatFromTotal(invoiceData.amount, taxRate);
+  const taxLabel = taxRate > 0 ? `VAT (${Math.round(taxRate * 100)}%)` : "Tax (0%)";
 
   const msg = {
     to: invoiceData.userEmail,
@@ -175,6 +178,20 @@ export const sendInvoiceEmail = async (
         <tr>
           <td><strong>Subscription Ends:</strong></td>
           <td>${invoiceData.subscriptionEndDate.toLocaleDateString()}</td>
+        </tr>
+      </table>
+      <table style="width: 100%; margin: 20px 0;">
+        <tr>
+          <td><strong>Subtotal:</strong></td>
+          <td>${invoiceData.currency} ${totals.subtotal.toFixed(2)}</td>
+        </tr>
+        <tr>
+          <td><strong>${taxLabel}:</strong></td>
+          <td>${invoiceData.currency} ${totals.vatAmount.toFixed(2)}</td>
+        </tr>
+        <tr>
+          <td><strong>Total:</strong></td>
+          <td>${invoiceData.currency} ${totals.total.toFixed(2)}</td>
         </tr>
       </table>
       <hr />

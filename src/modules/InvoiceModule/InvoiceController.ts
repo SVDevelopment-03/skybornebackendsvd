@@ -3,7 +3,7 @@ import { Request, Response } from "express";
 import { generateInvoicePDF } from "../../services/invoiceService";
 import Payment from "../PaymentModule/models/Payment";
 import User from "../UserModule/models/User";
-import { getVatRateForCountry } from "../../utils/vat";
+import { calculateVatFromTotal, getVatRateForCountry } from "../../utils/vat";
 
 export default class InvoiceController {
   /**
@@ -116,6 +116,11 @@ export default class InvoiceController {
         payment.createdAt.getTime() + subscriptionDuration
       );
 
+      const vatRate = getVatRateForCountry(user.country, user.countryCode);
+      const totals = calculateVatFromTotal(payment.amount, vatRate);
+      const taxLabel =
+        vatRate > 0 ? `VAT (${Math.round(vatRate * 100)}%)` : "Tax (0%)";
+
       return res.status(200).json({
         success: true,
         invoice: {
@@ -132,6 +137,11 @@ export default class InvoiceController {
           billingType: payment.billingType,
           date: payment.createdAt,
           subscriptionEndDate,
+          taxRate: vatRate,
+          subtotal: totals.subtotal,
+          vatAmount: totals.vatAmount,
+          total: totals.total,
+          taxLabel,
         },
       });
     } catch (error) {
