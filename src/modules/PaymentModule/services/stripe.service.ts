@@ -270,7 +270,7 @@ export class StripeService {
 
       // Reuse existing Stripe customer for re-subscribe flows.
       // If none exists, preserve current behavior via customer_email.
-      const metadata: Stripe.Checkout.SessionCreateParams.Metadata = {
+      const metadata: Stripe.MetadataParam = {
         userId,
         plan,
         orderRef,
