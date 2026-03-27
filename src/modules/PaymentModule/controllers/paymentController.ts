@@ -305,12 +305,15 @@ export default class PaymentController {
 
   static async upgradePlanOrder(req: Request, res: Response) {
     try {
-      const {
+      let {
         userId,
         plan,
         amount,
         currency = "USD",
         billingType = "monthly",
+        source,
+        successUrl,
+        cancelUrl,
       } = req.body;
 
       if (!userId || !plan || amount === undefined || amount === null) {
@@ -327,6 +330,39 @@ export default class PaymentController {
         });
       }
 
+      const normalizedSource = String(source ?? "")
+        .trim()
+        .toLowerCase();
+      const userAgent = String(req.headers["user-agent"] ?? "").toLowerCase();
+      const explicitClientSource = String(
+        req.headers["x-client-source"] ?? req.headers["x-platform"] ?? ""
+      )
+        .trim()
+        .toLowerCase();
+
+      const isAppSource =
+        normalizedSource === "app" ||
+        normalizedSource === "mobile" ||
+        explicitClientSource === "app" ||
+        explicitClientSource === "mobile" ||
+        userAgent.includes("okhttp") ||
+        userAgent.includes("reactnative") ||
+        userAgent.includes("react-native") ||
+        userAgent.includes("dalvik");
+
+      const paymentSource = isAppSource ? "app" : "web";
+      const appSuccessUrl = successUrl || process.env.APP_PAYMENT_SUCCESS_URL;
+      const appCancelUrl = cancelUrl || process.env.APP_PAYMENT_CANCEL_URL;
+      const userAmount = Number(amount) || 0;
+
+      if (paymentSource === "app" && (!appSuccessUrl || !appCancelUrl)) {
+        return res.status(500).json({
+          success: false,
+          message:
+            "Missing app payment redirect URLs. Set APP_PAYMENT_SUCCESS_URL and APP_PAYMENT_CANCEL_URL in environment.",
+        });
+      }
+
       const user = await User.findById(userId);
       if (!user) {
         return res.status(404).json({
@@ -335,83 +371,87 @@ export default class PaymentController {
         });
       }
 
-      // Resolve an active Stripe subscription before falling back to a new order.
-      let resolvedSubscriptionId = user.stripeSubscriptionId || "";
+      const countryCode = user.country || user.countryCode;
+      let preferredGateway =
+        paymentSource === "app" ? "stripe" : getPreferredGateway(countryCode);
 
-      try {
-        const customerId = await StripeService.resolveExistingCustomerId(user);
-        if (customerId) {
-          const activeSubscriptions =
-            await StripeService.getCustomerSubscriptions(customerId);
-          if (activeSubscriptions.length > 0) {
-            resolvedSubscriptionId = activeSubscriptions[0].id;
+      if (user.stripeSubscriptionId) {
+        preferredGateway = "stripe";
+      }
+
+      let previousSubscriptionId: string | null = null;
+
+      if (preferredGateway === "stripe") {
+        previousSubscriptionId = user.stripeSubscriptionId || null;
+
+        try {
+          const customerId = await StripeService.resolveExistingCustomerId(user);
+          if (customerId) {
+            const activeSubscriptions =
+              await StripeService.getCustomerSubscriptions(customerId);
+            if (activeSubscriptions.length > 0) {
+              previousSubscriptionId = activeSubscriptions[0].id;
+            }
           }
+        } catch (error) {
+          console.warn(
+            "Warning: unable to resolve Stripe subscriptions for upgrade:",
+            error,
+          );
         }
-      } catch (error) {
-        console.warn("Warning: unable to resolve Stripe subscriptions for upgrade:", error);
       }
 
-      if (!resolvedSubscriptionId) {
-        return PaymentController.createPaymentOrder(req, res);
+      let paymentData: any;
+
+      if (preferredGateway === "ngenius") {
+        if (currency === "USD") {
+          const rate = await getUsdToAedRate();
+          amount = Number((amount * rate).toFixed(2));
+          currency = "AED";
+        }
+
+        paymentData = await NgeniusService.createOrder(
+          amount,
+          currency,
+          userId,
+          plan,
+          userAmount,
+          paymentSource,
+          billingType,
+        );
+      } else if (preferredGateway === "stripe") {
+        paymentData = await StripeService.createCheckoutSession(
+          userId,
+          amount,
+          currency,
+          plan,
+          userAmount,
+          paymentSource,
+          billingType,
+          paymentSource === "app" ? appSuccessUrl : undefined,
+          paymentSource === "app" ? appCancelUrl : undefined,
+          previousSubscriptionId || undefined,
+        );
+
+        paymentData.paymentLink = paymentData.checkoutUrl;
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: "No suitable payment gateway found for your country",
+        });
       }
 
-      
-      const amountNumber = Number(amount);
-
-      const upgraded = await StripeService.upgradeSubscriptionPlan(
-        userId,
-        resolvedSubscriptionId,
-        amountNumber,
-        String(currency).toUpperCase(),
-        String(plan),
-        billingType,
-      );
-
-      user.plan = String(plan);
+      user.gateway = preferredGateway;
+      user.lastPaymentGateway = preferredGateway;
       user.billingType = billingType;
-      user.gateway = "stripe";
-      user.lastPaymentGateway = "stripe";
-      user.stripeSubscriptionId = resolvedSubscriptionId;
-      user.subscription = {
-        ...user.subscription,
-        status: "active",
-        startDate: user.subscription?.startDate || new Date(),
-        endDate: upgraded.currentPeriodEnd || user.subscription?.endDate || null,
-      };
       await user.save();
-
-      // await Payment.findOneAndUpdate(
-      //   {
-      //     userId: user._id,
-      //     gateway: "stripe",
-      //     subscriptionId: user.stripeSubscriptionId,
-      //     status: "COMPLETED",
-      //   },
-      //   {
-      //     $set: {
-      //       plan: String(plan),
-      //       billingType,
-      //       amount: Number(amount),
-      //       localAmount: upgraded.localAmount,
-      //       currency: String(currency).toUpperCase(),
-      //     },
-      //   },
-      //   { sort: { createdAt: -1 } },
-      // );
 
       return res.status(200).json({
         success: true,
-        message: "Subscription upgraded successfully",
-        data: {
-          subscriptionId: upgraded.subscriptionId,
-          plan: upgraded.plan,
-          amount: upgraded.amount,
-          currency: upgraded.currency,
-          localAmount: upgraded.localAmount,
-          localCurrency: upgraded.localCurrency,
-          billingType: upgraded.billingType,
-          subscriptionEndDate: upgraded.currentPeriodEnd,
-        },
+        gateway: preferredGateway,
+        billingType,
+        ...paymentData,
+        message: "Upgrade order created successfully",
       });
     } catch (err) {
       console.error("❌ Upgrade plan error:", err);

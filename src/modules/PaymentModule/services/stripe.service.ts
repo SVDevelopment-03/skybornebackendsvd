@@ -198,6 +198,7 @@ export class StripeService {
     billingType: "monthly" | "yearly" = "monthly",
     customSuccessUrl?: string,
     customCancelUrl?: string,
+    previousSubscriptionId?: string,
   ): Promise<{
     checkoutUrl: string;
     sessionId: string;
@@ -269,6 +270,22 @@ export class StripeService {
 
       // Reuse existing Stripe customer for re-subscribe flows.
       // If none exists, preserve current behavior via customer_email.
+      const metadata: Stripe.Checkout.SessionCreateParams.Metadata = {
+        userId,
+        plan,
+        orderRef,
+        userAmount: userAmount.toString(),
+        billingType,
+        localAmount: localAmount.toString(),
+        currency: localCurrencyCode,
+        originalCurrency: currency,
+        conversionRate: conversionRate.toString(),
+      };
+
+      if (previousSubscriptionId) {
+        metadata.previousSubscriptionId = previousSubscriptionId;
+      }
+
       const sessionCreateParams: Stripe.Checkout.SessionCreateParams = {
         payment_method_types: ["card"],
         mode: "subscription",
@@ -289,17 +306,7 @@ export class StripeService {
             quantity: 1,
           },
         ],
-        metadata: {
-          userId,
-          plan,
-          orderRef,
-          userAmount: userAmount.toString(),
-          billingType,
-          localAmount: localAmount.toString(), // ✅ NEW: Store converted amount
-          currency: localCurrencyCode,         // ✅ NEW: Store local currency
-          originalCurrency: currency,          // ✅ NEW: Store original currency
-          conversionRate: conversionRate.toString(), // ✅ NEW: Store conversion rate
-        },
+        metadata,
         success_url: successUrl,
         cancel_url: cancelUrl,
         ...(existingCustomerId
@@ -322,6 +329,7 @@ export class StripeService {
         currency: "USD",     // ✅ CHANGED: Store local currency
         plan,
         billingType,
+        previousSubscriptionId: previousSubscriptionId || undefined,
         status: "PENDING",
         gateway: "stripe",
         paymentIntentId: session.id,

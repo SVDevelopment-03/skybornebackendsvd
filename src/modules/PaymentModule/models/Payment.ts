@@ -25,6 +25,8 @@ paymentLink?: string;
 paymentIntentId?: string;
 subscriptionId?: string;
 transactionId?: string;
+previousSubscriptionId?: string;
+previousSubscriptionCancelledAt?: Date;
 
 // Common fields
 invoiceId?: string;
@@ -121,6 +123,14 @@ const PaymentSchema = new Schema<IPayment>(
     type: String,
     sparse: true,
     index: true,
+  },
+  previousSubscriptionId: {
+    type: String,
+    sparse: true,
+  },
+  previousSubscriptionCancelledAt: {
+    type: Date,
+    sparse: true,
   },
 
   // Common fields

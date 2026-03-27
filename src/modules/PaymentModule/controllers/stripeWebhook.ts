@@ -3,6 +3,7 @@ import Stripe from "stripe";
 import Payment from "../models/Payment";
 import User from "../../UserModule/models/User";
 import PaymentController from "./paymentController";
+import { StripeService } from "../services/stripe.service";
 import { sendRecurringPaymentFailureEmail } from "../../../services/recurringPaymentFailureEmail";
 import RecurringPaymentFailure from "../models/RecurringPaymentFailure";
 
@@ -366,6 +367,54 @@ router.post(
             paymentId: String(payment._id),
             orderRef: payment.orderRef,
           });
+
+          const rawPreviousSubscriptionId =
+            (session.metadata as any)?.previousSubscriptionId ||
+            payment.previousSubscriptionId ||
+            "";
+          const previousSubscriptionId = String(rawPreviousSubscriptionId).trim();
+          const newSubscriptionId =
+            typeof session.subscription === "string"
+              ? session.subscription
+              : session.subscription?.id || "";
+
+          if (previousSubscriptionId) {
+            payment.previousSubscriptionId = previousSubscriptionId;
+          }
+
+          if (
+            previousSubscriptionId &&
+            newSubscriptionId &&
+            previousSubscriptionId !== newSubscriptionId &&
+            !payment.previousSubscriptionCancelledAt
+          ) {
+            try {
+              await StripeService.cancelSubscription(previousSubscriptionId);
+              payment.previousSubscriptionCancelledAt = new Date();
+              await payment.save();
+
+              console.log("🧹 Previous Stripe subscription cancelled:", {
+                previousSubscriptionId,
+                newSubscriptionId: newSubscriptionId || null,
+                paymentId: String(payment._id),
+              });
+            } catch (cancelError: any) {
+              console.error("❌ Failed to cancel previous Stripe subscription:", {
+                previousSubscriptionId,
+                newSubscriptionId: newSubscriptionId || null,
+                error: cancelError?.message || cancelError,
+              });
+            }
+          } else if (
+            previousSubscriptionId &&
+            payment.previousSubscriptionCancelledAt
+          ) {
+            console.log("ℹ️ Previous subscription already cancelled:", {
+              previousSubscriptionId,
+              paymentId: String(payment._id),
+              cancelledAt: payment.previousSubscriptionCancelledAt,
+            });
+          }
 
           break;
         }
