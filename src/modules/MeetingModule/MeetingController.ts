@@ -1980,6 +1980,16 @@ static async GetMeetingRecording(req: Request, res: Response) {
       const isAdmin = userData.role === "admin";
       const isTrainerOrAdmin = isTrainer || isAdmin;
 
+      if (
+        !isTrainerOrAdmin &&
+        String(meeting.status || "").toLowerCase() === "completed"
+      ) {
+        return res.status(403).json({
+          success: false,
+          message: "meeting is completed by trainer please watch recording",
+        });
+      }
+
       // Determine service type
       const serviceType =
         (meeting?.service as IService)?.title?.toLowerCase() == "zumba dance"
@@ -2654,6 +2664,7 @@ static async UpdateMeeting(req: Request, res: Response) {
       liveTime,
       trainer,
       duration,
+      status,
       autoRecording,
       rotationEnabled,
       startDate,
@@ -2665,6 +2676,24 @@ static async UpdateMeeting(req: Request, res: Response) {
       weeklyEndDate,
     } = req.body;
 
+    const hasStatusOnlyUpdate =
+      status !== undefined &&
+      service === undefined &&
+      title === undefined &&
+      liveRegion === undefined &&
+      liveTime === undefined &&
+      trainer === undefined &&
+      duration === undefined &&
+      autoRecording === undefined &&
+      rotationEnabled === undefined &&
+      startDate === undefined &&
+      localTime === undefined &&
+      regions === undefined &&
+      recurringClass === undefined &&
+      recurrenceType === undefined &&
+      customDays === undefined &&
+      weeklyEndDate === undefined;
+
     // Find the meeting by ID only.
     let meeting = await Meeting.findById(id);
 
@@ -2672,6 +2701,52 @@ static async UpdateMeeting(req: Request, res: Response) {
       return res.status(404).json({
         success: false,
         message: "Meeting not found",
+      });
+    }
+
+    if (hasStatusOnlyUpdate) {
+      const normalizedStatus = String(status || "")
+        .trim()
+        .toLowerCase();
+      const allowedStatuses = ["pending", "completed", "failed"];
+
+      if (!allowedStatuses.includes(normalizedStatus)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid status. Allowed: pending, completed, failed",
+        });
+      }
+
+      meeting.status = normalizedStatus as "pending" | "completed" | "failed";
+      await meeting.save();
+
+      const occurrenceId = String((meeting as any).occurrenceId || "").trim();
+      const localTimeMs = new Date(meeting.localTime).getTime();
+      const slotWindowMs = 60 * 1000;
+      const statusSyncFilter: any = {
+        zoomMeetingId: meeting.zoomMeetingId,
+        _id: { $ne: meeting._id },
+      };
+
+      if (occurrenceId) {
+        statusSyncFilter.occurrenceId = occurrenceId;
+      } else if (!Number.isNaN(localTimeMs)) {
+        statusSyncFilter.localTime = {
+          $gte: new Date(localTimeMs - slotWindowMs),
+          $lte: new Date(localTimeMs + slotWindowMs),
+        };
+      }
+
+      await Meeting.updateMany(statusSyncFilter, {
+        $set: { status: normalizedStatus },
+      });
+
+      return res.json({
+        success: true,
+        data: {
+          meeting,
+          message: `Meeting marked as ${normalizedStatus}`,
+        },
       });
     }
 
@@ -2958,6 +3033,34 @@ static async UpdateMeeting(req: Request, res: Response) {
         : [];
     meeting.weeklyEndDate = nextWeeklyEndDate;
     meeting.isRecurring = nextRecurringClass;
+    if (status !== undefined) {
+      const normalizedStatus = String(status || "")
+        .trim()
+        .toLowerCase();
+      if (["pending", "completed", "failed"].includes(normalizedStatus)) {
+        meeting.status = normalizedStatus as "pending" | "completed" | "failed";
+        const occurrenceId = String((meeting as any).occurrenceId || "").trim();
+        const localTimeMs = new Date(meeting.localTime).getTime();
+        const slotWindowMs = 60 * 1000;
+        const statusSyncFilter: any = {
+          zoomMeetingId: meeting.zoomMeetingId,
+          _id: { $ne: meeting._id },
+        };
+
+        if (occurrenceId) {
+          statusSyncFilter.occurrenceId = occurrenceId;
+        } else if (!Number.isNaN(localTimeMs)) {
+          statusSyncFilter.localTime = {
+            $gte: new Date(localTimeMs - slotWindowMs),
+            $lte: new Date(localTimeMs + slotWindowMs),
+          };
+        }
+
+        await Meeting.updateMany(statusSyncFilter, {
+          $set: { status: normalizedStatus },
+        });
+      }
+    }
 
     // Update Zoom meeting settings
     try {
