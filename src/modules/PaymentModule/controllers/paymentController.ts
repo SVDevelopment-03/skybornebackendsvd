@@ -400,7 +400,8 @@ export default class PaymentController {
 
               previousSubscriptionId = matchedSubscription.id;
 
-              const periodEndUnix = matchedSubscription.current_period_end || 0;
+              const periodEndUnix =
+                (matchedSubscription as any).current_period_end || 0;
               if (periodEndUnix) {
                 const periodEndMs = Number(periodEndUnix) * 1000;
                 if (periodEndMs > Date.now() + 60 * 1000) {
@@ -1115,6 +1116,13 @@ export default class PaymentController {
         },
         { new: true },
       );
+
+      if (!payment) {
+        return res.status(404).json({
+          success: false,
+          error: "Payment record not found",
+        });
+      }
 
       if (isDeferredUpgrade) {
         return res.status(200).json({

@@ -59,8 +59,8 @@ export interface IUser extends Document {
 
   // Step 7: Plan Selection
   plan?: string;
-  pendingPlan?: string;
-  pendingBillingType?: "monthly" | "yearly";
+  pendingPlan?: string | null;
+  pendingBillingType?: "monthly" | "yearly" | null;
   pendingEffectiveDate?: Date | null;
 
   // Class Credits
