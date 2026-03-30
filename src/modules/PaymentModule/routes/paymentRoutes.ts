@@ -22,7 +22,7 @@ export const PaymentApiRoutes = [
   },
     {
     path: "/payment/verify-mobile",
-    request: null,
+    requyoest: null,
     action: PaymentController.verifyMobilePayment,
     method: "post",
   },

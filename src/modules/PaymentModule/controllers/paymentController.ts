@@ -380,6 +380,7 @@ export default class PaymentController {
       }
 
       let previousSubscriptionId: string | null = null;
+      let deferUntil: Date | null = null;
 
       if (preferredGateway === "stripe") {
         previousSubscriptionId = user.stripeSubscriptionId || null;
@@ -390,7 +391,22 @@ export default class PaymentController {
             const activeSubscriptions =
               await StripeService.getCustomerSubscriptions(customerId);
             if (activeSubscriptions.length > 0) {
-              previousSubscriptionId = activeSubscriptions[0].id;
+              const matchedSubscription =
+                (previousSubscriptionId
+                  ? activeSubscriptions.find(
+                      (subscription) => subscription.id === previousSubscriptionId,
+                    )
+                  : null) || activeSubscriptions[0];
+
+              previousSubscriptionId = matchedSubscription.id;
+
+              const periodEndUnix = matchedSubscription.current_period_end || 0;
+              if (periodEndUnix) {
+                const periodEndMs = Number(periodEndUnix) * 1000;
+                if (periodEndMs > Date.now() + 60 * 1000) {
+                  deferUntil = new Date(periodEndMs);
+                }
+              }
             }
           }
         } catch (error) {
@@ -398,6 +414,33 @@ export default class PaymentController {
             "Warning: unable to resolve Stripe subscriptions for upgrade:",
             error,
           );
+        }
+
+        // Fallback to locally-tracked subscription endDate when Stripe data
+        // is unavailable (still only for Stripe upgrades).
+        if (!deferUntil && user.subscription?.status === "active") {
+          const localEndDate = user.subscription?.endDate;
+          if (localEndDate) {
+            const localEndMs = new Date(localEndDate).getTime();
+            if (localEndMs > Date.now() + 60 * 1000) {
+              deferUntil = new Date(localEndMs);
+            }
+          }
+        }
+
+        // If we are deferring the charge, make sure the current Stripe
+        // subscription cancels at period end (not immediately).
+        if (deferUntil && previousSubscriptionId) {
+          try {
+            await StripeService.setSubscriptionCancelAtPeriodEnd(
+              previousSubscriptionId,
+            );
+          } catch (error) {
+            console.warn(
+              "Warning: unable to set cancel_at_period_end for upgrade:",
+              error,
+            );
+          }
         }
       }
 
@@ -431,6 +474,7 @@ export default class PaymentController {
           paymentSource === "app" ? appSuccessUrl : undefined,
           paymentSource === "app" ? appCancelUrl : undefined,
           previousSubscriptionId || undefined,
+          deferUntil || undefined,
         );
 
         paymentData.paymentLink = paymentData.checkoutUrl;
@@ -444,12 +488,23 @@ export default class PaymentController {
       user.gateway = preferredGateway;
       user.lastPaymentGateway = preferredGateway;
       user.billingType = billingType;
+
+      if (deferUntil) {
+        user.pendingPlan = plan;
+        user.pendingBillingType = billingType;
+        user.pendingEffectiveDate = deferUntil;
+      } else {
+        user.pendingPlan = null;
+        user.pendingBillingType = null;
+        user.pendingEffectiveDate = null;
+      }
       await user.save();
 
       return res.status(200).json({
         success: true,
         gateway: preferredGateway,
         billingType,
+        deferUntil: deferUntil ? deferUntil.toISOString() : null,
         ...paymentData,
         message: "Upgrade order created successfully",
       });
@@ -479,6 +534,40 @@ export default class PaymentController {
 
       // Get session details from Stripe
       const session = await StripeService.getCheckoutSession(sessionId);
+
+      const deferUntilRaw = (session.metadata as any)?.deferUntil;
+      const deferUntilMs = deferUntilRaw
+        ? Date.parse(String(deferUntilRaw))
+        : NaN;
+      const isDeferredUpgrade =
+        Number.isFinite(deferUntilMs) && deferUntilMs > Date.now() + 60 * 1000;
+
+      if (isDeferredUpgrade) {
+        const metadata = session.metadata as any;
+        const pendingPlan = String(metadata?.plan || "").trim() || null;
+        const pendingBillingType =
+          metadata?.billingType === "yearly" ? "yearly" : "monthly";
+        const pendingEffectiveDate = deferUntilRaw
+          ? new Date(String(deferUntilRaw))
+          : null;
+
+        if (metadata?.userId) {
+          await User.findByIdAndUpdate(metadata.userId, {
+            pendingPlan,
+            pendingBillingType,
+            pendingEffectiveDate,
+          });
+        }
+
+        return res.status(200).json({
+          success: true,
+          message:
+            "Upgrade scheduled. Payment will be collected after current subscription ends.",
+          status: "PENDING",
+          gateway: "stripe",
+          deferUntil: deferUntilRaw || null,
+        });
+      }
 
       if (session.payment_status === "paid") {
         // Get or create payment record
@@ -987,12 +1076,24 @@ export default class PaymentController {
       // Retrieve the session from Stripe
       const session = await StripeService.getCheckoutSession(paymentIntentId);
 
+      const deferUntilRaw = (session.metadata as any)?.deferUntil;
+      const deferUntilMs = deferUntilRaw
+        ? Date.parse(String(deferUntilRaw))
+        : NaN;
+      const isDeferredUpgrade =
+        Number.isFinite(deferUntilMs) && deferUntilMs > Date.now() + 60 * 1000;
+
       let paymentStatus = "PENDING";
 
-      if (session.payment_status === "paid") {
-        paymentStatus = "COMPLETED";
-      } else if (session.payment_status === "unpaid") {
-        paymentStatus = "FAILED";
+      if (!isDeferredUpgrade) {
+        if (
+          session.payment_status === "paid" ||
+          session.payment_status === "no_payment_required"
+        ) {
+          paymentStatus = "COMPLETED";
+        } else if (session.payment_status === "unpaid") {
+          paymentStatus = "FAILED";
+        }
       }
 
       const subscriptionId = session.subscription as string | null;
@@ -1010,10 +1111,25 @@ export default class PaymentController {
           paymentIntentId: transactionId || payment.paymentIntentId,
           status: paymentStatus,
           gatewayResponse: session,
-          verifiedAt: new Date(),
+          ...(isDeferredUpgrade ? {} : { verifiedAt: new Date() }),
         },
         { new: true },
       );
+
+      if (isDeferredUpgrade) {
+        return res.status(200).json({
+          success: true,
+          message:
+            "Upgrade scheduled. Payment will be collected after current subscription ends.",
+          status: "PENDING",
+          orderRef: payment.orderRef,
+          amount: payment.amount,
+          currency: payment.currency,
+          plan: payment.plan,
+          gateway: "stripe",
+          deferUntil: deferUntilRaw || null,
+        });
+      }
 
       return this.activateSubscription(
         payment,
@@ -1127,6 +1243,9 @@ export default class PaymentController {
 
           // Update plan
           user.plan = plan;
+          user.pendingPlan = null;
+          user.pendingBillingType = null;
+          user.pendingEffectiveDate = null;
           user.onboardingCompleted = true;
 
           await user.save();

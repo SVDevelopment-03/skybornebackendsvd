@@ -199,6 +199,7 @@ export class StripeService {
     customSuccessUrl?: string,
     customCancelUrl?: string,
     previousSubscriptionId?: string,
+    deferUntil?: Date,
   ): Promise<{
     checkoutUrl: string;
     sessionId: string;
@@ -266,10 +267,8 @@ export class StripeService {
       const successUrl = source === "app" ? appSuccessUrl : webSuccessUrl;
       const cancelUrl = source === "app" ? appCancelUrl : webCancelUrl;
 
-      const existingCustomerId = await this.getExistingCustomer(user);
-
-      // Reuse existing Stripe customer for re-subscribe flows.
-      // If none exists, preserve current behavior via customer_email.
+      // Always use a consistent Stripe customer id (reuse if exists, else create once).
+      const customerId = await this.getOrCreateCustomer(user);
       const metadata: Stripe.MetadataParam = {
         userId,
         plan,
@@ -284,6 +283,18 @@ export class StripeService {
 
       if (previousSubscriptionId) {
         metadata.previousSubscriptionId = previousSubscriptionId;
+      }
+
+      let deferredAnchorUnix: number | null = null;
+      if (deferUntil) {
+        const trialEndMs = deferUntil.getTime();
+        const trialEndUnix = Math.floor(trialEndMs / 1000);
+        const nowUnix = Math.floor(Date.now() / 1000);
+        if (trialEndUnix > nowUnix + 60) {
+          deferredAnchorUnix = trialEndUnix;
+          metadata.deferUntil = new Date(trialEndMs).toISOString();
+          metadata.deferredCharge = "true";
+        }
       }
 
       const sessionCreateParams: Stripe.Checkout.SessionCreateParams = {
@@ -309,10 +320,15 @@ export class StripeService {
         metadata,
         success_url: successUrl,
         cancel_url: cancelUrl,
-        ...(existingCustomerId
-          ? { customer: existingCustomerId }
-          : { customer_email: user.email }),
+        customer: customerId,
       };
+
+      if (deferredAnchorUnix) {
+        sessionCreateParams.subscription_data = {
+          billing_cycle_anchor: deferredAnchorUnix,
+          proration_behavior: "none",
+        };
+      }
 
       // Create checkout session with LOCAL CURRENCY
       const session = await this.stripe.checkout.sessions.create(
@@ -1367,6 +1383,23 @@ export class StripeService {
       await this.stripe.subscriptions.cancel(subscriptionId);
     } catch (error) {
       console.error(`❌ Error cancelling Stripe subscription:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Schedule subscription cancellation at period end
+   */
+  static async setSubscriptionCancelAtPeriodEnd(
+    subscriptionId: string,
+  ): Promise<void> {
+    try {
+      const stripe = this.getStripeClient();
+      await stripe.subscriptions.update(subscriptionId, {
+        cancel_at_period_end: true,
+      });
+    } catch (error) {
+      console.error(`❌ Error setting cancel_at_period_end:`, error);
       throw error;
     }
   }

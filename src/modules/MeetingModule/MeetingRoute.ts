@@ -82,7 +82,6 @@ export const MeetingRoute = [
     action: MeetingController.GetTrainerUpcomingMeetings,
     method: "get",
   },
-
   {
     path: "/meetings/getAll",
     request: null,

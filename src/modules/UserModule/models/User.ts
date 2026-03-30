@@ -140,6 +140,19 @@ const userSchema = new Schema<IUser>(
     plan: {
       type: String,
     },
+    pendingPlan: {
+      type: String,
+      default: null,
+    },
+    pendingBillingType: {
+      type: String,
+      enum: ["monthly", "yearly"],
+      default: null,
+    },
+    pendingEffectiveDate: {
+      type: Date,
+      default: null,
+    },
 
     classCredits: {
       type: {

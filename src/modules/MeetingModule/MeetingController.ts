@@ -68,6 +68,24 @@ const resolveMeetingTimezone = (regions: any[], liveRegion: string): string => {
   return tz || "UTC";
 };
 
+const extractZoomPassword = (url?: string | null): string => {
+  if (!url) return "";
+  try {
+    return new URL(url).searchParams.get("pwd") || "";
+  } catch (error) {
+    return "";
+  }
+};
+
+const buildZoomAppJoinUrl = (
+  meetingId: number | string,
+  password?: string,
+): string => {
+  const baseUrl = `https://zoom.us/j/${meetingId}`;
+  if (!password) return baseUrl;
+  return `${baseUrl}?pwd=${encodeURIComponent(password)}`;
+};
+
 const getZoomWeekdayInTimezone = (date: Date, timeZone: string): number => {
   const weekday = new Intl.DateTimeFormat("en-US", {
     weekday: "short",
@@ -1468,9 +1486,8 @@ static async GetMeetingRecording(req: Request, res: Response) {
       const skipNum = parseInt(skip as string) || 0;
       const limitNum = parseInt(limit as string) || 10;
 
-      // console.log("search:", search, "skip:", skipNum, "limit:", limitNum);
-
       const userId = req.user?.id;
+      const userRole = (req as any).user?.role;
 
       if (!userId) {
         return res.status(401).json({
@@ -1480,7 +1497,7 @@ static async GetMeetingRecording(req: Request, res: Response) {
       }
 
       const user = await User.findById(userId).select(
-        "plan country countryCode",
+        "plan country countryCode role trainer subscription createdAt",
       );
 
       if (!user) {
@@ -1490,42 +1507,77 @@ static async GetMeetingRecording(req: Request, res: Response) {
         });
       }
 
-      // Get current time - only show sessions that have already completed
-      const now = new Date();
-
       const escapeRegex = (value: string) =>
         value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-      const attendanceMatch: any = {
-        user: new mongoose.Types.ObjectId(userId),
-        $or: [
-          { totalDuration: { $gt: 0 } },
-          { status: { $in: ["joined", "completed"] } },
-          { "sessions.0": { $exists: true } },
-        ],
+      // ✅ Check if user is admin or trainer
+      const effectiveRole = user.role || userRole;
+      const isAdminOrTrainer =
+        effectiveRole === "admin" || effectiveRole === "trainer";
+
+      // Get current time - only show sessions that have already completed
+      const now = new Date();
+      const sixtyMinutesAgo = new Date(now.getTime() - 60 * 60 * 1000);
+
+      let serviceTitles: string[] = [];
+
+      // ✅ Service filtering - only for regular users
+      if (!isAdminOrTrainer) {
+        if (user.plan === "gold-yoga") {
+          serviceTitles = ["Yoga"];
+        } else if (user.plan === "gold-zumba") {
+          serviceTitles = ["Zumba Dance"];
+        } else if (user.plan === "gold-mixed") {
+          serviceTitles = ["Yoga", "Zumba Dance"];
+        } else if (user.plan === "diamond" || user.plan === "platinum") {
+          serviceTitles = ["Yoga", "Zumba Dance", "Diet & Nutrition"];
+        }
+      }
+
+      const filter: any = {
+        localTime: { $lt: sixtyMinutesAgo },
       };
 
+      // ✅ For regular users, only show sessions from when they joined the portal
+      if (!isAdminOrTrainer) {
+        const joinStart = user.createdAt || user.subscription?.startDate || null;
+        if (joinStart) {
+          filter.localTime.$gte = new Date(joinStart);
+        }
+      }
+
+      // ✅ Trainer should only see assigned classes
+      if (effectiveRole === "trainer") {
+        if (!user.trainer) {
+          return res.json({
+            success: true,
+            count: 0,
+            totalCount: 0,
+            hasMore: false,
+            meetings: [],
+            userPlan: user.plan,
+            message: "No trainer assigned to this user",
+          });
+        }
+        filter.trainer = user.trainer;
+      }
+
+      // ✅ Service filter - only add for regular users
+      if (!isAdminOrTrainer && serviceTitles.length > 0) {
+        const services = await Service.find({
+          title: { $in: serviceTitles },
+        }).select("_id");
+
+        const serviceIds = services.map((service) => service._id);
+        filter.service = { $in: serviceIds };
+      }
+
       const pipeline: any[] = [
-        { $match: attendanceMatch },
-        {
-          $lookup: {
-            from: "meetings",
-            localField: "meeting",
-            foreignField: "_id",
-            as: "meeting",
-          },
-        },
-        { $unwind: "$meeting" },
-        {
-          $match: {
-            "meeting.localTime": { $lt: now },
-            "meeting.status": { $in: ["completed", "pending"] },
-          },
-        },
+        { $match: filter },
         {
           $lookup: {
             from: "services",
-            localField: "meeting.service",
+            localField: "service",
             foreignField: "_id",
             as: "service",
           },
@@ -1534,7 +1586,7 @@ static async GetMeetingRecording(req: Request, res: Response) {
         {
           $lookup: {
             from: "coaches",
-            localField: "meeting.trainer",
+            localField: "trainer",
             foreignField: "_id",
             as: "trainer",
           },
@@ -1543,7 +1595,7 @@ static async GetMeetingRecording(req: Request, res: Response) {
         {
           $lookup: {
             from: "users",
-            localField: "meeting.createdBy",
+            localField: "createdBy",
             foreignField: "_id",
             as: "createdBy",
           },
@@ -1556,7 +1608,7 @@ static async GetMeetingRecording(req: Request, res: Response) {
         pipeline.push({
           $match: {
             $or: [
-              { "meeting.title": searchRegex },
+              { title: searchRegex },
               { "service.title": searchRegex },
               { "trainer.name": searchRegex },
             ],
@@ -1564,47 +1616,17 @@ static async GetMeetingRecording(req: Request, res: Response) {
         });
       }
 
-      const totalCountAgg = await MeetingAttendance.aggregate([
+      const totalCountAgg = await Meeting.aggregate([
         ...pipeline,
         { $count: "totalCount" },
       ]);
       const totalCount = totalCountAgg[0]?.totalCount || 0;
 
-      const enrichedMeetings = await MeetingAttendance.aggregate([
+      const enrichedMeetings = await Meeting.aggregate([
         ...pipeline,
-        { $sort: { "meeting.localTime": -1 } },
+        { $sort: { localTime: -1 } },
         { $skip: skipNum },
         { $limit: limitNum },
-        {
-          $project: {
-            _id: "$meeting._id",
-            title: "$meeting.title",
-            localTime: "$meeting.localTime",
-            duration: "$meeting.duration",
-            recordingUrl: "$meeting.recordingUrl",
-            status: "$meeting.status",
-            service: {
-              _id: "$service._id",
-              title: "$service.title",
-              name: "$service.name",
-            },
-            trainer: {
-              _id: "$trainer._id",
-              name: "$trainer.name",
-              email: "$trainer.email",
-            },
-            createdBy: {
-              _id: "$createdBy._id",
-              firstName: "$createdBy.firstName",
-              lastName: "$createdBy.lastName",
-              email: "$createdBy.email",
-            },
-            attendance: {
-              totalDuration: "$totalDuration",
-              status: "$status",
-            },
-          },
-        },
       ]);
 
       res.setHeader("Cache-Control", "no-store");
@@ -2060,6 +2082,14 @@ static async GetMeetingRecording(req: Request, res: Response) {
         accessUrl = `${process.env.API_BASE_URL}/meetings/${meeting?._id}/recording`;
       }
 
+      const zoomPassword = extractZoomPassword(
+        meeting?.startUrl || meeting?.joinUrl,
+      );
+      const appAccessUrl =
+        isLiveMode && meeting?.zoomMeetingId
+          ? buildZoomAppJoinUrl(meeting.zoomMeetingId, zoomPassword)
+          : null;
+
       // console.log("meeting id", meeting.zoomMeetingId);
 
       const participantRecord = await MeetingParticipant.create({
@@ -2104,6 +2134,7 @@ static async GetMeetingRecording(req: Request, res: Response) {
         success: true,
         data: {
           accessUrl, // Returns joinUrl for live, recordingUrl for replay
+          appAccessUrl,
           // need to change
           // mode: regionEntry.mode,
           mode: isLiveMode,
@@ -2423,9 +2454,24 @@ static async GetMeetingRecording(req: Request, res: Response) {
         ];
       }
 
-      // Add status filter if provided
-      if (status) {
-        searchQuery.isLive = status === "live" ? true : false;
+      const normalizedStatus = String(status || "").trim().toLowerCase();
+      if (normalizedStatus && normalizedStatus !== "all") {
+        if (normalizedStatus === "upcoming" || normalizedStatus === "completed") {
+          const now = new Date();
+          const meetingEndExpr = {
+            $add: [
+              "$localTime",
+              { $multiply: ["$duration", 60 * 1000] },
+            ],
+          };
+          searchQuery.$expr =
+            normalizedStatus === "completed"
+              ? { $lt: [meetingEndExpr, now] }
+              : { $gte: [meetingEndExpr, now] };
+        } else if (normalizedStatus === "live" || normalizedStatus === "replay") {
+          // Backward compatibility: treat as isLive flag
+          searchQuery.isLive = normalizedStatus === "live";
+        }
       }
 
       // Add service filter (ObjectId)
@@ -2439,7 +2485,7 @@ static async GetMeetingRecording(req: Request, res: Response) {
         .populate("service")
         .populate("trainer")
         .populate("createdBy")
-        .sort({ startDate: -1 })
+        .sort({ startDate: 1, localTime: 1 })
         .skip(skip)
         .limit(limit)
         .lean();

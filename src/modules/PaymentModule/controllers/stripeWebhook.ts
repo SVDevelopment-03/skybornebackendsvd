@@ -322,7 +322,15 @@ router.post(
             break;
           }
 
-          payment.status = "COMPLETED";
+          const deferUntilRaw = (session.metadata as any)?.deferUntil;
+          const deferUntilMs = deferUntilRaw
+            ? Date.parse(String(deferUntilRaw))
+            : NaN;
+          const isDeferredUpgrade =
+            Number.isFinite(deferUntilMs) &&
+            deferUntilMs > Date.now() + 60 * 1000;
+
+          payment.status = isDeferredUpgrade ? "PENDING" : "COMPLETED";
 
           payment.reference = session.id;
           payment.subscriptionId = session.subscription as string;
@@ -340,7 +348,9 @@ router.post(
           payment.invoiceId = sessionInvoiceId || payment.invoiceId;
           payment.gateway = "stripe";
           payment.gatewayResponse = session;
-          payment.verifiedAt = new Date();
+          if (!isDeferredUpgrade) {
+            payment.verifiedAt = new Date();
+          }
 
           await payment.save();
           console.log("✅ Payment updated from checkout session:", {
@@ -362,11 +372,19 @@ router.post(
             });
           }
 
-          await PaymentController.handleSuccessfulPayment(payment);
-          console.log("🚀 Subscription activation handler executed:", {
-            paymentId: String(payment._id),
-            orderRef: payment.orderRef,
-          });
+          if (!isDeferredUpgrade) {
+            await PaymentController.handleSuccessfulPayment(payment);
+            console.log("🚀 Subscription activation handler executed:", {
+              paymentId: String(payment._id),
+              orderRef: payment.orderRef,
+            });
+          } else {
+            console.log("⏳ Deferred upgrade detected; activation postponed:", {
+              paymentId: String(payment._id),
+              orderRef: payment.orderRef,
+              deferUntil: deferUntilRaw || null,
+            });
+          }
 
           const rawPreviousSubscriptionId =
             (session.metadata as any)?.previousSubscriptionId ||
@@ -382,38 +400,40 @@ router.post(
             payment.previousSubscriptionId = previousSubscriptionId;
           }
 
-          if (
-            previousSubscriptionId &&
-            newSubscriptionId &&
-            previousSubscriptionId !== newSubscriptionId &&
-            !payment.previousSubscriptionCancelledAt
-          ) {
-            try {
-              await StripeService.cancelSubscription(previousSubscriptionId);
-              payment.previousSubscriptionCancelledAt = new Date();
-              await payment.save();
+          if (!isDeferredUpgrade) {
+            if (
+              previousSubscriptionId &&
+              newSubscriptionId &&
+              previousSubscriptionId !== newSubscriptionId &&
+              !payment.previousSubscriptionCancelledAt
+            ) {
+              try {
+                await StripeService.cancelSubscription(previousSubscriptionId);
+                payment.previousSubscriptionCancelledAt = new Date();
+                await payment.save();
 
-              console.log("🧹 Previous Stripe subscription cancelled:", {
+                console.log("🧹 Previous Stripe subscription cancelled:", {
+                  previousSubscriptionId,
+                  newSubscriptionId: newSubscriptionId || null,
+                  paymentId: String(payment._id),
+                });
+              } catch (cancelError: any) {
+                console.error("❌ Failed to cancel previous Stripe subscription:", {
+                  previousSubscriptionId,
+                  newSubscriptionId: newSubscriptionId || null,
+                  error: cancelError?.message || cancelError,
+                });
+              }
+            } else if (
+              previousSubscriptionId &&
+              payment.previousSubscriptionCancelledAt
+            ) {
+              console.log("ℹ️ Previous subscription already cancelled:", {
                 previousSubscriptionId,
-                newSubscriptionId: newSubscriptionId || null,
                 paymentId: String(payment._id),
-              });
-            } catch (cancelError: any) {
-              console.error("❌ Failed to cancel previous Stripe subscription:", {
-                previousSubscriptionId,
-                newSubscriptionId: newSubscriptionId || null,
-                error: cancelError?.message || cancelError,
+                cancelledAt: payment.previousSubscriptionCancelledAt,
               });
             }
-          } else if (
-            previousSubscriptionId &&
-            payment.previousSubscriptionCancelledAt
-          ) {
-            console.log("ℹ️ Previous subscription already cancelled:", {
-              previousSubscriptionId,
-              paymentId: String(payment._id),
-              cancelledAt: payment.previousSubscriptionCancelledAt,
-            });
           }
 
           break;
