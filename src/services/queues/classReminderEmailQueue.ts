@@ -8,6 +8,7 @@ export interface ClassReminderEmailJob {
   reminderOffsetMinutes: number;
   liveTime: string;
   classStartAt: Date;
+  startDate?: Date;
   duration: number;
   trainerName: string;
   userEmails: Array<{
@@ -65,7 +66,7 @@ export const addClassReminderEmailJob = async (
       backoff: { type: "exponential", delay: 2000 },
       removeOnComplete: true,
       removeOnFail: false,
-      delay: 0, // Process immediately, but can be scheduled
+      delay: 0, // Process immediately, b ut can be scheduled
     });
 
     return job;
