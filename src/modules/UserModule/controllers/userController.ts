@@ -486,6 +486,54 @@ export class UserController {
     }
   }
 
+  static async changePassword(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = req.user?.id || (req.user as any)?._id;
+      const { newPassword } = req.body;
+
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "Unauthorized",
+        });
+      }
+
+      if (!newPassword || typeof newPassword !== "string") {
+        return res.status(400).json({
+          success: false,
+          message: "New password is required",
+        });
+      }
+
+      if (newPassword.length < 8) {
+        return res.status(400).json({
+          success: false,
+          message: "Password must be at least 8 characters",
+        });
+      }
+
+      const user = await User.findById(userId).select("+password");
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found",
+        });
+      }
+
+      user.password = newPassword;
+      await user.save();
+
+      return res.status(200).json({
+        success: true,
+        message: "Password changed successfully",
+      });
+    } catch (error: any) {
+      console.error("Error changing password:", error);
+      next(error);
+    }
+  }
+
   static async updateUserStatus(req: Request, res: Response) {
     try {
       const { userId } = req.params;

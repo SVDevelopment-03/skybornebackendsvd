@@ -33,6 +33,12 @@ export const UserRoute = [
     method: "put",
   },
   {
+    path: "/change-password",
+    request: null,
+    action: UserController.changePassword,
+    method: "put",
+  },
+  {
     path: "/update-user/:userId",
     request: null,
     action: UserController.updateUserStatus,
