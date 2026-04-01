@@ -19,7 +19,7 @@ const getClassReminderEmailHTML = (
   trainerName: string,
   duration: number,
   reminderOffsetMinutes: number,
-): string => {
+): string => {  
   const timeUntilClass =
     reminderOffsetMinutes >= 60
       ? `${Math.round(reminderOffsetMinutes / 60)} hours`
@@ -275,6 +275,35 @@ const getClassReminderEmailHTML = (
   `;
 };
 
+const formatRegionDate = (rawDate: string): string => {
+  const value = String(rawDate || "").trim();
+  if (!value) return "";
+
+  const isoMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (isoMatch) {
+    const [, year, month, day] = isoMatch;
+    const safeDate = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+    return safeDate.toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      timeZone: "UTC",
+    });
+  }
+
+  const parsed = new Date(value);
+  if (!isNaN(parsed.getTime())) {
+    return parsed.toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      timeZone: "UTC",
+    });
+  }
+
+  return value;
+};
+
 // Process the queue
 classReminderEmailQueue.process(async (job: any) => {
   const {
@@ -284,6 +313,9 @@ classReminderEmailQueue.process(async (job: any) => {
     reminderOffsetMinutes = 10,
     classStartAt,
     startDate,
+    regionTimeZone,
+    regionLocalTime,
+    regionLocalDate,
     duration,
     trainerName,
   } = job.data;
@@ -305,40 +337,60 @@ classReminderEmailQueue.process(async (job: any) => {
     }
     const emailPromises = userEmails.map((user: any) => {
       const countryCode = String(user?.countryCode || "").trim().toUpperCase();
-      const timezone = COUNTRY_TIMEZONE_MAP[countryCode] || "UTC";
+      const userTimeZone = COUNTRY_TIMEZONE_MAP[countryCode] || "UTC";
+      const resolvedRegionTimeZone = String(regionTimeZone || "").trim();
+      const resolvedRegionLocalTime = String(regionLocalTime || "").trim();
+      const resolvedRegionLocalDate = String(regionLocalDate || "").trim();
+      const useRegionTimeZone = Boolean(resolvedRegionTimeZone);
+      const timezone = useRegionTimeZone ? resolvedRegionTimeZone : userTimeZone;
+      let displayTimeZone = timezone;
       let localTime = "TBD";
       let localDate = "TBD";
 
-      try {
-        localTime = meetingStartDate.toLocaleTimeString("en-US", {
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: true,
-          timeZone: timezone,
-        });
-        localDate = meetingStartDate.toLocaleDateString("en-US", {
-          year: "numeric",
-          month: "short",
-          day: "numeric",
-          timeZone: timezone,
-        });
-      } catch (formatErr: any) {
-        console.warn(
-          `⚠️ Failed to format reminder date/time for timezone ${timezone}. Falling back to UTC.`,
-          formatErr?.message || formatErr,
-        );
-        localTime = meetingStartDate.toLocaleTimeString("en-US", {
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: true,
-          timeZone: "UTC",
-        });
-        localDate = meetingStartDate.toLocaleDateString("en-US", {
-          year: "numeric",
-          month: "short",
-          day: "numeric",
-          timeZone: "UTC",
-        });
+      if (!isNaN(meetingStartDate.getTime())) {
+        try {
+          localTime = meetingStartDate.toLocaleTimeString("en-US", {
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: true,
+            timeZone: timezone,
+          });
+          localDate = meetingStartDate.toLocaleDateString("en-US", {
+            year: "numeric",
+            month: "short",
+            day: "numeric",
+            timeZone: timezone,
+          });
+        } catch (formatErr: any) {
+          console.warn(
+            `⚠️ Failed to format reminder date/time for timezone ${timezone}. Falling back to UTC.`,
+            formatErr?.message || formatErr,
+          );
+          displayTimeZone = "UTC";
+          localTime = meetingStartDate.toLocaleTimeString("en-US", {
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: true,
+            timeZone: "UTC",
+          });
+          localDate = meetingStartDate.toLocaleDateString("en-US", {
+            year: "numeric",
+            month: "short",
+            day: "numeric",
+            timeZone: "UTC",
+          });
+        }
+      }
+
+      if (useRegionTimeZone) {
+        if (resolvedRegionLocalTime) {
+          localTime = resolvedRegionLocalTime;
+        }
+        if (resolvedRegionLocalDate) {
+          localDate = formatRegionDate(resolvedRegionLocalDate);
+        }
+      } else if (resolvedRegionLocalDate && localDate === "TBD") {
+        localDate = formatRegionDate(resolvedRegionLocalDate);
       }
 
       if (/invalid date/i.test(localDate)) {
@@ -354,7 +406,7 @@ classReminderEmailQueue.process(async (job: any) => {
         region,
         localTime,
         localDate,
-        timezone,
+        displayTimeZone,
         trainerName,
         duration,
         reminderOffsetMinutes,

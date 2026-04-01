@@ -9,6 +9,9 @@ export interface ClassReminderEmailJob {
   liveTime: string;
   classStartAt: Date;
   startDate?: Date;
+  regionTimeZone?: string;
+  regionLocalTime?: string;
+  regionLocalDate?: string;
   duration: number;
   trainerName: string;
   userEmails: Array<{

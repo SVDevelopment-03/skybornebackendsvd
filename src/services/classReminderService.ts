@@ -6,6 +6,36 @@ import { addClassReminderEmailJob } from "./queues/classReminderEmailQueue";
 import { IMeeting } from "../modules/MeetingModule/MeetingModels/Meeting";
 import regionModel from "../modules/RegionModule/region.model";
 
+const resolveMeetingRegionDetails = (
+  meeting: IPopulatedMeeting | IMeeting,
+) => {
+  const regions = Array.isArray(meeting?.regions) ? meeting.regions : [];
+  const liveRegionKey = String(meeting?.liveRegion || "")
+    .trim()
+    .toLowerCase();
+  const liveTimeValue = String(meeting?.liveTime || "").trim();
+
+  const matchingRegions = regions.filter(
+    (entry: any) =>
+      String(entry?.region || "").trim().toLowerCase() === liveRegionKey,
+  );
+
+  const bestMatch =
+    matchingRegions.find(
+      (entry: any) => String(entry?.localTime || "").trim() === liveTimeValue,
+    ) ||
+    matchingRegions.find(
+      (entry: any) => entry?.localTime || entry?.date || entry?.timezone,
+    ) ||
+    matchingRegions[0];
+
+  return {
+    regionTimeZone: String(bestMatch?.timezone || "").trim(),
+    regionLocalTime: String(bestMatch?.localTime || "").trim(),
+    regionLocalDate: String(bestMatch?.date || "").trim(),
+  };
+};
+
 export class ClassReminderService {
   /**
    * Find all countries that belong to a specific region
@@ -177,6 +207,8 @@ static async getCountriesByRegion(regionName: string) {
 
       // Get trainer name
       const trainerName = (meeting.trainer as any)?.name || "Your Trainer";
+      const { regionTimeZone, regionLocalTime, regionLocalDate } =
+        resolveMeetingRegionDetails(meeting);
 
       console.log("[ClassReminderService] sendClassReminder:queue-job", {
         meetingId: (meeting._id as string).toString(),
@@ -193,6 +225,9 @@ static async getCountriesByRegion(regionName: string) {
         liveTime: meeting.liveTime,
         classStartAt: meeting.localTime,
         startDate: meeting.startDate,
+        regionTimeZone,
+        regionLocalTime,
+        regionLocalDate,
         duration: meeting.duration,
         trainerName: trainerName,
         userEmails: userEmails,
@@ -263,6 +298,8 @@ static async getCountriesByRegion(regionName: string) {
       }));
 
       const trainerName = (meeting.trainer as any)?.name || "Your Trainer";
+      const { regionTimeZone, regionLocalTime, regionLocalDate } =
+        resolveMeetingRegionDetails(meeting);
 
       console.log("[ClassReminderService] sendImmediateClassReminder:queue-job", {
         meetingId: (meeting._id as string).toString(),
@@ -279,6 +316,9 @@ static async getCountriesByRegion(regionName: string) {
         liveTime: meeting.liveTime,
         classStartAt: meeting.localTime,
         startDate: meeting.startDate,
+        regionTimeZone,
+        regionLocalTime,
+        regionLocalDate,
         duration: meeting.duration,
         trainerName: trainerName,
         userEmails: userEmails,
