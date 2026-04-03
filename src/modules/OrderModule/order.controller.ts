@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import Order from "./order.model";
 import Product from "../ProductModule/product.models";
 import Customer from "../CustomerModule/customer.model";
+import User from "../UserModule/models/User";
 
 export class OrderController {
   /* ============================= */
@@ -273,7 +274,7 @@ export class OrderController {
 
       const page = Number(req.query.page) || 1;
       const limit = Number(req.query.limit) || 10;
-      const search = (req.query.search as string) || "";
+      const search = ((req.query.search as string) || "").trim();
       const status = (req.query.status as string) || "";
       const paymentStatus = (req.query.paymentStatus as string) || "";
 
@@ -294,12 +295,34 @@ export class OrderController {
         filters.paymentStatus = paymentStatus;
       }
 
-      // Add search filter for order number or customer name
+      // Add search filter for order number, shipping info, or user identity
       if (search) {
-        filters.$or = [
-          { orderNumber: { $regex: search, $options: "i" } },
-          { "shippingAddress.fullName": { $regex: search, $options: "i" } },
+        const escapedSearch = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const searchRegex = new RegExp(escapedSearch, "i");
+
+        const matchedUsers = await User.find({
+          $or: [
+            { firstName: searchRegex },
+            { lastName: searchRegex },
+            { email: searchRegex },
+          ],
+        })
+          .select("_id")
+          .lean();
+
+        const matchedUserIds = matchedUsers.map((user: any) => user._id);
+
+        const searchFilters: any[] = [
+          { orderNumber: searchRegex },
+          { "shippingAddress.fullName": searchRegex },
+          { "shippingAddress.phone": searchRegex },
         ];
+
+        if (matchedUserIds.length) {
+          searchFilters.push({ userId: { $in: matchedUserIds } });
+        }
+
+        filters.$or = searchFilters;
       }
 
       console.log("🔵 [GetAllOrders] Applied filters:", filters);
