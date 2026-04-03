@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import mongoose from "mongoose";
 import Customer from "./customer.model";
+import User from "../UserModule/models/User";
 
 export class CustomerController {
   /**
@@ -192,25 +193,53 @@ export class CustomerController {
 
       const page = Number(req.query.page) || 1;
       const limit = Number(req.query.limit) || 10;
-      const search = (req.query.search as string) || "";
+      const search = ((req.query.search as string) || "").trim();
 
       const skip = (page - 1) * limit;
 
       console.log("🔵 [GetAllCustomers] Pagination - Page:", page, "Limit:", limit, "Skip:", skip);
       console.log("🔵 [GetAllCustomers] Search:", search);
 
-      // Build base filter
+      // Base filter: only customers with at least one order
       const filter: any = {
         totalOrders: { $gt: 0 },
       };
 
-      // Add search filter for customer name or email
+      // Search is on User collection fields (firstName, lastName, email),
+      // then mapped back to Customer.userId for pagination-safe filtering.
       if (search) {
-        filter.$or = [
-          { "userId.firstName": { $regex: search, $options: "i" } },
-          { "userId.lastName": { $regex: search, $options: "i" } },
-          { "userId.email": { $regex: search, $options: "i" } },
-        ];
+        const escapedSearch = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const searchRegex = new RegExp(escapedSearch, "i");
+
+        const matchedUsers = await User.find({
+          $or: [
+            { firstName: searchRegex },
+            { lastName: searchRegex },
+            { email: searchRegex },
+          ],
+        })
+          .select("_id")
+          .lean();
+
+        const matchedUserIds = matchedUsers.map((user: any) => user._id);
+
+        // No matching users -> return empty page quickly
+        if (!matchedUserIds.length) {
+          return res.json({
+            success: true,
+            data: [],
+            pagination: {
+              page,
+              limit,
+              total: 0,
+              totalPages: 0,
+              hasNextPage: false,
+              hasPrevPage: page > 1,
+            },
+          });
+        }
+
+        filter.userId = { $in: matchedUserIds };
       }
 
       console.log("🔵 [GetAllCustomers] Applied filters:", JSON.stringify(filter));
