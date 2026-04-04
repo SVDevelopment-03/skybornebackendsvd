@@ -275,19 +275,19 @@ const getClassReminderEmailHTML = (
   `;
 };
 
-const formatRegionDate = (rawDate: string): string => {
+const formatRegionDate = (rawDate: string, timezone: string = "UTC"): string => {
   const value = String(rawDate || "").trim();
   if (!value) return "";
 
-  const isoMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  const isoMatch = /^\d{4}-\d{2}-\d{2}$/.exec(value);
   if (isoMatch) {
-    const [, year, month, day] = isoMatch;
-    const safeDate = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+    const [year, month, day] = isoMatch[0].split("-").map(Number);
+    const safeDate = new Date(Date.UTC(year, month - 1, day));
     return safeDate.toLocaleDateString("en-US", {
       year: "numeric",
       month: "short",
       day: "numeric",
-      timeZone: "UTC",
+      timeZone: timezone,
     });
   }
 
@@ -297,7 +297,7 @@ const formatRegionDate = (rawDate: string): string => {
       year: "numeric",
       month: "short",
       day: "numeric",
-      timeZone: "UTC",
+      timeZone: timezone,
     });
   }
 

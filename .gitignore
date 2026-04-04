@@ -18,6 +18,8 @@ logs/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+logs\\*.json
+logs\\*-audit.json
 
 # OS files
 .DS_Store
@@ -30,3 +32,8 @@ Thumbs.db
 # Uploaded files
 uploads/
 temp/
+
+# Firebase credentials
+firebase-service-account.json
+firebase-service-account-*.json
+!firebase-service-account.example.json

@@ -20,6 +20,7 @@ import { CustomerRoute } from "../modules/CustomerModule/customer.route";
 import { OrderRoute } from "../modules/OrderModule/order.routes";
 import { CartRoute } from "../modules/ServiceModule/CartModule/Cart.route";
 import { EcomPaymentRoute } from "../modules/EcomPaymentModule/EcomPayment.route";
+import { NotificationRoute } from "../modules/NotificationModule/notification.route";
 const appApiRoutes: any = [
   ...PaymentApiRoutes,
   ...ServiceRoute,
@@ -42,7 +43,9 @@ const appApiRoutes: any = [
   ...CustomerRoute,
   ...OrderRoute,
   ...CartRoute,
-  ...EcomPaymentRoute
+  ...EcomPaymentRoute,
+  ...NotificationRoute,
+
 ];
 
 export default appApiRoutes;
