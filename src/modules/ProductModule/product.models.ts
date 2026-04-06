@@ -9,6 +9,14 @@
     status: "active" | "inactive";
     image: string;
     description?: string;
+    specifications?: Array<{ label: string; value: string }>;
+    shippingInfo?: string;
+    reviews?: Array<{
+      name?: string;
+      rating?: number;
+      comment?: string;
+      createdAt?: Date;
+    }>;
     createdAt: Date;
     updatedAt: Date;
   }
@@ -61,6 +69,31 @@
         type: String,
         trim: true,
         default: "",
+      },
+      specifications: {
+        type: [
+          {
+            label: { type: String, trim: true },
+            value: { type: String, trim: true },
+          },
+        ],
+        default: [],
+      },
+      shippingInfo: {
+        type: String,
+        trim: true,
+        default: "",
+      },
+      reviews: {
+        type: [
+          {
+            name: { type: String, trim: true },
+            rating: { type: Number, min: 0, max: 5 },
+            comment: { type: String, trim: true },
+            createdAt: { type: Date, default: Date.now },
+          },
+        ],
+        default: [],
       },
     },
     { timestamps: true }

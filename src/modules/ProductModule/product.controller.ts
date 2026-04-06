@@ -7,6 +7,20 @@ import { PutObjectCommand } from "@aws-sdk/client-s3";
 
 const productRepository = new ProductRepository();
 
+const parseJsonArray = (value: any): any[] | undefined => {
+  if (!value) return undefined;
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) return parsed;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+};
+
 export class ProductController {
   /**
    * Get all products with pagination and search
@@ -126,7 +140,54 @@ async getAllPublishedProducts(req: Request, res: Response, next: NextFunction) {
         });
       }
 
-      return res.json({ success: true, data: product });
+      const productData: any =
+        typeof (product as any).toObject === "function"
+          ? (product as any).toObject()
+          : product;
+
+      const categoryName =
+        typeof productData.category === "object" && productData.category !== null
+          ? productData.category.name || productData.category.title || ""
+          : "";
+
+      const fallbackSpecifications = [
+        { label: "Category", value: categoryName || "—" },
+        { label: "Price", value: `$${productData.price}` },
+        {
+          label: "Availability",
+          value:
+            typeof productData.stock === "number" && productData.stock <= 0
+              ? "Out of stock"
+              : "In stock",
+        },
+        {
+          label: "Stock",
+          value:
+            typeof productData.stock === "number" ? String(productData.stock) : "—",
+        },
+        { label: "Status", value: productData.status || "active" },
+      ];
+
+      const specifications =
+        Array.isArray(productData.specifications) && productData.specifications.length
+          ? productData.specifications
+          : fallbackSpecifications;
+
+      const shippingInfo =
+        (productData.shippingInfo || "").trim() ||
+        "Standard delivery in 3–5 business days. Free shipping on orders over $50. Returns within 30 days.";
+
+      const reviews = Array.isArray(productData.reviews) ? productData.reviews : [];
+
+      return res.json({
+        success: true,
+        data: {
+          ...productData,
+          specifications,
+          shippingInfo,
+          reviews,
+        },
+      });
     } catch (error) {
       next(error);
     }
@@ -149,6 +210,9 @@ async createProduct(req: Request, res: Response, next: NextFunction) {
       status = "inactive",
       description = "",
       imageBase64,
+      specifications,
+      shippingInfo,
+      reviews,
     } = req.body;
 
     console.log("=== PARSED FIELDS ===");
@@ -279,6 +343,18 @@ async createProduct(req: Request, res: Response, next: NextFunction) {
       productData.category = new mongoose.Types.ObjectId(category);
     }
 
+    const parsedSpecs = parseJsonArray(specifications);
+    if (parsedSpecs) {
+      productData.specifications = parsedSpecs;
+    }
+    if (shippingInfo !== undefined) {
+      productData.shippingInfo = String(shippingInfo).trim();
+    }
+    const parsedReviews = parseJsonArray(reviews);
+    if (parsedReviews) {
+      productData.reviews = parsedReviews;
+    }
+
     console.log("productData:", productData);
     console.log("Attempting productRepository.createModel...");
 
@@ -309,7 +385,18 @@ async createProduct(req: Request, res: Response, next: NextFunction) {
   async updateProduct(req: Request, res: Response, next: NextFunction) {
     try {
       const { productId } = req.params;
-      const { name, category, price, stock, status, imageBase64, description } = req.body;
+      const {
+        name,
+        category,
+        price,
+        stock,
+        status,
+        imageBase64,
+        description,
+        specifications,
+        shippingInfo,
+        reviews,
+      } = req.body;
 
       if (!mongoose.Types.ObjectId.isValid(productId)) {
         return res.status(400).json({ success: false, message: "Invalid product ID format" });
@@ -323,7 +410,10 @@ async createProduct(req: Request, res: Response, next: NextFunction) {
         stock === undefined &&
         !status &&
         !imageBase64 &&
-        description === undefined
+        description === undefined &&
+        specifications === undefined &&
+        shippingInfo === undefined &&
+        reviews === undefined
       ) {
         return res.status(400).json({
           success: false,
@@ -398,6 +488,11 @@ async createProduct(req: Request, res: Response, next: NextFunction) {
       if (status) updateData.status = status as "active" | "inactive";
       if (imageUrl) updateData.image = imageUrl;
       if (description !== undefined) updateData.description = description.trim();
+      const parsedSpecs = parseJsonArray(specifications);
+      if (parsedSpecs) updateData.specifications = parsedSpecs;
+      if (shippingInfo !== undefined) updateData.shippingInfo = String(shippingInfo).trim();
+      const parsedReviews = parseJsonArray(reviews);
+      if (parsedReviews) updateData.reviews = parsedReviews;
 
       const updatedProduct = await productRepository.updateModel(productId, updateData);
 
