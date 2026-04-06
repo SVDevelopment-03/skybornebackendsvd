@@ -5,6 +5,7 @@
     name: string;
     category?: mongoose.Types.ObjectId;
     price: number;
+    stock?: number;
     status: "active" | "inactive";
     image: string;
     description?: string;
@@ -22,7 +23,7 @@
       },
       category: {
         type: mongoose.Schema.Types.ObjectId,
-        ref: "Service",
+        ref: "EcomCategory",
         required: false,
         index: true,
       },
@@ -33,6 +34,15 @@
         validate: {
           validator: (v: number) => !isNaN(v) && v >= 1,
           message: "Price must be at least $1",
+        },
+      },
+      stock: {
+        type: Number,
+        default: 0,
+        min: 0,
+        validate: {
+          validator: (v: number) => Number.isInteger(v) && v >= 0,
+          message: "Stock must be a non-negative integer",
         },
       },
     

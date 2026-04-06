@@ -23,7 +23,8 @@ const publicApi = [
   "/consultation",
   "/news-letter",
   "/countries",
-  "/meetings/:id/recording"
+  "/meetings/:id/recording",
+  "/ecom-categories/active"
 ];
 
 appApiRoutes?.map(({ path, request, method, action,roles }: any) => {

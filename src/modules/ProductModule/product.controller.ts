@@ -94,7 +94,7 @@ async getAllPublishedProducts(req: Request, res: Response, next: NextFunction) {
 
     const products = await productModels.find(filter)
       .sort(sortOption)
-      .populate({ path: "category", select: "title _id" })
+      .populate({ path: "category", select: "name _id" })
       .exec();
 
     return res.json({ success: true, data: products });
@@ -145,6 +145,7 @@ async createProduct(req: Request, res: Response, next: NextFunction) {
       name,
       category,
       price,
+      stock,
       status = "inactive",
       description = "",
       imageBase64,
@@ -187,6 +188,16 @@ async createProduct(req: Request, res: Response, next: NextFunction) {
       });
     }
     console.log("PASSED: status validation");
+
+    if (stock !== undefined) {
+      const parsedStock = Number(stock);
+      if (!Number.isInteger(parsedStock) || parsedStock < 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Stock must be a non-negative integer",
+        });
+      }
+    }
 
     if (!imageBase64) {
       console.log("FAILED: imageBase64 missing");
@@ -259,6 +270,10 @@ async createProduct(req: Request, res: Response, next: NextFunction) {
       image: imageUrl,
       description: description.trim(),
     };
+
+    if (stock !== undefined) {
+      productData.stock = Number(stock);
+    }
 
     if (category) {
       productData.category = new mongoose.Types.ObjectId(category);
@@ -379,6 +394,7 @@ async createProduct(req: Request, res: Response, next: NextFunction) {
       if (name) updateData.name = name.trim();
       if (category) updateData.category = new mongoose.Types.ObjectId(category);
       if (price !== undefined) updateData.price = Number(price);
+      if (stock !== undefined) updateData.stock = Number(stock);
       if (status) updateData.status = status as "active" | "inactive";
       if (imageUrl) updateData.image = imageUrl;
       if (description !== undefined) updateData.description = description.trim();

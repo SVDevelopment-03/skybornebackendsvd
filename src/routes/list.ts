@@ -16,6 +16,8 @@ import { TestimonialRoute } from "../modules/TestimonialModule/routes/Testimonia
 import { TrainerRoute } from "../modules/TrainerModule/TrainerRoute";
 import { UserRoute } from "../modules/UserModule/UserRoute";
 import { ProductRoute } from "../modules/ProductModule/product.route";
+import { ProductInterestRoute } from "../modules/ProductInterestModule/productInterest.route";
+import { EcomCategoryRoute } from "../modules/EcomCategoryModule/ecomCategory.route";
 import { CustomerRoute } from "../modules/CustomerModule/customer.route";
 import { OrderRoute } from "../modules/OrderModule/order.routes";
 import { CartRoute } from "../modules/ServiceModule/CartModule/Cart.route";
@@ -40,6 +42,8 @@ const appApiRoutes: any = [
   ...CancelSubscriptionRoute,
   ...InvoiceRoutes,
   ...ProductRoute,
+  ...ProductInterestRoute,
+  ...EcomCategoryRoute,
   ...CustomerRoute,
   ...OrderRoute,
   ...CartRoute,

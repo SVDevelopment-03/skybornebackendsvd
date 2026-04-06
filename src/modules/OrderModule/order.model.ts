@@ -30,6 +30,7 @@ export interface IOrder {
 
   userId: mongoose.Types.ObjectId;
   customerId: mongoose.Types.ObjectId;
+  stripePaymentIntentId?: string;
 
   items: IOrderItem[];
 
@@ -119,6 +120,11 @@ const orderSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Customer",
       required: true,
+      index: true,
+    },
+
+    stripePaymentIntentId: {
+      type: String,
       index: true,
     },
 

@@ -12,6 +12,25 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
 
 export class EcomStripeService {
   /**
+   * Refund a Stripe payment intent (full or partial).
+   * amountInCents is optional; omit for full refund.
+   */
+  static async refundPaymentIntent(
+    paymentIntentId: string,
+    amountInCents?: number
+  ): Promise<Stripe.Refund> {
+    const payload: Stripe.RefundCreateParams = {
+      payment_intent: paymentIntentId,
+    };
+
+    if (typeof amountInCents === "number" && Number.isFinite(amountInCents)) {
+      payload.amount = Math.max(0, Math.round(amountInCents));
+    }
+
+    return stripe.refunds.create(payload);
+  }
+
+  /**
    * Resolve a Stripe hosted receipt URL from a payment intent.
    */
   static async getReceiptUrl(paymentIntentId: string): Promise<string | null> {
@@ -200,6 +219,7 @@ console.log("🔵 [EcomStripe] Mapped shippingAddress:", shippingAddress);
       orderNumber: orderRef,
       userId,
       customerId: customer._id,
+      stripePaymentIntentId: paymentIntent.id,
       items: orderItems,
       subtotal,
       tax: 0,
