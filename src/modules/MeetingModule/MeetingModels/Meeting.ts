@@ -27,6 +27,7 @@ export interface IMeeting extends Document {
   title: string;
   reminderSent?: boolean; // Track if reminder email has been sent
   reminder30MinSent?: boolean;
+  reminder10MinSent?: boolean;
   reminder24HourSent?: boolean;
   occurrenceId?: string;
 
@@ -90,6 +91,11 @@ const MeetingSchema = new Schema<IPopulatedMeeting>(
       default: false,
     },
     reminder30MinSent: {
+      type: Boolean,
+      required: false,
+      default: false,
+    },
+    reminder10MinSent: {
       type: Boolean,
       required: false,
       default: false,

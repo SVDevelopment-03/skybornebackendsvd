@@ -19,6 +19,7 @@ import {
 import { getIO } from "../../../config/socket";
 import CancelSubscriptionModel from "../../CancelSubscriptionModule/CancelSubscriptionModel";
 import RecurringPaymentFailure from "../models/RecurringPaymentFailure";
+import { PushNotificationService } from "../../../services/pushNotification.service";
 
 type PreferedType = "stripe" | "ngenius";
 
@@ -1205,6 +1206,7 @@ export default class PaymentController {
           // Check if user has an existing active plan
           const hasExistingPlan =
             user.plan && user.subscription?.status === "active";
+          const previousPlan = String(user.plan || "").trim();
 
           // Update classCredits
           if (hasExistingPlan) {
@@ -1257,6 +1259,24 @@ export default class PaymentController {
           user.onboardingCompleted = true;
 
           await user.save();
+
+          PushNotificationService.sendPaymentStatus(String(user._id), {
+            success: true,
+            amount: Number(payment?.amount || 0),
+            currency: String(payment?.currency || ""),
+            plan,
+            invoiceId: String(payment?.invoiceId || ""),
+          }).catch((error: any) => {
+            console.error("❌ Failed to send payment-success push notification:", error?.message || error);
+          });
+
+          if (hasExistingPlan && previousPlan && previousPlan !== plan) {
+            PushNotificationService.sendPlanChanged(String(user._id), previousPlan, plan).catch(
+              (error: any) => {
+                console.error("❌ Failed to send plan-changed push notification:", error?.message || error);
+              },
+            );
+          }
 
           if (payment) {
             payment.subscriptionActivated = true;

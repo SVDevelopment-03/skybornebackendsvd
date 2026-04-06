@@ -6,6 +6,7 @@ import PaymentController from "./paymentController";
 import { StripeService } from "../services/stripe.service";
 import { sendRecurringPaymentFailureEmail } from "../../../services/recurringPaymentFailureEmail";
 import RecurringPaymentFailure from "../models/RecurringPaymentFailure";
+import { PushNotificationService } from "../../../services/pushNotification.service";
 
 const router = express.Router();
 
@@ -626,6 +627,18 @@ router.post(
           )
             .trim()
             .toLowerCase();
+
+          if (failedUser?._id) {
+            PushNotificationService.sendPaymentStatus(String(failedUser._id), {
+              success: false,
+              amount: getInvoiceAmount(hydratedInvoice),
+              currency: String(hydratedInvoice.currency || "").toUpperCase(),
+              plan: String((basePayment as any)?.plan || ""),
+              invoiceId: String(hydratedInvoice.id || ""),
+            }).catch((pushError: any) => {
+              console.error("❌ Failed to send Stripe payment-failed push notification:", pushError?.message || pushError);
+            });
+          }
 
           if (!recipientEmail) {
             console.warn("⚠️ Failed recurring user email not found for storing");

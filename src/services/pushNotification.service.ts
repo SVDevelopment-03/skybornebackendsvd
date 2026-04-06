@@ -669,6 +669,54 @@ export class PushNotificationService {
     );
   }
 
+  static async sendBookingConfirmed(
+    userId: string,
+    params: { meetingId: string; meetingTitle: string; localTime?: Date },
+  ) {
+    return this.sendToUser(
+      userId,
+      {
+        title: "Booking confirmed",
+        body: `Your booking for ${params.meetingTitle} is confirmed.`,
+        highPriority: true,
+        data: {
+          type: "booking.confirmed",
+          meetingId: params.meetingId,
+          localTime: params.localTime ? params.localTime.toISOString() : "",
+        },
+      },
+      {
+        category: "transactional",
+        eventType: "booking.confirmed",
+        metadata: params,
+      },
+    );
+  }
+
+  static async sendBookingCancelled(
+    userId: string,
+    params: { meetingId: string; meetingTitle: string; localTime?: Date },
+  ) {
+    return this.sendToUser(
+      userId,
+      {
+        title: "Booking cancelled",
+        body: `Your booking for ${params.meetingTitle} was cancelled.`,
+        highPriority: true,
+        data: {
+          type: "booking.cancelled",
+          meetingId: params.meetingId,
+          localTime: params.localTime ? params.localTime.toISOString() : "",
+        },
+      },
+      {
+        category: "transactional",
+        eventType: "booking.cancelled",
+        metadata: params,
+      },
+    );
+  }
+
   static async sendBroadcastOptIn(payload: PushPayload) {
     const tokenDocs = await DeviceToken.find({ isActive: true, optInBroadcast: true }).select(
       "token",

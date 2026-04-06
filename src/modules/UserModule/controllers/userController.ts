@@ -6,6 +6,7 @@ import Meeting from "../../MeetingModule/MeetingModels/Meeting";
 import extractPhoneDetails from "../../../utils/extractPhoneDetail";
 import { getCode, getName } from "country-list";
 import CancelSubscriptionModel from "../../CancelSubscriptionModule/CancelSubscriptionModel";
+import { PushNotificationService } from "../../../services/pushNotification.service";
 
 const userService = new UserService();
 
@@ -523,6 +524,10 @@ export class UserController {
 
       user.password = newPassword;
       await user.save();
+
+      PushNotificationService.sendPasswordChanged(String(user._id)).catch((error: any) => {
+        console.error("❌ Failed to send password-changed push notification:", error?.message || error);
+      });
 
       return res.status(200).json({
         success: true,

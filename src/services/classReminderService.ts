@@ -5,6 +5,7 @@ import Meeting, { IPopulatedMeeting } from "../modules/MeetingModule/MeetingMode
 import { addClassReminderEmailJob } from "./queues/classReminderEmailQueue";
 import { IMeeting } from "../modules/MeetingModule/MeetingModels/Meeting";
 import regionModel from "../modules/RegionModule/region.model";
+import { PushNotificationService } from "./pushNotification.service";
 
 const resolveMeetingRegionDetails = (
   meeting: IPopulatedMeeting | IMeeting,
@@ -200,6 +201,7 @@ static async getCountriesByRegion(regionName: string) {
 
       // Format user emails for the queue
       const userEmails = users.map((user: any) => ({
+        userId: String(user._id),
         email: user.email,
         firstName: user.firstName || user.lastName || "User",
         countryCode: user.countryCode || "",
@@ -232,6 +234,22 @@ static async getCountriesByRegion(regionName: string) {
         trainerName: trainerName,
         userEmails: userEmails,
       });
+
+      const pushUserIds = userEmails
+        .map((entry: any) => String(entry.userId || "").trim())
+        .filter(Boolean);
+
+      if (pushUserIds.length > 0) {
+        PushNotificationService.sendSessionReminderToUsers(pushUserIds, {
+          meetingId: (meeting._id as string).toString(),
+          meetingTitle: meeting.title,
+          minutesBefore,
+          classStartAt: new Date(meeting.localTime),
+          region,
+        }).catch((pushError: any) => {
+          console.error("❌ Failed to send class reminder push notification:", pushError?.message || pushError);
+        });
+      }
 
       console.log(
         `✅ Class reminder job queued for ${userEmails.length} users. Meeting: ${meeting.title}`

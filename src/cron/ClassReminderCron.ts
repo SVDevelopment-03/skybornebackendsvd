@@ -16,8 +16,8 @@ export const startClassReminderCron = () => {
       const now = new Date();
       console.log("⏰ Cron started:", new Date().toISOString());
       const reminderConfigs = [
-        { minutesBefore: 24 * 60, flag: "reminder24HourSent" as const },
         { minutesBefore: 30, flag: "reminder30MinSent" as const },
+        { minutesBefore: 10, flag: "reminder10MinSent" as const },
       ];
 
       for (const reminder of reminderConfigs) {
@@ -32,7 +32,7 @@ export const startClassReminderCron = () => {
             $lte: timeWindow.end,
           },
           [reminder.flag]: { $ne: true },
-        }).select("_id title liveRegion liveTime localTime reminder24HourSent reminder30MinSent");
+        }).select("_id title liveRegion liveTime localTime reminder30MinSent reminder10MinSent");
 
         if (upcomingMeetings.length > 0) {
           console.log(
@@ -47,10 +47,9 @@ export const startClassReminderCron = () => {
               reminder.minutesBefore,
             );
 
-            const updateData: Record<string, boolean> =
-              reminder.flag === "reminder24HourSent"
-                ? { reminder24HourSent: true }
-                : { reminder30MinSent: true };
+            const updateData: Record<string, boolean> = {
+              [reminder.flag]: true,
+            };
 
             await Meeting.updateOne({ _id: meeting._id }, updateData);
 

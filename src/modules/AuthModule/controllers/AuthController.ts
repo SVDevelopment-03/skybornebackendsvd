@@ -19,6 +19,7 @@ import TempUser from "../../UserModule/models/TempUser";
 import extractPhoneDetails from "../../../utils/extractPhoneDetail";
 import { request } from "http";
 import { getName } from "country-list";
+import { PushNotificationService } from "../../../services/pushNotification.service";
 
 // Helper function for logging auth events
 
@@ -69,6 +70,13 @@ export class AuthController {
       } else {
         result = await AuthService.emailSignup(payload);
       }
+
+      PushNotificationService.sendWelcome(
+        String(result.user._id),
+        String(result.user.firstName || "").trim() || undefined,
+      ).catch((error: any) => {
+        console.error("❌ Failed to send welcome push notification:", error?.message || error);
+      });
 
       return res.status(201).json({
         success: true,
@@ -530,6 +538,12 @@ export class AuthController {
       throw new Error("No account found with this email");
     }
 
+    PushNotificationService.sendPasswordResetRequested(String(user._id)).catch(
+      (error: any) => {
+        console.error("❌ Failed to send password-reset-requested push notification:", error?.message || error);
+      },
+    );
+
     let tempUser = await TempUser.findOne({ email });
 
     if (!tempUser) {
@@ -592,6 +606,10 @@ export class AuthController {
 
     user.password = newPassword;
     await user.save();
+
+    PushNotificationService.sendPasswordChanged(String(user._id)).catch((error: any) => {
+      console.error("❌ Failed to send password-changed push notification:", error?.message || error);
+    });
 
     await TempUser.deleteOne({ email });
 
