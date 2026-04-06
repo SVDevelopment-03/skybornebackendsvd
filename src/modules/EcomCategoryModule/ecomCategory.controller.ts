@@ -181,6 +181,13 @@ export class EcomCategoryController {
 
       const currentCategory = await ecomCategoryRepository.getOneModel(categoryId);
 
+      if (!currentCategory) {
+        return res.status(404).json({
+          success: false,
+          message: "Category not found",
+        });
+      }
+
       if (name && name.trim() !== currentCategory.name) {
         const duplicate = await ecomCategoryRepository.searchModel({
           name: { $regex: `^${name.trim()}$`, $options: "i" },
