@@ -18,7 +18,6 @@ export const startClassReminderCron = () => {
       const reminderConfigs = [
         { minutesBefore: 24 * 60, flag: "reminder24HourSent" as const },
         { minutesBefore: 30, flag: "reminder30MinSent" as const },
-        { minutesBefore: 10, flag: "reminder10MinSent" as const },
       ];
 
       for (const reminder of reminderConfigs) {
