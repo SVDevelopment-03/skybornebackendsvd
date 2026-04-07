@@ -473,6 +473,9 @@ export class PushNotificationService {
         highPriority: true,
         data: {
           type: "meeting.reminder",
+          screen: "ClassDetails",
+          classId: params.meetingId,
+          deeplink: `skybornedrop://class/${params.meetingId}`,
           meetingId: params.meetingId,
           minutesBefore: String(params.minutesBefore),
           classStartAt: params.classStartAt.toISOString(),
@@ -524,6 +527,9 @@ export class PushNotificationService {
         highPriority: true,
         data: {
           type: "meeting.reminder",
+          screen: "ClassDetails",
+          classId: meetingId,
+          deeplink: `skybornedrop://class/${meetingId}`,
           meetingId,
           minutesBefore: String(params.minutesBefore),
           classStartAt: params.classStartAt.toISOString(),
@@ -681,6 +687,9 @@ export class PushNotificationService {
         highPriority: true,
         data: {
           type: "booking.confirmed",
+          screen: "ClassDetails",
+          classId: params.meetingId,
+          deeplink: `skybornedrop://class/${params.meetingId}`,
           meetingId: params.meetingId,
           localTime: params.localTime ? params.localTime.toISOString() : "",
         },
@@ -705,6 +714,9 @@ export class PushNotificationService {
         highPriority: true,
         data: {
           type: "booking.cancelled",
+          screen: "ClassDetails",
+          classId: params.meetingId,
+          deeplink: `skybornedrop://class/${params.meetingId}`,
           meetingId: params.meetingId,
           localTime: params.localTime ? params.localTime.toISOString() : "",
         },
