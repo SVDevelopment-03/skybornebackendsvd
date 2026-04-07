@@ -11,6 +11,85 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
 });
 
 export class EcomStripeService {
+  private static async buildOrderItemsFromStripeLineItems(lineItems: any[]) {
+    let subtotal = 0;
+    const items: Array<{
+      product: string;
+      name: string;
+      price: number;
+      quantity: number;
+      image?: string;
+    }> = [];
+
+    for (const line of lineItems || []) {
+      const quantity = Number(line?.quantity) || 1;
+      const unitAmountCents =
+        line?.price?.unit_amount ??
+        (line?.amount_total && quantity
+          ? Math.round(line.amount_total / quantity)
+          : 0);
+
+      let productObj: any =
+        line?.price?.product && typeof line.price.product === "object"
+          ? line.price.product
+          : null;
+
+      if (!productObj && typeof line?.price?.product === "string") {
+        try {
+          productObj = await stripe.products.retrieve(line.price.product);
+        } catch (err: any) {
+          console.warn("⚠️ [EcomStripe] Failed to retrieve Stripe product:", {
+            productId: line.price.product,
+            message: err?.message || err,
+          });
+          productObj = null;
+        }
+      }
+
+      const productId =
+        productObj?.metadata?.productId ||
+        productObj?.metadata?.product_id ||
+        line?.price?.product?.metadata?.productId ||
+        line?.price?.product?.metadata?.product_id;
+
+      if (!productId) continue;
+
+      const image =
+        Array.isArray(productObj?.images) && productObj.images.length > 0
+          ? productObj.images[0]
+          : undefined;
+      const name = productObj?.name || line?.description || "Item";
+      const price = Number(unitAmountCents) / 100;
+
+      subtotal += price * quantity;
+      items.push({
+        product: productId,
+        name,
+        price,
+        quantity,
+        image,
+      });
+    }
+
+    return { items, subtotal };
+  }
+
+  static async rebuildOrderItemsFromPaymentIntent(paymentIntentId: string) {
+    if (!paymentIntentId) return null;
+    const sessions = await stripe.checkout.sessions.list({
+      payment_intent: paymentIntentId,
+      limit: 1,
+      expand: ["data.line_items", "data.line_items.data.price.product"],
+    });
+
+    const session = sessions.data?.[0];
+    if (!session || session.metadata?.type !== "ecom") return null;
+
+    const lineItems = (session as any)?.line_items?.data ?? [];
+    if (!lineItems.length) return null;
+
+    return await EcomStripeService.buildOrderItemsFromStripeLineItems(lineItems);
+  }
   /**
    * Refund a Stripe payment intent (full or partial).
    * amountInCents is optional; omit for full refund.
@@ -51,7 +130,13 @@ export class EcomStripeService {
    */
   static async createEcomCheckoutSession(
     userId: string,
-    cartItems: Array<{ name: string; price: number; quantity: number; image?: string }>,
+    cartItems: Array<{
+      productId: string;
+      name: string;
+      price: number;
+      quantity: number;
+      image?: string;
+    }>,
     shippingAddress: Record<string, any>,
     userEmail: string,
     source: "app" | "web" = "web",
@@ -65,17 +150,22 @@ export class EcomStripeService {
     const orderRef = `ECOM-${Date.now()}`;
 
     // Build Stripe line items from cart
-    const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = cartItems.map((item) => ({
-      price_data: {
-        currency: "usd",
-        product_data: {
-          name: item.name,
-          ...(item.image ? { images: [item.image] } : {}),
+    const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = cartItems.map(
+      (item) => ({
+        price_data: {
+          currency: "usd",
+          product_data: {
+            name: item.name,
+            ...(item.image ? { images: [item.image] } : {}),
+            metadata: {
+              productId: String(item.productId || ""),
+            },
+          },
+          unit_amount: Math.round(item.price * 100), // cents
         },
-        unit_amount: Math.round(item.price * 100), // cents
-      },
-      quantity: item.quantity,
-    }));
+        quantity: item.quantity,
+      })
+    );
 
     const appSuccessUrl = customSuccessUrl || process.env.ECOM_APP_SUCCESS_URL;
     const appCancelUrl = customCancelUrl || process.env.ECOM_APP_CANCEL_URL;
@@ -132,7 +222,7 @@ static async fulfillEcomOrder(sessionId: string): Promise<void> {
 
   try {
     const session = await stripe.checkout.sessions.retrieve(sessionId, {
-      expand: ["payment_intent", "line_items"],
+      expand: ["payment_intent", "line_items", "line_items.data.price.product"],
     });
     console.log("🔵 [EcomStripe] Session retrieved:", {
       id: session.id,
@@ -199,18 +289,41 @@ console.log("🔵 [EcomStripe] Mapped shippingAddress:", shippingAddress);
       console.warn("⚠️ [EcomStripe] Cart is empty for userId:", userId);
     }
 
+    type OrderItemInput = {
+      product: any;
+      name: string;
+      price: number;
+      quantity: number;
+      image?: string;
+    };
+
     let subtotal = 0;
-    const orderItems = cartItems.map((item: any) => {
-      const lineTotal = item.price * item.quantity;
-      subtotal += lineTotal;
-      return {
-        product: item.product,
-        name: item.name,
-        price: item.price,
-        quantity: item.quantity,
-        image: item.image,
-      };
-    });
+    let orderItems: OrderItemInput[] =
+      cartItems.length > 0
+        ? cartItems.map((item: any): OrderItemInput => {
+            const lineTotal = item.price * item.quantity;
+            subtotal += lineTotal;
+            return {
+              product: item.product,
+              name: item.name,
+              price: item.price,
+              quantity: item.quantity,
+              image: item.image || undefined,
+            };
+          })
+        : [];
+
+    // Fallback to Stripe line items if cart is empty
+    if (orderItems.length === 0) {
+      const lineItems = (session as any)?.line_items?.data ?? [];
+      const rebuilt = await EcomStripeService.buildOrderItemsFromStripeLineItems(lineItems);
+      orderItems = rebuilt.items;
+      subtotal = rebuilt.subtotal;
+      console.log(
+        "🔵 [EcomStripe] Fallback order items from Stripe:",
+        orderItems.length
+      );
+    }
     console.log("🔵 [EcomStripe] Order items built, subtotal:", subtotal);
 
     // ── 3. Create Order ─────────────────────────────────────────────────────

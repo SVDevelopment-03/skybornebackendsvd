@@ -4,6 +4,8 @@ import productModels, { IProduct } from "./product.models";
 import mongoose from "mongoose";
 import { s3 } from "../../utils/s3";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
+import Order from "../OrderModule/order.model";
+import User from "../UserModule/models/User";
 
 const productRepository = new ProductRepository();
 
@@ -187,6 +189,110 @@ async getAllPublishedProducts(req: Request, res: Response, next: NextFunction) {
           shippingInfo,
           reviews,
         },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Add review to a product (only after delivered order)
+   */
+  async addProductReview(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated",
+        });
+      }
+
+      const { productId } = req.params;
+      const { rating, comment } = req.body;
+
+      if (!mongoose.Types.ObjectId.isValid(productId)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid product ID format",
+        });
+      }
+
+      const parsedRating =
+        rating === undefined || rating === null ? undefined : Number(rating);
+
+      if (parsedRating === undefined || Number.isNaN(parsedRating)) {
+        return res.status(400).json({
+          success: false,
+          message: "Rating is required",
+        });
+      }
+
+      if (parsedRating < 1 || parsedRating > 5) {
+        return res.status(400).json({
+          success: false,
+          message: "Rating must be between 1 and 5",
+        });
+      }
+
+      if (comment !== undefined && typeof comment !== "string") {
+        return res.status(400).json({
+          success: false,
+          message: "Comment must be a string",
+        });
+      }
+
+      const userId = (req.user as any)?.id || (req.user as any)?._id;
+
+      const deliveredOrder = await Order.findOne({
+        userId,
+        orderStatus: "Delivered",
+        "items.product": productId,
+      }).exec();
+
+      if (!deliveredOrder) {
+        return res.status(403).json({
+          success: false,
+          message: "You can review products only after delivery",
+        });
+      }
+
+      const user = await User.findById(userId)
+        .select("firstName lastName")
+        .exec();
+
+      const name = `${user?.firstName || ""} ${user?.lastName || ""}`
+        .trim()
+        .slice(0, 120);
+
+      const review = {
+        name: name || undefined,
+        rating: parsedRating,
+        comment: typeof comment === "string" ? comment.trim() : undefined,
+        createdAt: new Date(),
+      };
+
+      const updatedProduct = await productModels
+        .findByIdAndUpdate(
+          productId,
+          {
+            $push: { reviews: review },
+          },
+          { new: true, runValidators: true }
+        )
+        .populate({ path: "category", select: "name _id" })
+        .exec();
+
+      if (!updatedProduct) {
+        return res.status(404).json({
+          success: false,
+          message: "Product not found",
+        });
+      }
+
+      return res.status(201).json({
+        success: true,
+        message: "Review added successfully",
+        data: updatedProduct,
       });
     } catch (error) {
       next(error);

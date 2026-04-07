@@ -735,6 +735,31 @@ export class OrderController {
         });
       }
 
+      if (
+        (!order.items || order.items.length === 0) &&
+        order.stripePaymentIntentId
+      ) {
+        try {
+          const rebuilt = await EcomStripeService.rebuildOrderItemsFromPaymentIntent(
+            order.stripePaymentIntentId
+          );
+          if (rebuilt?.items?.length) {
+            await Order.findByIdAndUpdate(order._id, {
+              items: rebuilt.items,
+              subtotal: rebuilt.subtotal,
+            });
+            order.items = rebuilt.items;
+            order.subtotal = rebuilt.subtotal;
+            console.log("✅ [GetOrderById] Rebuilt order items from Stripe:", order._id);
+          }
+        } catch (err: any) {
+          console.warn("⚠️ [GetOrderById] Failed to rebuild items from Stripe:", {
+            orderId: order._id,
+            message: err?.message || err,
+          });
+        }
+      }
+
       console.log("✅ [GetOrderById] Order found:", order._id);
 
       return res.status(200).json({

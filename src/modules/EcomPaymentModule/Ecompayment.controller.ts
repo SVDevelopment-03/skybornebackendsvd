@@ -57,6 +57,7 @@ export class EcomPaymentController {
       const result = await EcomStripeService.createEcomCheckoutSession(
         userId,
         cart.items.map((item: any) => ({
+          productId: item.product?.toString?.() || String(item.product),
           name: item.name,
           price: item.price,
           quantity: item.quantity,
