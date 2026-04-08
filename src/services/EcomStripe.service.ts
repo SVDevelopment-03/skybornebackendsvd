@@ -4,6 +4,8 @@ import EcomPayment from "../modules/EcomPaymentModule/Ecompayment.model";
 import Order from "../modules/OrderModule/order.model";
 import Customer from "../modules/CustomerModule/customer.model";
 import Cart from "../modules/ServiceModule/CartModule/Cart.model";
+import User from "../modules/UserModule/models/User";
+import { sendEcomOrderSuccessEmails } from "./ecomOrderEmail.service";
 
 // ── Stripe instance (separate from subscription stripe) ──────────────────────
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
@@ -243,7 +245,7 @@ static async fulfillEcomOrder(sessionId: string): Promise<void> {
     }
 
     const { userId, orderRef, shippingAddress: shippingAddressRaw } = session.metadata!;
-   const rawAddress = JSON.parse(shippingAddressRaw);
+    const rawAddress = JSON.parse(shippingAddressRaw);
 console.log("🔵 [EcomStripe] Parsed shippingAddress:", rawAddress);
 
 // ✅ Map frontend fields → Order schema fields
@@ -262,6 +264,7 @@ console.log("🔵 [EcomStripe] Mapped shippingAddress:", shippingAddress);
 
     const paymentIntent = session.payment_intent as Stripe.PaymentIntent;
     const amountTotal = (session.amount_total ?? 0) / 100;
+    const user = await User.findById(userId).select("firstName lastName email state country city").lean();
     console.log("🔵 [EcomStripe] Processing order:", { userId, orderRef, amountTotal });
 
     // ── 1. Find or create Customer ──────────────────────────────────────────
@@ -370,6 +373,48 @@ console.log("🔵 [EcomStripe] Mapped shippingAddress:", shippingAddress);
       },
     });
     console.log("✅ [EcomStripe] EcomPayment created");
+
+    // ── 4.1 Send order success emails (admin + user) ───────────────────────
+    try {
+      await sendEcomOrderSuccessEmails({
+        orderRef,
+        paymentIntentId: paymentIntent.id,
+        amount: amountTotal,
+        currency: session.currency ?? "usd",
+        paidAt: new Date(),
+        user: {
+          id: String(userId),
+          firstName: (user as any)?.firstName,
+          lastName: (user as any)?.lastName,
+          email: (user as any)?.email,
+          state: (user as any)?.state,
+          country: (user as any)?.country,
+          city: (user as any)?.city,
+        },
+        checkout: {
+          email: rawAddress?.email || session.customer_details?.email || undefined,
+          phone: rawAddress?.phone || session.customer_details?.phone || undefined,
+          firstName: rawAddress?.firstName,
+          lastName: rawAddress?.lastName,
+          address: rawAddress?.address || rawAddress?.addressLine1,
+          city: rawAddress?.city,
+          state: rawAddress?.state || rawAddress?.region,
+          country: rawAddress?.country,
+          zip: rawAddress?.zip || rawAddress?.postalCode,
+        },
+        items: orderItems.map((item) => ({
+          name: item.name,
+          quantity: Number(item.quantity) || 1,
+          price: Number(item.price) || 0,
+        })),
+      });
+      console.log("✅ [EcomStripe] Success emails sent:", orderRef);
+    } catch (mailErr: any) {
+      console.error("⚠️ [EcomStripe] Failed to send success emails:", {
+        orderRef,
+        message: mailErr?.message || mailErr,
+      });
+    }
 
     // ── 5. Update Customer stats ────────────────────────────────────────────
     console.log("🔵 [EcomStripe] Step 5: Updating customer stats");
