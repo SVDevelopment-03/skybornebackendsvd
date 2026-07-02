@@ -11,7 +11,7 @@ build/
 .env.local
 .env.development
 .env.production
-SkyBorne-Backend/firebase-service-account.json
+firebase-service-account.json
 
 # Logs
 logs/
