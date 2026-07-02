@@ -104,6 +104,13 @@ classReminderEmailQueue.process(async (job) => {
       console.log(
         `✅ Class reminder email sent to ${email} for meeting ${meetingId} using template ${CLASS_REMINDER_TEMPLATE_VERSION}`
       );
+      console.log("[ClassReminderEmailWorker] reminder email delivered", {
+        jobId: job.id,
+        meetingId,
+        email,
+        reminderOffsetMinutes,
+        template: CLASS_REMINDER_TEMPLATE_VERSION,
+      });
     } catch (err: any) {
       failureCount++;
       console.error(

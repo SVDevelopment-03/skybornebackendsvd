@@ -326,7 +326,13 @@ static async getCountriesByRegion(regionName: string) {
         });
       } else {
         try {
-          await addClassReminderEmailJob(reminderJobPayload);
+          const job = await addClassReminderEmailJob(reminderJobPayload);
+          console.log("[ClassReminderService] sendClassReminder: reminder email job queued", {
+            meetingId: String(meeting._id),
+            minutesBefore,
+            totalRecipients: uniqueUserEmails.length,
+            jobId: job?.id,
+          });
         } catch (queueError: any) {
           console.error("[ClassReminderService] Queue add failed", {
             meetingId: String(meeting._id),
