@@ -8,7 +8,7 @@ module.exports = {
       autorestart: true,
       max_memory_restart: "300M",
       env: {
-        CLASS_REMINDER_PROCESS_IN_SERVER: "false",
+        CLASS_REMINDER_PROCESS_IN_SERVER: "true",
         NODE_ENV: "production"
       }
     },
