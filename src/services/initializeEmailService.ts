@@ -5,7 +5,9 @@ import { startSubscriptionExpiryReminderCron } from "../cron/SubscriptionExpiryR
 export const initializeEmailServices = () => {
   console.log("📧 Initializing email services...");
   try {
-    console.log("ℹ️ Skipping class reminder processor in server (dedicated worker expected)");
+    console.log(
+      "ℹ️ Starting class reminder and subscription expiry cron jobs in the current server process"
+    );
     startClassReminderCron();
     startSubscriptionExpiryReminderCron();
     console.log("✅ All email services initialized successfully");

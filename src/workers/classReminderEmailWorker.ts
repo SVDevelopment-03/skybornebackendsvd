@@ -6,6 +6,8 @@ import sgMail from "@sendgrid/mail";
 import mongoose from "mongoose";
 import connectDB from "../config/db";
 import { initConsoleErrorLogger } from "../utils/consoleLogger";
+
+console.log("📦 ClassReminderEmailWorker module loaded: queue processing is configured in this process");
 import {
   CLASS_REMINDER_TEMPLATE_VERSION,
   formatMeetingDateTimeForUser,

@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "server.js",
   "scripts": {
-    "start": "CLASS_REMINDER_PROCESS_IN_SERVER=false node dist/server.js & node dist/workers/emailWorker.js & node dist/workers/classReminderEmailWorker.js & node dist/workers/invoiceEmailWorker.js",
+    "start": "node dist/server.js",
     "clean": "rm -rf dist",
     "rebuild": "npm run clean && npm run build",
     "start:concurrently": "concurrently --handle-input \"CLASS_REMINDER_PROCESS_IN_SERVER=false node dist/server.js\" \"node dist/workers/emailWorker.js\" \"node dist/workers/classReminderEmailWorker.js\" \"node dist/workers/invoiceEmailWorker.js\"",
