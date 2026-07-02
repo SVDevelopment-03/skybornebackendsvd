@@ -12,6 +12,7 @@ import app from "./app"; // Imported Express app
 import { initializeSocket, setIOInstance } from "./config/socket";
 import { startCurrencyCron } from "./modules/CurrencyModule/CurrencyCron";
 import { startUserPurgeCron } from "./services/userPurgeService";
+import { initializeEmailServices } from "./services/initializeEmailService";
 
 const PORT = process.env.PORT || 8000;
 
@@ -42,6 +43,17 @@ const startServer = async () => {
         startCurrencyCron();
         // Start user purge cron (default retention: 30 days)
         startUserPurgeCron(Number(process.env.USER_PURGE_DAYS) || 30);
+
+        const shouldRunEmailServices =
+          process.env.CLASS_REMINDER_PROCESS_IN_SERVER !== "false";
+
+        if (shouldRunEmailServices) {
+          initializeEmailServices();
+        } else {
+          console.log(
+            "ℹ️ Email reminder cron will not run in this process (dedicated worker process expected).",
+          );
+        }
       },
     );
 

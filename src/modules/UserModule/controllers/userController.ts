@@ -60,6 +60,7 @@ export class UserController {
       const search = (req.query.search as string) || "";
       const country = (req.query.country as string) || "";
       const plan = (req.query.plan as string) || "";
+      const state = (req.query.state as string) || "";
       const filter = (req.query.filter as string) || "";
 
       const skip = (page - 1) * limit;
@@ -76,6 +77,11 @@ export class UserController {
       // Filter by plan
       if (plan && plan !== "all") {
         query.plan = plan;
+      }
+
+      // Filter by state
+      if (state && state !== "all") {
+        query.state = state;
       }
 
       // Build search query
@@ -97,7 +103,7 @@ export class UserController {
       // Fetch users with applied filters
       const users = await User.find(finalQuery)
         .select(
-          "_id firstName lastName email phoneNumber country countryCode plan isActive createdAt",
+          "_id firstName lastName email phoneNumber country countryCode state city plan isActive createdAt subscription",
         )
         .skip(skip)
         .limit(limit)
@@ -141,6 +147,7 @@ export class UserController {
       const search = (req.query.search as string) || "";
       const country = (req.query.country as string) || "";
       const plan = (req.query.plan as string) || "";
+      const state = (req.query.state as string) || "";
 
       // Build query object
       const query: any = { role: "user" };
@@ -154,6 +161,11 @@ export class UserController {
       // Filter by plan
       if (plan && plan !== "all") {
         query.plan = plan;
+      }
+
+      // Filter by state
+      if (state && state !== "all") {
+        query.state = state;
       }
 
       // Build search query
@@ -175,7 +187,7 @@ export class UserController {
       // Fetch ALL users with applied filters
       const users = await User.find(finalQuery)
         .select(
-          "_id firstName lastName email phoneNumber country countryCode plan isActive createdAt",
+          "_id firstName lastName email phoneNumber country countryCode state city plan isActive createdAt subscription",
         )
         .sort({ createdAt: -1 })
         .lean();
@@ -186,7 +198,11 @@ export class UserController {
         "Email",
         "Phone",
         "Country",
+        "State",
+        "City",
         "Plan",
+        "Subscription Status",
+        "Cancelled At",
         "Status",
         "Created Date",
       ];
@@ -197,7 +213,21 @@ export class UserController {
         const email = user?.email || "N/A";
         const phone = user?.phoneNumber || "N/A";
         const country = user?.country || user?.countryCode || "N/A";
+        const state = user?.state || "N/A";
+        const city = user?.city || "N/A";
         const plan = user.plan || "N/A";
+        const subscriptionStatus =
+          user?.subscription?.status || "N/A";
+        const cancelledAt = user?.subscription?.cancelledAt
+          ? new Date(user.subscription.cancelledAt).toLocaleDateString(
+              "en-US",
+              {
+                year: "numeric",
+                month: "short",
+                day: "numeric",
+              }
+            )
+          : "N/A";
         const status = user.isActive ? "Active" : "Inactive";
         const createdDate = new Date(user.createdAt).toLocaleDateString(
           "en-US",
@@ -208,7 +238,19 @@ export class UserController {
           },
         );
 
-        return [name, email, phone, country, plan, status, createdDate];
+        return [
+          name,
+          email,
+          phone,
+          country,
+          state,
+          city,
+          plan,
+          subscriptionStatus,
+          cancelledAt,
+          status,
+          createdDate,
+        ];
       });
 
       // Escape CSV values
