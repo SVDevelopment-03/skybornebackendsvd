@@ -291,12 +291,34 @@ export const formatMeetingDateTimeForUser = (
 export const getClassReminderEmailSubject = (
   meetingTitle: string,
   reminderOffsetMinutes: number,
-): string =>
-  `⏰ Reminder: ${meetingTitle} starts in ${
-    reminderOffsetMinutes >= 60
-      ? `${Math.round(reminderOffsetMinutes / 60)} hours`
-      : `${reminderOffsetMinutes} minutes`
+  localTime?: string,
+  localDate?: string,
+): string => {
+  const totalMinutes = Math.max(0, Math.round(Number(reminderOffsetMinutes) || 0));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  const countdownText =
+    hours === 0
+      ? `${minutes} minute${minutes === 1 ? "" : "s"}`
+      : minutes === 0
+        ? `${hours} hour${hours === 1 ? "" : "s"}`
+        : `${hours} hour${hours === 1 ? "" : "s"} ${minutes} minute${minutes === 1 ? "" : "s"}`;
+
+  return `⏰ Reminder: ${meetingTitle} starts in ${
+    countdownText
   }!`;
+};
+
+export const getSessionScheduledEmailSubject = (
+  meetingTitle: string,
+  localDate?: string,
+  localTime?: string,
+): string => {
+  const safeLocalDate = String(localDate || "").trim() || "the scheduled date";
+  const safeLocalTime = String(localTime || "").trim() || "the scheduled time";
+
+  return `⏰ Session scheduled: ${meetingTitle} is set for ${safeLocalDate} at ${safeLocalTime}!`;
+};
 
 const DEFAULT_DASHBOARD_URL = (process.env.DASHBOARD_URL || process.env.WEBSITE_URL)
   ? `${String(process.env.DASHBOARD_URL || process.env.WEBSITE_URL).replace(/\/$/, "")}/dashboard`
@@ -367,10 +389,15 @@ export const getClassReminderEmailHTML = (
   const appSchemeLink = safeMeetingId
     ? `skybornedrop://class/${encodeURIComponent(safeMeetingId)}`
     : "skybornedrop://dashboard";
+  const totalMinutes = Math.max(0, Math.round(Number(reminderOffsetMinutes) || 0));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
   const timeUntilClass =
-    reminderOffsetMinutes >= 60
-      ? `${Math.round(reminderOffsetMinutes / 60)} hours`
-      : `${reminderOffsetMinutes} minutes`;
+    hours === 0
+      ? `${minutes} minute${minutes === 1 ? "" : "s"}`
+      : minutes === 0
+        ? `${hours} hour${hours === 1 ? "" : "s"}`
+        : `${hours} hour${hours === 1 ? "" : "s"} ${minutes} minute${minutes === 1 ? "" : "s"}`;
   const safeFirstName = String(firstName || "").trim() || "there";
   const safeMeetingTitle = String(meetingTitle || "").trim() || "Your class";
   const safeTrainerName = String(trainerName || "").trim() || "Your Trainer";
@@ -387,9 +414,7 @@ export const getClassReminderEmailHTML = (
       : "TBD";
 
   const creationNote =
-    reminderMode === "afterCreation"
-      ? `<p style="margin: 0 0 16px; color: #555;">This class was created less than 24 hours before the start time. We’re sending this reminder 5 minutes after creation so everyone gets notified.</p>`
-      : "";
+    "";
 
   return `
 <!DOCTYPE html>
@@ -594,8 +619,8 @@ export const getClassReminderEmailHTML = (
             </p>
 
             <p class="greeting">
-                Your fitness class <strong>${safeMeetingTitle}</strong> is starting in approximately <strong>${timeUntilClass}</strong>.
-                We have it scheduled for <strong>${safeLocalDate}</strong> at <strong>${safeLocalTime}</strong> (${safeTimezone}).
+              Your fitness class <strong>${safeMeetingTitle}</strong> is starting in <strong>${timeUntilClass}</strong>.
+              We have it scheduled for <strong>${safeLocalDate}</strong> at <strong>${safeLocalTime}</strong> (${safeTimezone}).
             </p>
 
             <div class="class-details">
@@ -631,8 +656,9 @@ export const getClassReminderEmailHTML = (
             ${creationNote}
 
             <div class="reminder-box">
-                Make sure to join 5 minutes before the class starts!
+              Make sure to join 5 minutes before the class starts!
             </div>
+
 
 
             <div class="cta-section">
@@ -659,6 +685,179 @@ export const getClassReminderEmailHTML = (
             </p>
         </div>
     </div>
+</body>
+</html>
+  `;
+};
+
+export const getSessionScheduledEmailHTML = (
+  firstName: string,
+  meetingTitle: string,
+  region: string,
+  localTime: string,
+  localDate: string,
+  timezone: string,
+  trainerName: string,
+  duration: number,
+  timezonesDisplayHtml?: string,
+  meetingId?: string,
+): string => {
+  const webLink = getClassReminderDashboardUrl();
+  const safeMeetingId = String(meetingId || "").trim();
+  const baseWebUrl = (process.env.WEBSITE_URL || process.env.DASHBOARD_URL || "https://skybornedrop.com/").replace(/\/$/, "");
+  const classWebLink = safeMeetingId ? `${baseWebUrl}/dashboard` : webLink;
+  const openInAppBridgeLink = safeMeetingId
+  ? `${baseWebUrl}/open/class/${encodeURIComponent(safeMeetingId)}`
+  : webLink;
+  const appSchemeLink = safeMeetingId
+  ? `skybornedrop://class/${encodeURIComponent(safeMeetingId)}`
+  : "skybornedrop://dashboard";
+
+  const safeFirstName = String(firstName || "").trim() || "there";
+  const safeMeetingTitle = String(meetingTitle || "").trim() || "Your class";
+  const safeTrainerName = String(trainerName || "").trim() || "Your Trainer";
+  const safeRegion = String(region || "").trim().toUpperCase() || "N/A";
+  const safeLocalDate = String(localDate || "").trim() || "TBD";
+  const safeLocalTime = String(localTime || "").trim() || "TBD";
+  const safeTimezone = String(timezone || "").trim() || "UTC";
+  const safeTimezonesDisplayHtml =
+  String(timezonesDisplayHtml || "").trim() ||
+  `<div style="margin:2px 0;">${safeLocalTime} (${safeTimezone})</div>`;
+  const safeDuration =
+  Number.isFinite(Number(duration)) && Number(duration) > 0
+    ? `${Number(duration)} minutes`
+    : "TBD";
+
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: #f5f5f5;
+      line-height: 1.6;
+      color: #333;
+    }
+    .container { max-width: 600px; margin: 0 auto; background-color: #ffffff; overflow: hidden; }
+    .header {
+      background: linear-gradient(135deg, #1f7a8c 0%, #56cfe1 100%);
+      padding: 30px;
+      text-align: center;
+      color: #ffffff;
+    }
+    .header h1 { font-size: 28px; font-weight: 700; margin-bottom: 10px; letter-spacing: 0.5px; }
+    .header p { font-size: 16px; opacity: 0.95; }
+    .content { padding: 40px 30px; }
+    .greeting { font-size: 16px; color: #333; margin-bottom: 20px; line-height: 1.8; }
+    .class-details {
+      background-color: #f9f9f9;
+      border-left: 4px solid #1f7a8c;
+      padding: 20px;
+      margin: 25px 0;
+      border-radius: 4px;
+    }
+    .details-table { width: 100%; border-collapse: collapse; }
+    .details-table td { padding: 10px 0; font-size: 15px; vertical-align: top; }
+    .detail-label { color: #777; font-weight: 500; width: 36%; }
+    .detail-value { color: #000; font-weight: 600; text-align: right; }
+    .divider { height: 1px; background-color: #e0e0e0; margin: 20px 0; }
+    .cta-section { text-align: center; margin: 30px 0; }
+    .cta-button {
+      display: inline-block;
+      padding: 14px 40px;
+      background-color: #1f7a8c;
+      color: #ffffff;
+      text-decoration: none;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 16px;
+    }
+    .cta-button--secondary {
+      background-color: #ffffff !important;
+      color: #1f7a8c !important;
+      border: 2px solid #1f7a8c !important;
+      cursor: pointer !important;
+    }
+    .footer { background-color: #fafafa; padding: 25px 30px; border-top: 1px solid #e0e0e0; text-align: center; font-size: 13px; color: #999; }
+    .footer p { margin: 5px 0; }
+    @media (max-width: 600px) {
+      .content { padding: 30px 20px; }
+      .header h1 { font-size: 24px; }
+      .details-table td, .details-table tr { display: block; width: 100%; }
+      .detail-label, .detail-value { text-align: left; }
+      .cta-button { padding: 12px 30px; font-size: 15px; width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <span style="display:none !important; visibility:hidden; opacity:0; color:transparent; height:0; width:0; overflow:hidden;">
+    SKYBORNE_SESSION_SCHEDULED_TEMPLATE=${CLASS_REMINDER_TEMPLATE_VERSION}
+  </span>
+  <div class="container">
+    <div class="header">
+      <h1>SESSION SCHEDULED</h1>
+      <p>Your class has been scheduled successfully!</p>
+    </div>
+
+    <div class="content">
+      <p class="greeting">Hi <strong>${safeFirstName}</strong>,</p>
+      <p class="greeting">
+        Your fitness class <strong>${safeMeetingTitle}</strong> has been scheduled for <strong>${safeLocalDate}</strong> at <strong>${safeLocalTime}</strong> (${safeTimezone}).
+        This is a confirmation, not a countdown reminder.
+      </p>
+
+      <div class="class-details">
+        <table role="presentation" class="details-table" cellpadding="0" cellspacing="0">
+          <tr>
+            <td class="detail-label">Class Title</td>
+            <td class="detail-value">${safeMeetingTitle}</td>
+          </tr>
+          <tr><td colspan="2"><div class="divider"></div></td></tr>
+          <tr>
+            <td class="detail-label">Date</td>
+            <td class="detail-value">${safeLocalDate}</td>
+          </tr>
+          <tr>
+            <td class="detail-label">Time</td>
+            <td class="detail-value">${safeTimezonesDisplayHtml}</td>
+          </tr>
+          <tr>
+            <td class="detail-label">Trainer</td>
+            <td class="detail-value">${safeTrainerName}</td>
+          </tr>
+          <tr>
+            <td class="detail-label">Region</td>
+            <td class="detail-value">${safeRegion}</td>
+          </tr>
+          <tr>
+            <td class="detail-label">Duration</td>
+            <td class="detail-value">${safeDuration}</td>
+          </tr>
+        </table>
+      </div>
+
+      <div class="cta-section">
+        <a href="${openInAppBridgeLink}" class="cta-button">Open in App</a>
+        <div style="height: 12px; line-height: 12px;">&nbsp;</div>
+        <a href="${classWebLink}" class="cta-button cta-button--secondary">Open in Browser</a>
+        <div style="margin-top: 12px; font-size: 12px; color: #8b8b8b;">
+          If app does not open, try direct link:
+          <a href="${appSchemeLink}" style="color: #1f7a8c; text-decoration: underline;">Open Skyborne App</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <p>© 2025 SKYBORNE. All rights reserved.</p>
+      <p style="margin-top: 10px; color: #ccc; font-size: 12px;">
+        You received this email because you are registered for this class on SKYBORNE.
+      </p>
+    </div>
+  </div>
 </body>
 </html>
   `;

@@ -479,7 +479,7 @@ static async getCountriesByRegion(regionName: string) {
 
   static async scheduleMeetingCreationReminder(
     meetingId: string,
-    minutesAfterCreation: number = 5,
+    minutesAfterCreation: number = 0,
   ) {
     try {
       console.log("[ClassReminderService] scheduleMeetingCreationReminder:start", {
@@ -519,14 +519,15 @@ static async getCountriesByRegion(regionName: string) {
         };
       }
 
-      const delayMs = Math.max(
-        0,
-        Math.min(minutesAfterCreation * 60 * 1000, timeUntilStartMs),
-      );
+      const delayMs = 0;
 
       const region = meeting.liveRegion;
       const users = await this.getUsersByRegion(region);
+      const userIds = users
+        .map((user: any) => String(user?._id || "").trim())
+        .filter(Boolean);
       const userEmails = users.map((user: any) => ({
+        userId: String(user._id),
         email: user.email,
         firstName: user.firstName || user.lastName || "User",
         country: user.country || "",
@@ -574,6 +575,51 @@ static async getCountriesByRegion(regionName: string) {
         userEmails: uniqueUserEmails,
       });
 
+      if (userIds.length > 0) {
+        const classStartAt = new Date(meeting.localTime);
+        const { regionTimeZone, regionLocalTime, regionLocalDate } =
+          resolveMeetingRegionDetails(meeting);
+
+        try {
+          await PushNotificationService.sendToUsers(
+            userIds,
+            {
+              title: `Session scheduled: ${meeting.title}`,
+              body: `Your session is scheduled for ${regionLocalDate || "the scheduled date"} at ${regionLocalTime || "the scheduled time"} (${regionTimeZone || "UTC"}).`,
+              highPriority: true,
+              data: {
+                type: "meeting.reminder",
+                screen: "ClassDetails",
+                classId: String(meeting._id),
+                deeplink: `skybornedrop://class/${String(meeting._id)}`,
+                meetingId: String(meeting._id),
+                reminderMode: "afterCreation",
+                reminderOffsetMinutes: String(minutesAfterCreation),
+                classStartAt: classStartAt.toISOString(),
+                region,
+                displayTime: `${regionLocalTime || "TBD"} ${regionTimeZone || "UTC"}`,
+                userTimezone: regionTimeZone || "UTC",
+                timezoneAbbr: regionTimeZone || "UTC",
+              },
+            },
+            {
+              category: "reminder",
+              eventType: "meeting.reminder.afterCreation",
+              metadata: {
+                meetingId: String(meeting._id),
+                minutesAfterCreation,
+                region,
+              },
+            },
+          );
+        } catch (pushError: any) {
+          console.error("[ClassReminderService] Failed to send creation push reminder", {
+            meetingId: String(meeting._id),
+            error: pushError?.message || pushError,
+          });
+        }
+      }
+
       console.log("[ClassReminderService] scheduleMeetingCreationReminder:job-scheduled", {
         meetingId: String(meeting._id),
         delayMs,
@@ -583,7 +629,7 @@ static async getCountriesByRegion(regionName: string) {
 
       return {
         success: true,
-        message: "Creation reminder scheduled",
+        message: "Creation reminder sent",
         delayMs,
         jobId: job?.id,
       };

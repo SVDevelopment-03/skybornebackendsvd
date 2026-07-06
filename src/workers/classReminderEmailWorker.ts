@@ -13,6 +13,8 @@ import {
   formatMeetingDateTimeForUser,
   getClassReminderEmailHTML,
   getClassReminderEmailSubject,
+  getSessionScheduledEmailHTML,
+  getSessionScheduledEmailSubject,
   resolveMeetingStartDate,
 } from "../services/classReminderEmailUtils";
 import MailLog from "../modules/MailModule/MailModel";
@@ -84,28 +86,50 @@ classReminderEmailQueue.process(async (job) => {
       const { localTime, localDate, timezoneDisplay, timezonesDisplayHtml } =
         formatMeetingDateTimeForUser(meetingStartDate, userEmail);
 
-      const htmlContent = getClassReminderEmailHTML(
-        firstName || "there",
-        meetingTitle,
-        region,
-        localTime,
-        localDate,
-        timezoneDisplay,
-        trainerName || "Your Trainer",
-        duration,
-        renderedReminderMinutes,
-        timezonesDisplayHtml,
-        meetingId,
-        reminderMode,
-      );
+      const htmlContent =
+        reminderMode === "afterCreation"
+          ? getSessionScheduledEmailHTML(
+              firstName || "there",
+              meetingTitle,
+              region,
+              localTime,
+              localDate,
+              timezoneDisplay,
+              trainerName || "Your Trainer",
+              duration,
+              timezonesDisplayHtml,
+              meetingId,
+            )
+          : getClassReminderEmailHTML(
+              firstName || "there",
+              meetingTitle,
+              region,
+              localTime,
+              localDate,
+              timezoneDisplay,
+              trainerName || "Your Trainer",
+              duration,
+              renderedReminderMinutes,
+              timezonesDisplayHtml,
+              meetingId,
+              reminderMode,
+            );
+
+      const subject =
+        reminderMode === "afterCreation"
+          ? getSessionScheduledEmailSubject(meetingTitle, localDate, localTime)
+          : getClassReminderEmailSubject(
+              meetingTitle,
+              renderedReminderMinutes,
+              reminderMode,
+              localTime,
+              localDate,
+            );
 
       const msg = {
         to: email,
         from: process.env.SENDGRID_FROM_EMAIL as string,
-        subject: getClassReminderEmailSubject(
-          meetingTitle,
-          renderedReminderMinutes,
-        ),
+        subject,
         html: htmlContent,
       };
 
