@@ -7,6 +7,8 @@ export interface ClassReminderEmailJob {
   meetingTitle: string;
   region: string;
   reminderOffsetMinutes: number;
+  reminderMode?: "before" | "afterCreation";
+  delayMs?: number;
   liveTime: string;
   classStartAt: Date | string;
   startDate?: Date | string;
@@ -49,8 +51,9 @@ const buildClassReminderJobId = (jobData: ClassReminderEmailJob) => {
   const classStartKey = Number.isNaN(classStartAt.getTime())
     ? "unknown-start"
     : classStartAt.toISOString();
+  const reminderMode = String(jobData.reminderMode || "before").trim();
 
-  return `class-reminder:${meetingId}:${reminderOffset}:${classStartKey}`;
+  return `class-reminder:${meetingId}:${reminderOffset}:${classStartKey}:${reminderMode}`;
 };
 
 // =====================
@@ -109,7 +112,7 @@ export const addClassReminderEmailJob = async (
       backoff: { type: "exponential", delay: 2000 },
       removeOnComplete: 1000,
       removeOnFail: false,
-      delay: 0, // Process immediately, b ut can be scheduled
+      delay: Number(jobData.delayMs || 0),
     });
 
     return job;

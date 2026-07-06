@@ -477,6 +477,122 @@ static async getCountriesByRegion(regionName: string) {
     }
   }
 
+  static async scheduleMeetingCreationReminder(
+    meetingId: string,
+    minutesAfterCreation: number = 5,
+  ) {
+    try {
+      console.log("[ClassReminderService] scheduleMeetingCreationReminder:start", {
+        meetingId,
+        minutesAfterCreation,
+      });
+
+      const meeting = (await Meeting.findById(meetingId)
+        .populate("trainer", "name")
+        .populate("service", "title")) as IMeeting & {
+        trainer?: { name: string };
+        service?: { title: string };
+      };
+
+      if (!meeting) {
+        return { success: false, message: "Meeting not found" };
+      }
+
+      const now = new Date();
+      const classStartTime = new Date(meeting.localTime);
+      const timeUntilStartMs = classStartTime.getTime() - now.getTime();
+      const within24Hours =
+        timeUntilStartMs > 0 && timeUntilStartMs <= 24 * 60 * 60 * 1000;
+
+      console.log("[ClassReminderService] scheduleMeetingCreationReminder:timing", {
+        meetingId: String(meeting._id),
+        classStartTime: classStartTime.toISOString(),
+        now: now.toISOString(),
+        timeUntilStartMs,
+        within24Hours,
+      });
+
+      if (!within24Hours) {
+        return {
+          success: false,
+          message: "Meeting is not within 24 hours or has already started",
+        };
+      }
+
+      const delayMs = Math.max(
+        0,
+        Math.min(minutesAfterCreation * 60 * 1000, timeUntilStartMs),
+      );
+
+      const region = meeting.liveRegion;
+      const users = await this.getUsersByRegion(region);
+      const userEmails = users.map((user: any) => ({
+        email: user.email,
+        firstName: user.firstName || user.lastName || "User",
+        country: user.country || "",
+        countryCode: user.countryCode || "",
+        timeZone: user.timeZone || "",
+      }));
+
+      const uniqueEmailsMap = new Map<string, (typeof userEmails)[number]>();
+      for (const entry of userEmails) {
+        const emailKey = String(entry.email || "").trim().toLowerCase();
+        if (!emailKey) continue;
+        if (!uniqueEmailsMap.has(emailKey)) {
+          uniqueEmailsMap.set(emailKey, entry);
+        }
+      }
+      const uniqueUserEmails = Array.from(uniqueEmailsMap.values());
+
+      if (uniqueUserEmails.length === 0) {
+        return {
+          success: false,
+          message: "No active users found in this region",
+          delayMs,
+        };
+      }
+
+      const trainerName = (meeting.trainer as any)?.name || "Your Trainer";
+      const { regionTimeZone, regionLocalTime, regionLocalDate } =
+        resolveMeetingRegionDetails(meeting);
+
+      const job = await addClassReminderEmailJob({
+        meetingId: String(meeting._id),
+        meetingTitle: meeting.title,
+        region,
+        reminderOffsetMinutes: minutesAfterCreation,
+        reminderMode: "afterCreation",
+        delayMs,
+        liveTime: meeting.liveTime,
+        classStartAt: meeting.localTime,
+        startDate: meeting.startDate,
+        regionTimeZone,
+        regionLocalTime,
+        regionLocalDate,
+        duration: meeting.duration,
+        trainerName,
+        userEmails: uniqueUserEmails,
+      });
+
+      console.log("[ClassReminderService] scheduleMeetingCreationReminder:job-scheduled", {
+        meetingId: String(meeting._id),
+        delayMs,
+        reminderMode: "afterCreation",
+        jobId: job?.id,
+      });
+
+      return {
+        success: true,
+        message: "Creation reminder scheduled",
+        delayMs,
+        jobId: job?.id,
+      };
+    } catch (error) {
+      console.error("❌ Error scheduling meeting creation reminder:", error);
+      throw error;
+    }
+  }
+
   static async sendImmediateClassReminder(meetingId: string) {
       try {
         console.log("[ClassReminderService] sendImmediateClassReminder:start", { meetingId });
@@ -557,6 +673,8 @@ static async getCountriesByRegion(regionName: string) {
         meetingTitle: meeting.title,
         region: region,
         reminderOffsetMinutes: 10,
+        reminderMode: "before",
+        delayMs: 0,
         liveTime: meeting.liveTime,
         classStartAt: meeting.localTime,
         startDate: meeting.startDate,

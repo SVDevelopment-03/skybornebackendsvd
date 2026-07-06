@@ -16,6 +16,7 @@ import countryRegionHistoryModel from "../CountryModule/countryRegionHistory.mod
 import TrainerModel from "../TrainerModule/TrainerModel";
 import { channel } from "diagnostics_channel";
 import { PushNotificationService } from "../../services/pushNotification.service";
+import { ClassReminderService } from "../../services/classReminderService";
 
 const _countryRepository = new CountryRepository();
 
@@ -642,6 +643,20 @@ static async CreateMeeting(req: Request, res: Response) {
       regionsCount: meetingRecord.regions.length,
       title: meetingRecord.title,
     });
+
+    const now = new Date();
+    const startTime = new Date(meetingRecord.localTime);
+    const timeUntilStartMs = startTime.getTime() - now.getTime();
+    if (timeUntilStartMs > 0 && timeUntilStartMs <= 24 * 60 * 60 * 1000) {
+      ClassReminderService.scheduleMeetingCreationReminder(
+        String(meetingRecord._id),
+      ).catch((err: any) => {
+        console.error(
+          "❌ [CreateMeeting] Failed scheduling creation reminder:",
+          err,
+        );
+      });
+    }
 
     // Store all recurring instances in database
     const storedInstances: any[] = [];

@@ -34,12 +34,20 @@ classReminderEmailQueue.process(async (job) => {
     region,
     duration,
     reminderOffsetMinutes = 10,
+    reminderMode = "before",
     classStartAt,
     startDate,
     userEmails,
   } = job.data;
 
   const meetingStartDate = resolveMeetingStartDate(classStartAt, startDate);
+  const now = new Date();
+  const actualMinutesUntilStart = Math.max(
+    0,
+    Math.round((meetingStartDate.getTime() - now.getTime()) / 60000),
+  );
+  const renderedReminderMinutes =
+    reminderMode === "afterCreation" ? actualMinutesUntilStart : reminderOffsetMinutes;
   const normalizedUsers = Array.isArray(userEmails) ? userEmails : [];
   const uniqueUserEmailsMap = new Map<string, (typeof normalizedUsers)[number]>();
   for (const user of normalizedUsers) {
@@ -85,9 +93,10 @@ classReminderEmailQueue.process(async (job) => {
         timezoneDisplay,
         trainerName || "Your Trainer",
         duration,
-        reminderOffsetMinutes,
+        renderedReminderMinutes,
         timezonesDisplayHtml,
         meetingId,
+        reminderMode,
       );
 
       const msg = {
@@ -95,7 +104,7 @@ classReminderEmailQueue.process(async (job) => {
         from: process.env.SENDGRID_FROM_EMAIL as string,
         subject: getClassReminderEmailSubject(
           meetingTitle,
-          reminderOffsetMinutes,
+          renderedReminderMinutes,
         ),
         html: htmlContent,
       };

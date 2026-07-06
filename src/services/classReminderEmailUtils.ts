@@ -350,6 +350,7 @@ export const getClassReminderEmailHTML = (
   reminderOffsetMinutes: number,
   timezonesDisplayHtml?: string,
   meetingId?: string,
+  reminderMode?: "before" | "afterCreation",
 ): string => {
   const webLink = getClassReminderDashboardUrl();
   const safeMeetingId = String(meetingId || "").trim();
@@ -385,6 +386,10 @@ export const getClassReminderEmailHTML = (
       ? `${Number(duration)} minutes`
       : "TBD";
 
+  const creationNote =
+    reminderMode === "afterCreation"
+      ? `<p style="margin: 0 0 16px; color: #555;">This class was created less than 24 hours before the start time. We’re sending this reminder 5 minutes after creation so everyone gets notified.</p>`
+      : "";
 
   return `
 <!DOCTYPE html>
@@ -622,6 +627,8 @@ export const getClassReminderEmailHTML = (
                     </tr>
                 </table>
             </div>
+
+            ${creationNote}
 
             <div class="reminder-box">
                 Make sure to join 5 minutes before the class starts!
