@@ -288,21 +288,29 @@ export const formatMeetingDateTimeForUser = (
   };
 };
 
+const formatExactDurationText = (value: number | string | undefined): string => {
+  const totalMinutes = Math.max(0, Math.round(Number(value) || 0));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  if (hours === 0) {
+    return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+  }
+
+  if (minutes === 0) {
+    return `${hours} hour${hours === 1 ? "" : "s"}`;
+  }
+
+  return `${hours} hour${hours === 1 ? "" : "s"} ${minutes} minute${minutes === 1 ? "" : "s"}`;
+};
+
 export const getClassReminderEmailSubject = (
   meetingTitle: string,
   reminderOffsetMinutes: number,
   localTime?: string,
   localDate?: string,
 ): string => {
-  const totalMinutes = Math.max(0, Math.round(Number(reminderOffsetMinutes) || 0));
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  const countdownText =
-    hours === 0
-      ? `${minutes} minute${minutes === 1 ? "" : "s"}`
-      : minutes === 0
-        ? `${hours} hour${hours === 1 ? "" : "s"}`
-        : `${hours} hour${hours === 1 ? "" : "s"} ${minutes} minute${minutes === 1 ? "" : "s"}`;
+  const countdownText = formatExactDurationText(reminderOffsetMinutes);
 
   return `⏰ Reminder: ${meetingTitle} starts in ${
     countdownText
@@ -313,11 +321,13 @@ export const getSessionScheduledEmailSubject = (
   meetingTitle: string,
   localDate?: string,
   localTime?: string,
+  pendingMinutes?: number,
 ): string => {
   const safeLocalDate = String(localDate || "").trim() || "the scheduled date";
   const safeLocalTime = String(localTime || "").trim() || "the scheduled time";
+  const countdownText = formatExactDurationText(pendingMinutes);
 
-  return `⏰ Session scheduled: ${meetingTitle} is set for ${safeLocalDate} at ${safeLocalTime}!`;
+  return `⏰ Reminder: ${meetingTitle} starts in ${countdownText} (${safeLocalDate} at ${safeLocalTime})!`;
 };
 
 const DEFAULT_DASHBOARD_URL = (process.env.DASHBOARD_URL || process.env.WEBSITE_URL)
@@ -389,15 +399,7 @@ export const getClassReminderEmailHTML = (
   const appSchemeLink = safeMeetingId
     ? `skybornedrop://class/${encodeURIComponent(safeMeetingId)}`
     : "skybornedrop://dashboard";
-  const totalMinutes = Math.max(0, Math.round(Number(reminderOffsetMinutes) || 0));
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  const timeUntilClass =
-    hours === 0
-      ? `${minutes} minute${minutes === 1 ? "" : "s"}`
-      : minutes === 0
-        ? `${hours} hour${hours === 1 ? "" : "s"}`
-        : `${hours} hour${hours === 1 ? "" : "s"} ${minutes} minute${minutes === 1 ? "" : "s"}`;
+  const timeUntilClass = formatExactDurationText(reminderOffsetMinutes);
   const safeFirstName = String(firstName || "").trim() || "there";
   const safeMeetingTitle = String(meetingTitle || "").trim() || "Your class";
   const safeTrainerName = String(trainerName || "").trim() || "Your Trainer";
@@ -701,6 +703,7 @@ export const getSessionScheduledEmailHTML = (
   duration: number,
   timezonesDisplayHtml?: string,
   meetingId?: string,
+  pendingMinutes?: number,
 ): string => {
   const webLink = getClassReminderDashboardUrl();
   const safeMeetingId = String(meetingId || "").trim();
@@ -720,6 +723,7 @@ export const getSessionScheduledEmailHTML = (
   const safeLocalDate = String(localDate || "").trim() || "TBD";
   const safeLocalTime = String(localTime || "").trim() || "TBD";
   const safeTimezone = String(timezone || "").trim() || "UTC";
+  const timeUntilClass = formatExactDurationText(pendingMinutes);
   const safeTimezonesDisplayHtml =
   String(timezonesDisplayHtml || "").trim() ||
   `<div style="margin:2px 0;">${safeLocalTime} (${safeTimezone})</div>`;
@@ -744,7 +748,7 @@ export const getSessionScheduledEmailHTML = (
     }
     .container { max-width: 600px; margin: 0 auto; background-color: #ffffff; overflow: hidden; }
     .header {
-      background: linear-gradient(135deg, #1f7a8c 0%, #56cfe1 100%);
+      background: linear-gradient(135deg, #c94a7f 0%, #d97fa0 100%);
       padding: 30px;
       text-align: center;
       color: #ffffff;
@@ -755,7 +759,7 @@ export const getSessionScheduledEmailHTML = (
     .greeting { font-size: 16px; color: #333; margin-bottom: 20px; line-height: 1.8; }
     .class-details {
       background-color: #f9f9f9;
-      border-left: 4px solid #1f7a8c;
+      border-left: 4px solid #c94a7f;
       padding: 20px;
       margin: 25px 0;
       border-radius: 4px;
@@ -769,7 +773,7 @@ export const getSessionScheduledEmailHTML = (
     .cta-button {
       display: inline-block;
       padding: 14px 40px;
-      background-color: #1f7a8c;
+      background-color: #c94a7f;
       color: #ffffff;
       text-decoration: none;
       border-radius: 6px;
@@ -778,8 +782,8 @@ export const getSessionScheduledEmailHTML = (
     }
     .cta-button--secondary {
       background-color: #ffffff !important;
-      color: #1f7a8c !important;
-      border: 2px solid #1f7a8c !important;
+      color: #c94a7f !important;
+      border: 2px solid #c94a7f !important;
       cursor: pointer !important;
     }
     .footer { background-color: #fafafa; padding: 25px 30px; border-top: 1px solid #e0e0e0; text-align: center; font-size: 13px; color: #999; }
@@ -799,15 +803,15 @@ export const getSessionScheduledEmailHTML = (
   </span>
   <div class="container">
     <div class="header">
-      <h1>SESSION SCHEDULED</h1>
-      <p>Your class has been scheduled successfully!</p>
+      <h1>CLASS REMINDER</h1>
+      <p>Your class starts soon!</p>
     </div>
 
     <div class="content">
       <p class="greeting">Hi <strong>${safeFirstName}</strong>,</p>
       <p class="greeting">
-        Your fitness class <strong>${safeMeetingTitle}</strong> has been scheduled for <strong>${safeLocalDate}</strong> at <strong>${safeLocalTime}</strong> (${safeTimezone}).
-        This is a confirmation, not a countdown reminder.
+        Your fitness class <strong>${safeMeetingTitle}</strong> starts in <strong>${timeUntilClass}</strong>.
+        We have it scheduled for <strong>${safeLocalDate}</strong> at <strong>${safeLocalTime}</strong> (${safeTimezone}).
       </p>
 
       <div class="class-details">
@@ -846,7 +850,7 @@ export const getSessionScheduledEmailHTML = (
         <a href="${classWebLink}" class="cta-button cta-button--secondary">Open in Browser</a>
         <div style="margin-top: 12px; font-size: 12px; color: #8b8b8b;">
           If app does not open, try direct link:
-          <a href="${appSchemeLink}" style="color: #1f7a8c; text-decoration: underline;">Open Skyborne App</a>
+          <a href="${appSchemeLink}" style="color: #c94a7f; text-decoration: underline;">Open Skyborne App</a>
         </div>
       </div>
     </div>

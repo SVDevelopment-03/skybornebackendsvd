@@ -99,6 +99,7 @@ classReminderEmailQueue.process(async (job) => {
               duration,
               timezonesDisplayHtml,
               meetingId,
+              actualMinutesUntilStart,
             )
           : getClassReminderEmailHTML(
               firstName || "there",
@@ -117,11 +118,15 @@ classReminderEmailQueue.process(async (job) => {
 
       const subject =
         reminderMode === "afterCreation"
-          ? getSessionScheduledEmailSubject(meetingTitle, localDate, localTime)
+          ? getSessionScheduledEmailSubject(
+              meetingTitle,
+              localDate,
+              localTime,
+              actualMinutesUntilStart,
+            )
           : getClassReminderEmailSubject(
               meetingTitle,
               renderedReminderMinutes,
-              reminderMode,
               localTime,
               localDate,
             );

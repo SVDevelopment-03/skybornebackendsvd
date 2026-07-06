@@ -513,9 +513,14 @@ static async getCountriesByRegion(regionName: string) {
       });
 
       if (!within24Hours) {
+        console.log("[ClassReminderService] scheduleMeetingCreationReminder:skip", {
+          meetingId: String(meeting._id),
+          reason: "Meeting is more than 24 hours away or already started; no immediate reminder will be sent",
+          timeUntilStartMs,
+        });
         return {
           success: false,
-          message: "Meeting is not within 24 hours or has already started",
+          message: "Meeting is more than 24 hours away; no immediate reminder will be sent",
         };
       }
 
