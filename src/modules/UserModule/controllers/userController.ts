@@ -3,6 +3,7 @@ import UserService from "../services/userService";
 import User from "../models/User";
 import AccountDeletionRequest from "../models/AccountDeletionRequest";
 import DeviceToken from "../../NotificationModule/models/DeviceToken";
+import TempUser from "../models/TempUser";
 import MeetingAttendance from "../../MeetingModule/MeetingModels/MeetingAttendance";
 import Service from "../../ServiceModule/models/Service";
 import Meeting from "../../MeetingModule/MeetingModels/Meeting";
@@ -13,6 +14,7 @@ import { Feedback } from "../../FeedbackModule/FeedbackModel";
 import UserSubscription from "../../PaymentModule/models/Subscription";
 import { StripeService } from "../../PaymentModule/services/stripe.service";
 import { NgeniusService } from "../../../services/ngenius.service";
+import { getEffectiveClassCredits } from "../../../utils/creditUtils";
 import {
   notifyAccountDeletionDecision,
   notifyAccountDeletionRejection,
@@ -300,7 +302,9 @@ export class UserController {
       }
 
       // Fetch user data
-      const user = await User.findById(userId).select("plan classCredits");
+      const user = await User.findById(userId).select(
+        "plan classCredits subscription",
+      );
 
       if (!user) {
         return res.status(404).json({
@@ -340,10 +344,11 @@ export class UserController {
       });
 
       // 2. Get Total Credits
+      const effectiveCredits = getEffectiveClassCredits(user);
       const totalCredits =
-        (Number(user.classCredits?.yoga) || 0) +
-        (Number(user.classCredits?.zumba) || 0) +
-        (Number(user.classCredits?.specialty) || 0);
+        (Number(effectiveCredits.yoga) || 0) +
+        (Number(effectiveCredits.zumba) || 0) +
+        (Number(effectiveCredits.specialty) || 0);
 
       // 3. Count Classes Attended
       const classesAttended = await MeetingAttendance.countDocuments({
@@ -707,6 +712,12 @@ export class UserController {
       }
 
       await anonymizeUserAccount(user);
+      // Remove any temporary verification/session entries tied to this email
+      try {
+        await TempUser.deleteMany({ email: request.email });
+      } catch (err) {
+        console.error("Error deleting TempUser records:", err);
+      }
 
       const notifications = await notifyAccountDeletionDecision({
         userId: String(user._id),
