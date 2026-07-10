@@ -28,7 +28,7 @@ test("emailSignup normalizes temp-user email casing before creating the account"
         lean: async () => null,
       }),
     })) as unknown as typeof AccountDeletionRequest.findOne;
-    AccountDeletionRequest.updateMany = (async () => ({ acknowledged: true })) as typeof AccountDeletionRequest.updateMany;
+    AccountDeletionRequest.updateMany = (async () => ({ acknowledged: true })) as unknown as typeof AccountDeletionRequest.updateMany;
 
     User.findOne = (async () => null) as typeof User.findOne;
 
@@ -84,7 +84,7 @@ test("emailSignup reactivates an inactive user when the same email is used again
         lean: async () => null,
       }),
     })) as unknown as typeof AccountDeletionRequest.findOne;
-    AccountDeletionRequest.updateMany = (async () => ({ acknowledged: true })) as typeof AccountDeletionRequest.updateMany;
+    AccountDeletionRequest.updateMany = (async () => ({ acknowledged: true })) as unknown as typeof AccountDeletionRequest.updateMany;
 
     const inactiveUser = {
       _id: "inactive-user-id",
@@ -160,7 +160,7 @@ test("emailSignup reactivates a user when a pending deletion request exists", as
         }),
       }),
     })) as unknown as typeof AccountDeletionRequest.findOne;
-    AccountDeletionRequest.updateMany = (async () => ({ acknowledged: true })) as typeof AccountDeletionRequest.updateMany;
+    AccountDeletionRequest.updateMany = (async () => ({ acknowledged: true })) as unknown as typeof AccountDeletionRequest.updateMany;
 
     const result = await AuthService.emailSignup({
       firstName: "Jane",
@@ -230,7 +230,7 @@ test("emailSignup reactivates a user when duplicate key occurs during create", a
         lean: async () => null,
       }),
     })) as unknown as typeof AccountDeletionRequest.findOne;
-    AccountDeletionRequest.updateMany = (async () => ({ acknowledged: true })) as typeof AccountDeletionRequest.updateMany;
+    AccountDeletionRequest.updateMany = (async () => ({ acknowledged: true })) as unknown as typeof AccountDeletionRequest.updateMany;
 
     const result = await AuthService.emailSignup({
       firstName: "Jane",
@@ -272,7 +272,7 @@ test("emailSignup returns a conflict error when a duplicate phone number already
         lean: async () => null,
       }),
     })) as unknown as typeof AccountDeletionRequest.findOne;
-    AccountDeletionRequest.updateMany = (async () => ({ acknowledged: true })) as typeof AccountDeletionRequest.updateMany;
+    AccountDeletionRequest.updateMany = (async () => ({ acknowledged: true })) as unknown as typeof AccountDeletionRequest.updateMany;
 
     User.findOne = (async (query: any) => {
       if (query?.email) {
@@ -304,7 +304,7 @@ test("emailSignup returns a conflict error when a duplicate phone number already
         } as any),
       (error: unknown) => {
         assert.ok(error instanceof ConflictError);
-        assert.equal(error.message, "User already exists");
+        assert.equal(error.message, "Phone number already in use");
         return true;
       },
     );

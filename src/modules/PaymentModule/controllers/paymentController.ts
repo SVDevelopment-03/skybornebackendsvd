@@ -11,6 +11,7 @@ import { PlanType } from "../../UserModule/interface/userInterface";
 import PlanModel from "../../PlanModule/models/Plan";
 import { generateInvoicePDF } from "../../../services/invoiceService";
 import { getVatRateForCountry } from "../../../utils/vat";
+import { applySubscriptionCreditPolicy, hasActiveSubscription } from "../../../utils/creditUtils";
 import { v4 as uuidv4 } from "uuid";
 import {
   getPreferredGateway,
@@ -1393,35 +1394,34 @@ export default class PaymentController {
             };
           }
 
-          // Check if user has an existing active plan
-          const hasExistingPlan =
-            user.plan && user.subscription?.status === "active";
           const previousPlan = String(user.plan || "").trim();
+          const hasExistingPlan = Boolean(user.plan);
 
-          // Update classCredits
-          if (hasExistingPlan) {
-            user.classCredits = addCredits(user.classCredits, newCredits);
-          } else {
-            user.classCredits = {
-              yoga: newCredits.yoga || 0,
-              zumba: newCredits.zumba || 0,
-              specialty: newCredits.specialty || 0,
-            };
-          }
+          applySubscriptionCreditPolicy(user);
 
-          user.overAllclassCredits = addCredits(
-            user.overAllclassCredits,
-            newCredits,
-          );
+          // NEW POLICY: subscription-backed credits do not carry over on repurchase.
+          // If the user buys a new plan or renews, the available balance is replaced
+          // by the new subscription credit allocation.
+          user.classCredits = {
+            yoga: newCredits.yoga || 0,
+            zumba: newCredits.zumba || 0,
+            specialty: newCredits.specialty || 0,
+          };
 
-          // Calculate new totalClassCredits (cumulative total)
+          // Reset old credits when a new plan is purchased, then assign the
+          // new plan's credit allocation.
+          user.overAllclassCredits = {
+            yoga: newCredits.yoga || 0,
+            zumba: newCredits.zumba || 0,
+            specialty: newCredits.specialty || 0,
+          };
+
           const totalNewCredits =
             (newCredits?.yoga || 0) +
             (newCredits?.zumba || 0) +
             (newCredits?.specialty || 0);
 
-          user.totalClassCredits =
-            (user.totalClassCredits || 0) + totalNewCredits;
+          user.totalClassCredits = totalNewCredits;
 
           // ✅ Calculate subscription end date based on billing type
           const subscriptionDuration = billingType === "yearly"
@@ -2496,6 +2496,15 @@ export default class PaymentController {
           String((user as any)?.localNumber || "");
         const phoneNumber = (user as any)?.phoneNumber || fallbackPhone.trim() || "";
 
+        await User.findByIdAndUpdate(userId, {
+          "subscription.status": "cancelled",
+          "subscription.cancelledAt": new Date(),
+          stripeSubscriptionId: null,
+          classCredits: { yoga: 0, zumba: 0, specialty: 0 },
+          overAllclassCredits: { yoga: 0, zumba: 0, specialty: 0 },
+          totalClassCredits: 0,
+        });
+
         await CancelSubscriptionModel.findOneAndUpdate(
           { userId: String(user._id) },
           {
@@ -2590,7 +2599,7 @@ export default class PaymentController {
         });
       }
 
-      // ✅ Update user subscription status (single operation)
+      // ✅ Update user subscription status and clear all credits
       const updatedUser = await User.findByIdAndUpdate(
         userId,
         {
@@ -2598,6 +2607,10 @@ export default class PaymentController {
           "subscription.cancelledAt": new Date(),
           // Optional: Clear the subscription ID on cancel
           stripeSubscriptionId: null,
+          // Clear all class credits when subscription is cancelled
+          classCredits: { yoga: 0, zumba: 0, specialty: 0 },
+          overAllclassCredits: { yoga: 0, zumba: 0, specialty: 0 },
+          totalClassCredits: 0,
         },
         { new: true },
       );

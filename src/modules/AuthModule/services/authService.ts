@@ -47,19 +47,19 @@ static async emailSignup(data: SignupTypes) {
   if (normalizeEmail(tempUser.email) !== normalizedEmail)
     throw new BadRequestError("Email mismatch");
 
-  const pendingDeletionRequest = await AccountDeletionRequest.findOne({
+  const pendingDeletionRequest: any = await AccountDeletionRequest.findOne({
     email: normalizedEmail,
     status: "requested",
   })
     .sort({ requestedAt: -1 })
     .lean();
 
-  let existingUser = await User.findOne({
-    $or: [
-      buildCaseInsensitiveEmailQuery(normalizedEmail),
-      ...(normalizedPhoneNumber ? [{ phoneNumber: normalizedPhoneNumber }] : []),
-    ],
-  });
+  const emailMatchedUser = await User.findOne(buildCaseInsensitiveEmailQuery(normalizedEmail));
+  const phoneMatchedUser = normalizedPhoneNumber
+    ? await User.findOne({ phoneNumber: normalizedPhoneNumber })
+    : null;
+
+  let existingUser = emailMatchedUser || phoneMatchedUser;
 
   if (!existingUser && pendingDeletionRequest?.userId) {
     existingUser = await User.findById(pendingDeletionRequest.userId);
@@ -68,6 +68,11 @@ static async emailSignup(data: SignupTypes) {
   let user;
   try {
     if (existingUser) {
+      // If one or both fields match different users, report specific conflict
+      if (emailMatchedUser && phoneMatchedUser && emailMatchedUser._id?.toString() !== phoneMatchedUser._id?.toString()) {
+        throw new ConflictError("Email and phone number already in use");
+      }
+
       const shouldReactivate = !existingUser.isActive || !!pendingDeletionRequest;
 
       if (shouldReactivate) {
@@ -100,7 +105,12 @@ static async emailSignup(data: SignupTypes) {
 
         user = existingUser;
       } else {
-        throw new ConflictError("User already exists");
+        const conflicts: string[] = [];
+        if (emailMatchedUser) conflicts.push("Email");
+        if (phoneMatchedUser) conflicts.push("Phone number");
+
+        const message = conflicts.length > 1 ? `${conflicts.join(' and ')} already in use` : `${conflicts[0]} already in use`;
+        throw new ConflictError(message);
       }
     } else {
       user = await User.create({
@@ -155,7 +165,17 @@ static async emailSignup(data: SignupTypes) {
         return { user: duplicateUser, tokens: generateTokens(duplicateUser) };
       }
 
-      throw new ConflictError("User already exists");
+      // Determine which field(s) caused the duplicate
+      const dupConflicts: string[] = [];
+      if (duplicateUser) {
+        const dupEmailMatches = duplicateUser.email && normalizeEmail(duplicateUser.email) === normalizedEmail;
+        const dupPhoneMatches = normalizedPhoneNumber && duplicateUser.phoneNumber === normalizedPhoneNumber;
+        if (dupEmailMatches) dupConflicts.push("Email");
+        if (dupPhoneMatches) dupConflicts.push("Phone number");
+      }
+
+      const dupMessage = dupConflicts.length > 1 ? `${dupConflicts.join(' and ')} already in use` : dupConflicts[0] ? `${dupConflicts[0]} already in use` : "User already exists";
+      throw new ConflictError(dupMessage);
     }
 
     throw error;

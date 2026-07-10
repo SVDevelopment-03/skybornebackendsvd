@@ -24,6 +24,17 @@ import { NotFoundError } from "../../../handlers/httpError.handler";
 
 // Helper function for logging auth events
 
+const normalizeEmail = (value?: string | null) => String(value ?? "").trim().toLowerCase();
+
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const buildCaseInsensitiveEmailQuery = (email?: string | null) => ({
+  email: {
+    $regex: `^${escapeRegExp(normalizeEmail(email))}$`,
+    $options: "i",
+  },
+});
+
 export class AuthController {
   static async signup(req: Request, res: Response, next: NextFunction) {
     try {
@@ -352,29 +363,33 @@ export class AuthController {
   static async sendOTP(req: Request, res: Response) {
     try {
       const { email } = req.body;
+      const normalizedEmail = normalizeEmail(email);
 
-      if (!email) {
+      if (!normalizedEmail) {
         return res.status(400).json({
           success: false,
           message: "Email is required",
         });
       }
 
-      let tempUser = await TempUser.findOne({ email });
+      let tempUser = await TempUser.findOne(buildCaseInsensitiveEmailQuery(normalizedEmail));
 
       // 1️⃣ Create temp user if not exists
       if (!tempUser) {
         tempUser = await TempUser.create({
-          email,
+          email: normalizedEmail,
           otpVerified: false,
         });
+      } else if (normalizeEmail(tempUser.email) !== normalizedEmail) {
+        tempUser.email = normalizedEmail;
+        await tempUser.save();
       }
 
       // 2️⃣ Generate & store OTP in redis
-      const otp = await OTPService.generateAndStoreOTP(email);
+      const otp = await OTPService.generateAndStoreOTP(normalizedEmail);
 
       // 3️⃣ Send email OTP
-      await OTPService.sendEmailOTP(email, otp);
+      await OTPService.sendEmailOTP(normalizedEmail, otp);
 
       return res.status(200).json({
         success: true,
@@ -399,9 +414,10 @@ export class AuthController {
   static async verifyOTP(req: Request, res: Response) {
     try {
       const { email, otp } = req.body;
+      const normalizedEmail = normalizeEmail(email);
 
       // 1️⃣ Validate OTP via Redis
-      const valid = await OTPService.verifyOTP(email, otp);
+      const valid = await OTPService.verifyOTP(normalizedEmail, otp);
 
       if (!valid) {
         return res.status(400).json({
@@ -411,13 +427,17 @@ export class AuthController {
       }
 
       // 2️⃣ Update temporary user
-      const tempUser = await TempUser.findOne({ email });
+      const tempUser = await TempUser.findOne(buildCaseInsensitiveEmailQuery(normalizedEmail));
 
       if (!tempUser) {
         return res.status(404).json({
           success: false,
           message: "Temporary session not found",
         });
+      }
+
+      if (normalizeEmail(tempUser.email) !== normalizedEmail) {
+        tempUser.email = normalizedEmail;
       }
 
       tempUser.otpVerified = true;
@@ -461,7 +481,9 @@ export class AuthController {
         });
       }
 
-      if (!email) {
+      const normalizedEmail = normalizeEmail(email);
+
+      if (!normalizedEmail) {
         return res.status(400).json({
           success: false,
           message: "Email is required",
@@ -469,7 +491,7 @@ export class AuthController {
       }
 
       // Rate limiting
-      const remainingTime = await OTPService.getOTPRemainingTime(email);
+      const remainingTime = await OTPService.getOTPRemainingTime(normalizedEmail);
       if (remainingTime > 570) {
         // 600 - 570 = 30 seconds
         return res.status(429).json({
@@ -482,7 +504,7 @@ export class AuthController {
       }
 
       // Resend OTP
-      const otp = await OTPService.resendOTP(email);
+      const otp = await OTPService.resendOTP(normalizedEmail);
 
       const user = await User.findById(userId);
       if (user) {
@@ -500,7 +522,7 @@ export class AuthController {
         success: true,
         message: "OTP resent successfully",
         data: {
-          email: email.replace(/(.{2}).+(@.+)/, "$1****$2"), // masking
+          email: normalizedEmail.replace(/(.{2}).+(@.+)/, "$1****$2"), // masking
           expiresIn: 600,
         },
       });
@@ -533,8 +555,9 @@ export class AuthController {
 
   static async requestPasswordReset(req: Request, res: Response) {
     const { email } = req.body;
+    const normalizedEmail = normalizeEmail(email);
 
-    const user = await User.findOne({ email });
+    const user = await User.findOne(buildCaseInsensitiveEmailQuery(normalizedEmail));
     if (!user) {
       throw new NotFoundError("No account found with this email");
     }
@@ -545,17 +568,20 @@ export class AuthController {
       },
     );
 
-    let tempUser = await TempUser.findOne({ email });
+    let tempUser = await TempUser.findOne(buildCaseInsensitiveEmailQuery(normalizedEmail));
 
     if (!tempUser) {
       tempUser = await TempUser.create({
-        email,
+        email: normalizedEmail,
         otpVerified: false,
       });
+    } else if (normalizeEmail(tempUser.email) !== normalizedEmail) {
+      tempUser.email = normalizedEmail;
+      await tempUser.save();
     }
 
-    const otp = await OTPService.generateAndStoreOTP(email);
-    await OTPService.sendEmailOTP(email, otp);
+    const otp = await OTPService.generateAndStoreOTP(normalizedEmail);
+    await OTPService.sendEmailOTP(normalizedEmail, otp);
 
     return res.status(200).json({
       success: true,
@@ -569,17 +595,22 @@ export class AuthController {
 
   static async verifyPasswordResetOTP(req: Request, res: Response) {
     const { email, otp } = req.body;
+    const normalizedEmail = normalizeEmail(email);
 
-    const valid = await OTPService.verifyOTP(email, otp);
+    const valid = await OTPService.verifyOTP(normalizedEmail, otp);
 
     if (!valid) {
       throw new Error("Invalid or expired OTP");
     }
 
-    const tempUser = await TempUser.findOne({ email });
+    const tempUser = await TempUser.findOne(buildCaseInsensitiveEmailQuery(normalizedEmail));
 
     if (!tempUser) {
       throw new Error("Temporary session not found");
+    }
+
+    if (normalizeEmail(tempUser.email) !== normalizedEmail) {
+      tempUser.email = normalizedEmail;
     }
 
     tempUser.otpVerified = true;
@@ -596,13 +627,14 @@ export class AuthController {
 
   static async resetPassword(req: Request, res: Response) {
     const { email, newPassword } = req.body;
+    const normalizedEmail = normalizeEmail(email);
 
-    const tempUser = await TempUser.findOne({ email });
+    const tempUser = await TempUser.findOne(buildCaseInsensitiveEmailQuery(normalizedEmail));
     if (!tempUser?.otpVerified) {
       throw new Error("OTP not verified");
     }
 
-    const user = await User.findOne({ email });
+    const user = await User.findOne(buildCaseInsensitiveEmailQuery(normalizedEmail));
     if (!user) throw new Error("User not found");
 
     user.password = newPassword;
@@ -612,7 +644,7 @@ export class AuthController {
       console.error("❌ Failed to send password-changed push notification:", error?.message || error);
     });
 
-    await TempUser.deleteOne({ email });
+    await TempUser.deleteOne(buildCaseInsensitiveEmailQuery(normalizedEmail));
 
     return res.status(200).json({
       success: true,

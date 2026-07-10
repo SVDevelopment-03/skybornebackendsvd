@@ -3,6 +3,7 @@ import User from "../UserModule/models/User";
 import Meeting from "../MeetingModule/MeetingModels/Meeting";
 import Customer from "../CustomerModule/customer.model";
 import Order from "../OrderModule/order.model";
+import { hasActiveSubscription } from "../../utils/creditUtils";
 import EcomPayment from "../EcomPaymentModule/Ecompayment.model";
 import MailLog from "../MailModule/MailModel";
 import PlanModel from "../PlanModule/models/Plan";
@@ -51,8 +52,15 @@ const sumCredits = (credits?: Partial<CreditSnapshot> | null): CreditSnapshot =>
   };
 };
 
+const getEffectiveCredits = (user: any): CreditSnapshot => {
+  if (!hasActiveSubscription(user)) {
+    return { yoga: 0, zumba: 0, specialty: 0, total: 0 };
+  }
+  return sumCredits(user?.classCredits);
+};
+
 const resolvePurchasedCredits = (user: any): CreditSnapshot => {
-  const current = sumCredits(user?.classCredits);
+  const current = getEffectiveCredits(user);
   const overall = sumCredits(user?.overAllclassCredits);
   const totalClassCredits = Number(user?.totalClassCredits || 0);
   const total = Math.max(current.total, overall.total, totalClassCredits);
@@ -66,7 +74,7 @@ const resolvePurchasedCredits = (user: any): CreditSnapshot => {
 };
 
 const resolveUsedCredits = (user: any): CreditSnapshot => {
-  const current = sumCredits(user?.classCredits);
+  const current = getEffectiveCredits(user);
   const purchased = resolvePurchasedCredits(user);
 
   return {
@@ -80,7 +88,7 @@ const resolveUsedCredits = (user: any): CreditSnapshot => {
 const formatCreditRow = (user: any) => {
   const purchased = resolvePurchasedCredits(user);
   const used = resolveUsedCredits(user);
-  const current = sumCredits(user?.classCredits);
+  const current = getEffectiveCredits(user);
 
   return {
     userId: String(user?._id || ""),

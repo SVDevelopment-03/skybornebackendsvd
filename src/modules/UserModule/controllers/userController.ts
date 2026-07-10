@@ -22,7 +22,7 @@ import {
 
 const userService = new UserService();
 
-async function anonymizeUserAccount(user: any) {
+export async function anonymizeUserAccount(user: any) {
   try {
     await Payment.deleteMany({ userId: user._id });
     await UserSubscription.deleteMany({ userId: user._id });
@@ -42,6 +42,9 @@ async function anonymizeUserAccount(user: any) {
   user.ngeniusCustomerId = undefined as any;
   user.stripeCustomerId = undefined as any;
   user.stripeSubscriptionId = undefined as any;
+  user.classCredits = { yoga: 0, zumba: 0, specialty: 0 };
+  user.overAllclassCredits = { yoga: 0, zumba: 0, specialty: 0 };
+  user.totalClassCredits = 0;
   user.subscription = {
     ...user.subscription,
     status: "cancelled",

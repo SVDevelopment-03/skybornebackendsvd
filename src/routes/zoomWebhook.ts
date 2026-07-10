@@ -6,6 +6,7 @@ import Meeting from "../modules/MeetingModule/MeetingModels/Meeting";
 import User from "../modules/UserModule/models/User";
 import MeetingParticipant from "../modules/MeetingModule/MeetingModels/MeetingParticipant"; // New model
 import Service from "../modules/ServiceModule/models/Service";
+import { applySubscriptionCreditPolicy } from "../utils/creditUtils";
 import { PushNotificationService } from "../services/pushNotification.service";
 
 type TitleType = "yoga" | "zumba" | "specialty";
@@ -130,7 +131,7 @@ router.post("/zoom-webhook", async (req, res) => {
             });
           }
         } catch (error: any) {
-          console.error("❌ Failed to send recording available push notification:", error?.message || error);
+          console.error(" Failed to send recording available push notification:", error?.message || error);
         }
       }
 
@@ -370,11 +371,17 @@ router.post("/zoom-webhook", async (req, res) => {
       (session: ISession) => !!session.leaveTime,
     );
 
+    applySubscriptionCreditPolicy(user);
+
+    const shouldDeductCredit = hasClosedSession && !attendance.creditDeducted;
+
     if (attendance.status !== "completed" && hasClosedSession) {
       attendance.status = "completed";
       attendance.completedAt = now;
       attendance.totalSessions = (attendance.totalSessions || 0) + 1;
+    }
 
+    if (shouldDeductCredit) {
       let serviceTitle = "";
       const meetingService: any = meetingDoc.service;
 
@@ -399,6 +406,7 @@ router.post("/zoom-webhook", async (req, res) => {
       if (currentOverallCredits > 0) {
         user.overAllclassCredits[bucket] = currentOverallCredits - 1;
       }
+      attendance.creditDeducted = true;
       await user.save();
     }
 

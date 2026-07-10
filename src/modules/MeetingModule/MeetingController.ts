@@ -4,6 +4,7 @@ import jwt from "jsonwebtoken";
 import Meeting, { IMeeting, IService } from "./MeetingModels/Meeting";
 import MeetingAttendance from "./MeetingModels/MeetingAttendance";
 import { clearZoomTokenCache, getZoomAccessToken } from "../../utils/zoomAuth";
+import { applySubscriptionCreditPolicy, getEffectiveClassCredits, hasActiveSubscription } from "../../utils/creditUtils";
 import mongoose, { Types } from "mongoose";
 import MeetingParticipant from "./MeetingModels/MeetingParticipant";
 import User from "../UserModule/models/User";
@@ -1242,14 +1243,93 @@ static async GetMeetingRecording(req: Request, res: Response) {
   const startTime = Date.now();
 
   try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    applySubscriptionCreditPolicy(user);
+
     // Step 1: Find meeting
     console.log(`[${requestId}] 📋 Step 1: Finding meeting ${req.params.id}...`);
-    const meeting = await Meeting.findById(req.params.id);
+    const meeting = await Meeting.findById(req.params.id).populate("service", "title");
     if (!meeting) {
       console.log(`[${requestId}] ❌ Meeting not found`);
       return res.status(404).json({ error: "Meeting not found" });
     }
-    console.log(`[${requestId}] ✅ Meeting found: ${meeting.zoomMeetingId}`);
+
+    const serviceType =
+      (meeting?.service as IService)?.title?.toLowerCase() === "zumba dance"
+        ? "zumba"
+        : (meeting?.service as IService)?.title?.toLowerCase();
+
+    if (!user?.role || (user.role !== "trainer" && user.role !== "admin")) {
+      const effectiveCredits = getEffectiveClassCredits(user);
+      const creditCount = Number(effectiveCredits?.[serviceType as ServiceType] || 0);
+
+      if (creditCount <= 0) {
+        return res.status(403).json({
+          error: `You do not have enough ${serviceType} credits to watch this recording`,
+        });
+      }
+
+      let attendance = await MeetingAttendance.findOne({
+        meeting: meeting._id,
+        user: user._id,
+      });
+
+      let shouldDeductReplayCredit = false;
+
+      if (!attendance) {
+        attendance = await MeetingAttendance.create({
+          meeting: meeting._id,
+          user: user._id,
+          status: "completed",
+          joinedAt: new Date(),
+          completedAt: new Date(),
+          totalSessions: 1,
+          sessions: [
+            {
+              joinTime: new Date(),
+              leaveTime: new Date(),
+              duration: 0,
+              mode: "replay",
+            },
+          ],
+          creditDeducted: true,
+        });
+        shouldDeductReplayCredit = true;
+      } else if (!attendance.creditDeducted) {
+        attendance.creditDeducted = true;
+        attendance.status = "completed";
+        attendance.completedAt = attendance.completedAt || new Date();
+        await attendance.save();
+        shouldDeductReplayCredit = true;
+      }
+
+      if (shouldDeductReplayCredit) {
+        user.classCredits = user.classCredits || {};
+        const currentCredits = Number(user.classCredits?.[serviceType as ServiceType] || 0);
+        const creditKey = serviceType as keyof typeof user.classCredits;
+        if (currentCredits > 0) {
+          user.classCredits[creditKey] = currentCredits - 1;
+        }
+        if (!user.overAllclassCredits) {
+          user.overAllclassCredits = { yoga: 0, zumba: 0, specialty: 0 };
+        }
+        const currentOverallCredits = Number(user.overAllclassCredits?.[serviceType as ServiceType] || 0);
+        const overallCreditKey = serviceType as keyof typeof user.overAllclassCredits;
+        if (currentOverallCredits > 0) {
+          user.overAllclassCredits[overallCreditKey] = currentOverallCredits - 1;
+        }
+        await user.save();
+      }
+    }
 
     // Step 2: Get access token
     console.log(`[${requestId}] 🔑 Step 2: Getting Zoom access token...`);
@@ -2210,8 +2290,9 @@ static async GetMeetingRecording(req: Request, res: Response) {
 
       // Check class credits only for regular participants (not trainers or admins)
       if (!isTrainerOrAdmin) {
-        const credits: any =
-          userData.classCredits?.[serviceType as ServiceType] || 0;
+        applySubscriptionCreditPolicy(userData);
+        const effectiveCredits = getEffectiveClassCredits(userData);
+        const credits: any = effectiveCredits?.[serviceType as ServiceType] || 0;
 
         if (credits <= 0) {
           return res.status(403).json({
@@ -2317,7 +2398,40 @@ static async GetMeetingRecording(req: Request, res: Response) {
         }
         attendance.joinedAt = attendance.joinedAt || new Date();
         attendance.totalSessions = (attendance.totalSessions || 0) + 1;
-        await attendance.save();
+      }
+
+      let shouldDeductJoinCredit = false;
+      if (!isTrainerOrAdmin && !attendance.creditDeducted) {
+        attendance.creditDeducted = true;
+        shouldDeductJoinCredit = true;
+      }
+
+      await attendance.save();
+
+      if (shouldDeductJoinCredit) {
+        userData.classCredits = userData.classCredits || {};
+        const currentCredits = Number(
+          userData.classCredits?.[serviceType as ServiceType] || 0,
+        );
+        const creditKey = serviceType as keyof typeof userData.classCredits;
+        if (currentCredits > 0) {
+          userData.classCredits[creditKey] = currentCredits - 1;
+        }
+
+        if (!userData.overAllclassCredits) {
+          userData.overAllclassCredits = { yoga: 0, zumba: 0, specialty: 0 };
+        }
+
+        const currentOverallCredits = Number(
+          userData.overAllclassCredits?.[serviceType as ServiceType] || 0,
+        );
+        const overallCreditKey = serviceType as keyof typeof userData.overAllclassCredits;
+        if (currentOverallCredits > 0) {
+          userData.overAllclassCredits[overallCreditKey] =
+            currentOverallCredits - 1;
+        }
+
+        await userData.save();
       }
 
       // Booking-confirmed notifications were being triggered on "join" / "watch recording",
@@ -2344,8 +2458,6 @@ static async GetMeetingRecording(req: Request, res: Response) {
         data: {
           accessUrl, // Returns joinUrl for live, recordingUrl for replay
           appAccessUrl,
-          // need to change
-          // mode: regionEntry.mode,
           mode: isLiveMode,
           recordUrl,
           attendanceId: attendance._id,

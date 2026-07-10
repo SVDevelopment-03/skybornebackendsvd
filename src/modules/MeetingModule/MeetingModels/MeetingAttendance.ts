@@ -22,6 +22,7 @@ export interface IMeetingAttendance extends Document {
   totalDuration: number; // Total duration in minutes across all sessions
   totalSessions: number; // Total number of sessions attended
   status: "registered" | "joined" | "completed" | "missed";
+  creditDeducted?: boolean;
   joinedAt?: Date; // First join time
   completedAt?: Date; // When fully completed
   correlationToken?: string; // Used to verify identity from Zoom webhook
@@ -120,6 +121,11 @@ const MeetingAttendanceSchema = new Schema<IMeetingAttendance>(
       enum: ["registered", "joined", "completed", "missed"],
       default: "registered",
       index: true,
+    },
+
+    creditDeducted: {
+      type: Boolean,
+      default: false,
     },
 
     joinedAt: {

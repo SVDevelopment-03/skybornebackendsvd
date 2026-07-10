@@ -28,7 +28,6 @@ const publicApi = [
   "/products/published",
   "/products/category/:categoryId",
   "/products/:productId",
-  "/meetings/:id/recording",
   "/mail-management/error-log",
   "/open/class/:meetingId",
   "/payment/stripe-portal-return"
