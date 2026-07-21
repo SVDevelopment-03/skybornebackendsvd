@@ -342,8 +342,11 @@ router.post(
           if (resolvedPaymentIntentId?.startsWith("pi_")) {
             payment.transactionId = resolvedPaymentIntentId;
             payment.paymentIntentId = resolvedPaymentIntentId;
-          } else {
-            console.warn("⚠️ No pi_ payment intent resolved for checkout session", {
+          } else if (session.id?.startsWith("cs_")) {
+            payment.transactionId = session.id;
+          }
+          else {
+            console.warn("⚠️ No pi_ payment intent or cs_ session resolved for checkout session", {
               eventId: event.id,
               orderRef,
               sessionId: session.id,

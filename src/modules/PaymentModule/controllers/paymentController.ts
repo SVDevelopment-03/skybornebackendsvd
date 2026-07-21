@@ -1966,6 +1966,7 @@ export default class PaymentController {
           email: user?.email || "N/A",
           phoneNumber: user?.phoneNumber || "N/A",
           stripeSubscriptionId: user?.stripeSubscriptionId || "N/A",
+          stripeCustomerId: user?.stripeCustomerId || "N/A",
           country: user?.country || "N/A",
           orderRef: payment.orderRef,
           reference: payment.reference,
@@ -2238,8 +2239,9 @@ export default class PaymentController {
       // Generate CSV
       const headers = [
         "Subscription Id",
+        "Stripe Customer ID",
         "Transaction Id",
-        "Order Reference",
+        "Invoice ID",
         "Username",
         "Email",
         "Phone Number",
@@ -2280,8 +2282,9 @@ export default class PaymentController {
 
         return [
           payment.subscriptionId || user?.stripeSubscriptionId || "N/A",
+          user?.stripeCustomerId || "N/A",
           payment.transactionId || "N/A",
-          payment.orderRef || "N/A",
+          payment.invoiceId || "N/A",
           username,
           user?.email || "N/A",
           user?.phoneNumber || "N/A",
