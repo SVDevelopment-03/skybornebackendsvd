@@ -942,6 +942,23 @@ export default class PaymentController {
     const dest = String(req.query?.dest || "web").toLowerCase();
     const fallbackWebUrl = `${process.env.FRONTEND_URL || ""}/payments`;
 
+    const userId = String(req.query?.userId || req.query?.user || "").trim();
+    const customerId = String(req.query?.customerId || "").trim();
+
+    if (userId) {
+      try {
+        const user = await User.findById(userId);
+        if (user) {
+          await StripeService.syncSubscriptionDefaultPaymentMethod(
+            user,
+            customerId || user.stripeCustomerId || undefined,
+          );
+        }
+      } catch (error) {
+        console.warn("⚠️ Failed to sync Stripe subscription after billing portal return:", error);
+      }
+    }
+
     if (dest !== "app") {
       return res.redirect(302, fallbackWebUrl);
     }

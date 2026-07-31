@@ -804,6 +804,11 @@ export class StripeService {
         ? returnUrl
         : fallbackReturnUrl;
 
+    const returnUrlWithContext = new URL(safeReturnUrl);
+    returnUrlWithContext.searchParams.set("userId", String(user?._id || ""));
+    returnUrlWithContext.searchParams.set("customerId", customerId);
+    const portalReturnUrl = returnUrlWithContext.toString();
+
     // Force the "payment method update" flow so the portal doesn't show subscription
     // management actions (e.g., cancel subscription).
     const configurationId = String(
@@ -835,17 +840,57 @@ export class StripeService {
         type: "payment_method_update",
         after_completion: {
           type: "redirect",
-          redirect: { return_url: safeReturnUrl },
+          redirect: { return_url: portalReturnUrl },
         },
       },
       // Keep return_url for backward-compatibility with older portal behavior.
-      return_url: safeReturnUrl,
+      return_url: portalReturnUrl,
     } as any);
 
     return {
       customerId,
       url: session.url,
     };
+  }
+
+  static async syncSubscriptionDefaultPaymentMethod(
+    user: any,
+    customerId?: string,
+    subscriptionId?: string,
+  ) {
+    const stripe = this.getStripeClient();
+    const resolvedCustomerId = customerId || (await this.getExistingCustomer(user));
+    const resolvedSubscriptionId = subscriptionId || user?.stripeSubscriptionId;
+
+    if (!resolvedCustomerId || !resolvedSubscriptionId) {
+      return null;
+    }
+
+    const customer = (await stripe.customers.retrieve(resolvedCustomerId)) as any;
+    const defaultPaymentMethodId =
+      typeof customer?.invoice_settings?.default_payment_method === "string"
+        ? customer.invoice_settings.default_payment_method
+        : customer?.invoice_settings?.default_payment_method?.id || null;
+
+    if (!defaultPaymentMethodId) {
+      return null;
+    }
+
+    const subscription = (await stripe.subscriptions.retrieve(resolvedSubscriptionId)) as any;
+    const currentDefaultPaymentMethodId =
+      typeof subscription?.default_payment_method === "string"
+        ? subscription.default_payment_method
+        : subscription?.default_payment_method?.id || null;
+
+    if (currentDefaultPaymentMethodId === defaultPaymentMethodId) {
+      return { subscriptionId: resolvedSubscriptionId, defaultPaymentMethodId };
+    }
+
+    await stripe.subscriptions.update(resolvedSubscriptionId, {
+      default_payment_method: defaultPaymentMethodId,
+    });
+
+    return { subscriptionId: resolvedSubscriptionId, defaultPaymentMethodId };
   }
 
   static async setDefaultPaymentMethodForUser(
@@ -907,9 +952,7 @@ export class StripeService {
 
     if (user.stripeSubscriptionId) {
       try {
-        await stripe.subscriptions.update(user.stripeSubscriptionId, {
-          default_payment_method: paymentMethodId,
-        });
+        await this.syncSubscriptionDefaultPaymentMethod(user, customerId, user.stripeSubscriptionId);
       } catch (error) {
         console.warn("⚠️ Failed to update Stripe subscription default payment method:", error);
       }
