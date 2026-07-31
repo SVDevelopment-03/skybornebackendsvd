@@ -10,6 +10,7 @@ import {
   formatAmountForStripe,
 } from "../../../config/currencyConfig";
 import { convertUsingDB } from "../../../services/dbCurrencyService";
+import { resolvePlanPrice } from "../../../services/planPricing.service";
 
 dotenv.config();
 
@@ -1437,7 +1438,7 @@ export class StripeService {
       for (const user of activeUsers) {
         try {
           const billingType = user.billingType || "monthly";
-          const planAmount = this.getPlanAmount(user.plan as string);
+          const planAmount = await this.getPlanAmount(user.plan as string, billingType as any);
           
           // await this.chargeRecurringPayment(
           //   user._id.toString(),
@@ -1484,16 +1485,11 @@ export class StripeService {
   /**
    * Get plan amount
    */
-  private static getPlanAmount(plan: string): number {
-    const PLAN_AMOUNTS: { [key: string]: number } = {
-      "gold-yoga": 100,
-      "gold-zumba": 100,
-      "gold-mixed": 100,
-      diamond: 200,
-      platinum: 300,
-    };
-
-    return PLAN_AMOUNTS[plan.toLowerCase()] || 50;
+  private static async getPlanAmount(
+    plan: string,
+    billingType: "monthly" | "yearly" = "monthly",
+  ): Promise<number> {
+    return resolvePlanPrice(plan, billingType);
   }
 
   /**

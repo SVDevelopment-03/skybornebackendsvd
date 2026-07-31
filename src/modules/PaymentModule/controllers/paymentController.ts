@@ -17,6 +17,7 @@ import {
   getPreferredGateway,
   isGatewaySupported,
 } from "../../../config/paymentGatewayConfig";
+import { resolvePlanPrice } from "../../../services/planPricing.service";
 import { getIO } from "../../../config/socket";
 import CancelSubscriptionModel from "../../CancelSubscriptionModule/CancelSubscriptionModel";
 import RecurringPaymentFailure from "../models/RecurringPaymentFailure";
@@ -174,7 +175,16 @@ export default class PaymentController {
         successUrl || process.env.APP_PAYMENT_SUCCESS_URL;
       const appCancelUrl =
         cancelUrl || process.env.APP_PAYMENT_CANCEL_URL;
-      let userAmount = Number(amount) || 0;
+      const planAmount = await resolvePlanPrice(plan, billingType as "monthly" | "yearly");
+      if (planAmount <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid plan or plan amount not found",
+        });
+      }
+
+      amount = planAmount;
+      const userAmount = planAmount;
 
       if (paymentSource === "app" && (!appSuccessUrl || !appCancelUrl)) {
         return res.status(500).json({
@@ -318,10 +328,10 @@ export default class PaymentController {
         cancelUrl,
       } = req.body;
 
-      if (!userId || !plan || amount === undefined || amount === null) {
+      if (!userId || !plan) {
         return res.status(400).json({
           success: false,
-          message: "userId, plan and amount are required",
+          message: "userId and plan are required",
         });
       }
 
@@ -331,6 +341,16 @@ export default class PaymentController {
           message: "billingType must be 'monthly' or 'yearly'",
         });
       }
+
+      const planAmount = await resolvePlanPrice(plan, billingType as "monthly" | "yearly");
+      if (planAmount <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid plan or plan amount not found",
+        });
+      }
+      amount = planAmount;
+      const userAmount = planAmount;
 
       const normalizedSource = String(source ?? "")
         .trim()
@@ -355,7 +375,6 @@ export default class PaymentController {
       const paymentSource = isAppSource ? "app" : "web";
       const appSuccessUrl = successUrl || process.env.APP_PAYMENT_SUCCESS_URL;
       const appCancelUrl = cancelUrl || process.env.APP_PAYMENT_CANCEL_URL;
-      const userAmount = Number(amount) || 0;
 
       if (paymentSource === "app" && (!appSuccessUrl || !appCancelUrl)) {
         return res.status(500).json({
@@ -1790,6 +1809,13 @@ export default class PaymentController {
 
       // Get last payment
       const lastPayment = payments.length > 0 ? payments[0] : null;
+      const currentUser = await User.findById(userId).select("plan billingType").lean();
+      const billingType = (currentUser?.billingType === "yearly" ? "yearly" : "monthly") as "monthly" | "yearly";
+      const nextPaymentAmount = currentUser?.plan
+        ? await resolvePlanPrice(String(currentUser.plan), billingType)
+        : lastPayment
+          ? Number(lastPayment.amount || 0)
+          : 0;
 
       // Get payment counts by status
       const allPayments = await Payment.find({ userId }).lean();
@@ -1806,7 +1832,8 @@ export default class PaymentController {
           totalSpent: parseFloat(totalSpent.toFixed(2)),
           thisMonth: parseFloat(thisMonth.toFixed(2)),
           totalTransactions: payments.length,
-          lastPaymentAmount: lastPayment ? lastPayment.amount : 0,
+          lastPaymentAmount: parseFloat(Number(nextPaymentAmount || 0).toFixed(2)),
+          nextPaymentAmount: parseFloat(Number(nextPaymentAmount || 0).toFixed(2)),
           lastPaymentDate: lastPayment ? lastPayment.createdAt : null,
           statusCounts,
         },

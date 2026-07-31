@@ -2,6 +2,7 @@ import axios, { AxiosError } from "axios";
 import Payment from "../modules/PaymentModule/models/Payment";
 import User from "../modules/UserModule/models/User";
 import cron from "node-cron";
+import { resolvePlanPrice } from "./planPricing.service";
 import dotenv from 'dotenv';
 dotenv.config()
 
@@ -95,7 +96,8 @@ export class NgeniusService {
         throw new Error(`User ${userId} not found or has no plan`);
       }
 
-      const amount = this.getPlanAmount(plan);
+      const billingType = user.billingType || "monthly";
+      const amount = await this.getPlanAmount(plan, billingType as "monthly" | "yearly");
 
       // Create recurring order
       const { orderRef, reference } = await this.createOrder(
@@ -104,7 +106,8 @@ export class NgeniusService {
         userId,
         plan,
         amount,
-        "app" // Mark as app source for webhook verification
+        "app", // Mark as app source for webhook verification
+        billingType as "monthly" | "yearly",
       );
 
       // Verify payment after short delay
@@ -217,16 +220,11 @@ export class NgeniusService {
   /**
    * Get plan amount from config
    */
-  private static getPlanAmount(plan: string): number {
-    const PLAN_AMOUNTS: { [key: string]: number } = {
-      "gold-yoga": 99.99,
-      "gold-zumba": 99.99,
-      "gold-mixed": 129.99,
-      "diamond": 199.99,
-      "platinum": 299.99,
-    };
-
-    return PLAN_AMOUNTS[plan.toLowerCase()] || 99.99;
+  private static async getPlanAmount(
+    plan: string,
+    billingType: "monthly" | "yearly" = "monthly",
+  ): Promise<number> {
+    return resolvePlanPrice(plan, billingType);
   }
 
   /**
