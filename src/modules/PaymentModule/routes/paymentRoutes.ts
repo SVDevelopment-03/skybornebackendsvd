@@ -15,14 +15,26 @@ export const PaymentApiRoutes = [
     method: "post",
   },
   {
+    path: "/payment/create-native-order",
+    request: null,
+    action: PaymentController.createNativePaymentOrder,
+    method: "post",
+  },
+  {
     path: "/payment/upgrade-order",
     request: null,
     action: PaymentController.upgradePlanOrder,
     method: "post",
   },
-    {
+  {
+    path: "/payment/create-native-upgrade-order",
+    request: null,
+    action: PaymentController.createNativeUpgradeOrder,
+    method: "post",
+  },
+  {
     path: "/payment/verify-mobile",
-    requyoest: null,
+    request: null,
     action: PaymentController.verifyMobilePayment,
     method: "post",
   },
@@ -106,6 +118,18 @@ export const PaymentApiRoutes = [
   {
     path: "/payment/card-portal-session",
     action: PaymentController.createCardPortalSession,
+    request: null,
+    method: "post",
+  },
+  {
+    path: "/payment/create-card-setup-intent",
+    action: PaymentController.createCardSetupIntent,
+    request: null,
+    method: "post",
+  },
+  {
+    path: "/payment/confirm-card-setup-intent",
+    action: PaymentController.confirmCardSetupIntent,
     request: null,
     method: "post",
   },

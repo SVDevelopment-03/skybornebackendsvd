@@ -792,6 +792,16 @@ export class StripeService {
     };
   }
 
+  static async getSetupIntent(setupIntentId: string) {
+    const stripe = this.getStripeClient();
+    try {
+      return await stripe.setupIntents.retrieve(setupIntentId);
+    } catch (error) {
+      console.error("❌ Error retrieving setup intent:", error);
+      throw error;
+    }
+  }
+
   static async createCardUpdatePortalSession(user: any, returnUrl?: string) {
     const stripe = this.getStripeClient();
     const customerId = await this.getExistingCustomer(user);
@@ -1072,8 +1082,8 @@ export class StripeService {
       // Create payment intent
       const paymentIntent = await this.stripe.paymentIntents.create({
         customer: customerId,
-        amount: stripeAmount, // ✅ FIXED: Now defined
-        currency: localCurrency, // ✅ FIXED: Now defined
+        amount: stripeAmount,
+        currency: localCurrency,
         description: `Plan: ${plan} - ${billingType === "yearly" ? "Annual" : "Monthly"} Subscription`,
         metadata: {
           userId: userId,
@@ -1081,6 +1091,9 @@ export class StripeService {
           orderRef,
           billingType,
           isRecurring: "true",
+        },
+        automatic_payment_methods: {
+          enabled: true,
         },
         off_session: false,
         setup_future_usage: "off_session",
@@ -1120,6 +1133,16 @@ export class StripeService {
   /**
    * Get payment intent status
    */
+  static async getPaymentIntent(paymentIntentId: string) {
+    const stripe = this.getStripeClient();
+    try {
+      return await stripe.paymentIntents.retrieve(paymentIntentId);
+    } catch (error) {
+      console.error("❌ Error retrieving payment intent:", error);
+      throw error;
+    }
+  }
+
   static async getPaymentIntentStatus(paymentIntentId: string): Promise<{
     status: string;
     amount: number;

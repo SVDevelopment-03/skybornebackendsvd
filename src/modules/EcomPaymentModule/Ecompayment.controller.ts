@@ -84,6 +84,96 @@ export class EcomPaymentController {
     };
   }
 
+  createNativePaymentIntent = async (req: Request, res: Response) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ success: false, message: "Unauthorized" });
+      }
+
+      const userId = req.user.id;
+      const { shippingAddress, source = "app" } = req.body as {
+        shippingAddress: any;
+        source?: "app" | "web";
+      };
+
+      if (
+        !shippingAddress?.firstName ||
+        !shippingAddress?.lastName ||
+        !shippingAddress?.address ||
+        !shippingAddress?.city ||
+        !shippingAddress?.zip
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Complete shipping address is required",
+        });
+      }
+
+      const cart = await Cart.findOne({ userId }).lean();
+      if (!cart || cart.items.length === 0) {
+        return res.status(400).json({ success: false, message: "Cart is empty" });
+      }
+
+      const user = await User.findById(userId).lean();
+      if (!user) {
+        return res.status(404).json({ success: false, message: "User not found" });
+      }
+
+      const checkoutEmail =
+        String(shippingAddress?.email || "").trim().toLowerCase() ||
+        String((user as any).email || "").trim().toLowerCase();
+
+      const fingerprint = this.normalizeFingerprintItems(
+        cart.items.map((item: any) => ({
+          productId: item.product?.toString?.() || String(item.product),
+          quantity: item.quantity,
+        }))
+      );
+
+      if (await this.hasAnyOrderToday(userId)) {
+        return res.status(409).json({
+          success: false,
+          message: "You already placed an order today. Please try again tomorrow.",
+        });
+      }
+
+      if (await this.hasSameOrderToday(userId, fingerprint)) {
+        return res.status(409).json({
+          success: false,
+          message: "You already placed the same order today",
+        });
+      }
+
+      const result = await EcomStripeService.createEcomPaymentIntent(
+        userId,
+        cart.items.map((item: any) => ({
+          productId: item.product?.toString?.() || String(item.product),
+          name: item.name,
+          price: item.price,
+          quantity: item.quantity,
+          image: item.image,
+        })),
+        shippingAddress,
+        checkoutEmail,
+        source
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: "Native payment intent created",
+        data: {
+          paymentIntentId: result.paymentIntentId,
+          clientSecret: result.clientSecret,
+          orderRef: result.orderRef,
+          amount: result.amount,
+        },
+      });
+    } catch (error: any) {
+      console.error("❌ [EcomPayment] createNativePaymentIntent error:", error.message);
+      return res.status(500).json({ success: false, message: error.message });
+    }
+  };
+
   /**
    * POST /ecom-payments/create-checkout-session
    * Creates a Stripe Checkout session for the user's current cart.

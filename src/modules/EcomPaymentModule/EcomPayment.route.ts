@@ -9,6 +9,12 @@ export const EcomPaymentRoute = [
    * Body: { shippingAddress: { firstName, lastName, address, city, zip } }
    */
   {
+    path: "/ecom-payments/create-native-payment-intent",
+    request: null,
+    action: _ecomPaymentController.createNativePaymentIntent,
+    method: "post",
+  },
+  {
     path: "/ecom-payments/create-checkout-session",
     request: null,
     action: _ecomPaymentController.createCheckoutSession,

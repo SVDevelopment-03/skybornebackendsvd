@@ -315,6 +315,212 @@ export default class PaymentController {
     }
   }
 
+  static async createNativePaymentOrder(req: Request, res: Response) {
+    try {
+      let {
+        userId,
+        plan,
+        currency = "USD",
+        billingType = "monthly",
+        source,
+      } = req.body;
+
+      if (!userId || !plan) {
+        return res.status(400).json({
+          success: false,
+          message: "userId and plan are required",
+        });
+      }
+
+      if (!["monthly", "yearly"].includes(billingType)) {
+        return res.status(400).json({
+          success: false,
+          message: "billingType must be 'monthly' or 'yearly'",
+        });
+      }
+
+      const normalizedSource = String(source ?? "")
+        .trim()
+        .toLowerCase();
+      const userAgent = String(req.headers["user-agent"] ?? "").toLowerCase();
+      const explicitClientSource = String(
+        req.headers["x-client-source"] ?? req.headers["x-platform"] ?? ""
+      )
+        .trim()
+        .toLowerCase();
+
+      const isAppSource =
+        normalizedSource === "app" ||
+        normalizedSource === "mobile" ||
+        explicitClientSource === "app" ||
+        explicitClientSource === "mobile" ||
+        userAgent.includes("okhttp") ||
+        userAgent.includes("reactnative") ||
+        userAgent.includes("react-native") ||
+        userAgent.includes("dalvik");
+
+      if (!isAppSource) {
+        return res.status(400).json({
+          success: false,
+          message: "Native payment order is only supported from the app.",
+        });
+      }
+
+      const user = await User.findById(userId);
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found",
+        });
+      }
+
+      const amount = await resolvePlanPrice(
+        plan,
+        billingType as "monthly" | "yearly"
+      );
+
+      if (amount <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid plan or plan amount not found",
+        });
+      }
+
+      const paymentData = await StripeService.createPaymentIntent(
+        userId,
+        amount,
+        currency,
+        plan,
+        amount,
+        billingType as "monthly" | "yearly"
+      );
+
+      user.gateway = "stripe";
+      user.lastPaymentGateway = "stripe";
+      user.billingType = billingType;
+      await user.save();
+
+      return res.status(200).json({
+        success: true,
+        gateway: "stripe",
+        billingType,
+        ...paymentData,
+        paymentIntentId: paymentData.reference,
+        message: "Native Stripe payment intent created",
+      });
+    } catch (err) {
+      console.error("❌ Native payment order error:", err);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to create native payment order",
+        error: err instanceof Error ? err.message : "Unknown error",
+      });
+    }
+  }
+
+  static async createNativeUpgradeOrder(req: Request, res: Response) {
+    try {
+      let {
+        userId,
+        plan,
+        currency = "USD",
+        billingType = "monthly",
+        source,
+      } = req.body;
+
+      if (!userId || !plan) {
+        return res.status(400).json({
+          success: false,
+          message: "userId and plan are required",
+        });
+      }
+
+      if (!["monthly", "yearly"].includes(billingType)) {
+        return res.status(400).json({
+          success: false,
+          message: "billingType must be 'monthly' or 'yearly'",
+        });
+      }
+
+      const normalizedSource = String(source ?? "")
+        .trim()
+        .toLowerCase();
+      const userAgent = String(req.headers["user-agent"] ?? "").toLowerCase();
+      const explicitClientSource = String(
+        req.headers["x-client-source"] ?? req.headers["x-platform"] ?? ""
+      )
+        .trim()
+        .toLowerCase();
+
+      const isAppSource =
+        normalizedSource === "app" ||
+        normalizedSource === "mobile" ||
+        explicitClientSource === "app" ||
+        explicitClientSource === "mobile" ||
+        userAgent.includes("okhttp") ||
+        userAgent.includes("reactnative") ||
+        userAgent.includes("react-native") ||
+        userAgent.includes("dalvik");
+
+      if (!isAppSource) {
+        return res.status(400).json({
+          success: false,
+          message: "Native upgrade order is only supported from the app.",
+        });
+      }
+
+      const user = await User.findById(userId);
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found",
+        });
+      }
+
+      const amount = await resolvePlanPrice(
+        plan,
+        billingType as "monthly" | "yearly"
+      );
+
+      if (amount <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid plan or plan amount not found",
+        });
+      }
+
+      const paymentData = await StripeService.createPaymentIntent(
+        userId,
+        amount,
+        currency,
+        plan,
+        amount,
+        billingType as "monthly" | "yearly"
+      );
+
+      user.gateway = "stripe";
+      user.lastPaymentGateway = "stripe";
+      user.billingType = billingType;
+      await user.save();
+
+      return res.status(200).json({
+        success: true,
+        gateway: "stripe",
+        billingType,
+        ...paymentData,
+        paymentIntentId: paymentData.reference,
+        message: "Native Stripe upgrade payment intent created",
+      });
+    } catch (err) {
+      console.error("❌ Native upgrade order error:", err);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to create native upgrade order",
+        error: err instanceof Error ? err.message : "Unknown error",
+      });
+    }
+  }
+
   static async upgradePlanOrder(req: Request, res: Response) {
     try {
       let {
@@ -551,107 +757,207 @@ export default class PaymentController {
    */
   static async verifyStripeCheckout(req: Request, res: Response) {
     try {
-      const { sessionId } = req.body;
+      const { sessionId, paymentIntentId } = req.body;
+      const referenceId = sessionId || paymentIntentId;
 
-      if (!sessionId) {
+      console.log("🔎 verifyStripeCheckout payload:", {
+        sessionId,
+        paymentIntentId,
+        referenceId,
+      });
+
+      if (!referenceId) {
         return res.status(400).json({
           success: false,
-          error: "Session ID is required",
+          error: "Session ID or paymentIntentId is required",
         });
       }
 
-      // Get session details from Stripe
-      const session = await StripeService.getCheckoutSession(sessionId);
+      if (sessionId) {
+        const session = await StripeService.getCheckoutSession(sessionId);
 
-      const deferUntilRaw = (session.metadata as any)?.deferUntil;
-      const deferUntilMs = deferUntilRaw
-        ? Date.parse(String(deferUntilRaw))
-        : NaN;
-      const isDeferredUpgrade =
-        Number.isFinite(deferUntilMs) && deferUntilMs > Date.now() + 60 * 1000;
+        const deferUntilRaw = (session.metadata as any)?.deferUntil;
+        const deferUntilMs = deferUntilRaw
+          ? Date.parse(String(deferUntilRaw))
+          : NaN;
+        const isDeferredUpgrade =
+          Number.isFinite(deferUntilMs) && deferUntilMs > Date.now() + 60 * 1000;
 
-      if (isDeferredUpgrade) {
-        const metadata = session.metadata as any;
-        const pendingPlan = String(metadata?.plan || "").trim() || null;
-        const pendingBillingType =
-          metadata?.billingType === "yearly" ? "yearly" : "monthly";
-        const pendingEffectiveDate = deferUntilRaw
-          ? new Date(String(deferUntilRaw))
-          : null;
+        if (isDeferredUpgrade) {
+          const metadata = session.metadata as any;
+          const pendingPlan = String(metadata?.plan || "").trim() || null;
+          const pendingBillingType =
+            metadata?.billingType === "yearly" ? "yearly" : "monthly";
+          const pendingEffectiveDate = deferUntilRaw
+            ? new Date(String(deferUntilRaw))
+            : null;
 
-        if (metadata?.userId) {
-          await User.findByIdAndUpdate(metadata.userId, {
-            pendingPlan,
-            pendingBillingType,
-            pendingEffectiveDate,
+          if (metadata?.userId) {
+            await User.findByIdAndUpdate(metadata.userId, {
+              pendingPlan,
+              pendingBillingType,
+              pendingEffectiveDate,
+            });
+          }
+
+          return res.status(200).json({
+            success: true,
+            message:
+              "Upgrade scheduled. Payment will be collected after current subscription ends.",
+            status: "PENDING",
+            gateway: "stripe",
+            deferUntil: deferUntilRaw || null,
           });
         }
 
-        return res.status(200).json({
-          success: true,
-          message:
-            "Upgrade scheduled. Payment will be collected after current subscription ends.",
-          status: "PENDING",
-          gateway: "stripe",
-          deferUntil: deferUntilRaw || null,
-        });
-      }
-
-      if (session.payment_status === "paid") {
-        // Get or create payment record
-        let payment = await Payment.findOne({
-          reference: sessionId,
-        });
-
-        if (!payment) {
-          // Create payment record if it doesn't exist (shouldn't happen normally)
-          const metadata = session.metadata as any;
-          payment = await Payment.create({
-            userId: metadata?.userId,
-            orderRef: metadata?.orderRef,
+        if (session.payment_status === "paid") {
+          let payment = await Payment.findOne({
             reference: sessionId,
-            amount: metadata?.userAmount || (session.amount_total || 0) / 100,
-            localAmount: (session.amount_total || 0) / 100,
-            localCurrency: session.currency?.toUpperCase() || "USD",
-            currency: String(metadata?.originalCurrency || "USD").toUpperCase(),
-            plan: metadata?.plan,
-            status: "COMPLETED",
+          });
+
+          if (!payment) {
+            const metadata = session.metadata as any;
+            payment = await Payment.create({
+              userId: metadata?.userId,
+              orderRef: metadata?.orderRef,
+              reference: sessionId,
+              amount: metadata?.userAmount || (session.amount_total || 0) / 100,
+              localAmount: (session.amount_total || 0) / 100,
+              localCurrency: session.currency?.toUpperCase() || "USD",
+              currency: String(metadata?.originalCurrency || "USD").toUpperCase(),
+              plan: metadata?.plan,
+              status: "COMPLETED",
+              gateway: "stripe",
+              paymentIntentId: sessionId,
+              gatewayResponse: session,
+              verifiedAt: new Date(),
+            });
+          } else {
+            payment.status = "COMPLETED";
+            payment.gatewayResponse = session;
+            payment.verifiedAt = new Date();
+            await payment.save();
+          }
+
+          // Activate subscription immediately (idempotent) so clients on mobile/web see plan updates without waiting for webhook
+          await PaymentController.activateSubscription(payment, true, res, () => {});
+          return;
+        } else if (session.payment_status === "unpaid") {
+          return res.status(200).json({
+            success: false,
+            message: "Payment is still processing",
+            status: "PENDING",
             gateway: "stripe",
-            paymentIntentId: sessionId,
-            gatewayResponse: session,
-            verifiedAt: new Date(),
           });
         } else {
-          // Update existing payment
-          payment.status = "COMPLETED";
-          payment.gatewayResponse = session;
-          payment.verifiedAt = new Date();
-          await payment.save();
+          const sessionError = (session.payment_intent as any)?.last_payment_error;
+          return res.status(200).json({
+            success: false,
+            message: "Payment was not completed",
+            status: "FAILED",
+            gateway: "stripe",
+            details: sessionError
+              ? {
+                  code: sessionError?.code,
+                  type: sessionError?.type,
+                  decline_code: sessionError?.decline_code,
+                  message: sessionError?.message,
+                }
+              : undefined,
+          });
+        }
+      }
+
+      const paymentIntent = await StripeService.getPaymentIntent(paymentIntentId);
+      console.log("🔎 Retrieved Stripe paymentIntent:", {
+        id: paymentIntent.id,
+        status: paymentIntent.status,
+        amount: paymentIntent.amount,
+        currency: paymentIntent.currency,
+        metadata: paymentIntent.metadata,
+      });
+
+      const payment = await Payment.findOne({
+        reference: paymentIntent.id,
+      });
+
+      if (paymentIntent.status === "succeeded") {
+        if (!payment) {
+          const metadata = paymentIntent.metadata || {};
+          const userIdFromMeta = String(metadata.userId || "");
+          const user = userIdFromMeta
+            ? await User.findById(userIdFromMeta)
+            : null;
+
+          const orderRef = String(metadata.orderRef || `STR-${Date.now()}`);
+
+          const createdPayment = await Payment.create({
+            userId: userIdFromMeta || undefined,
+            orderRef,
+            reference: paymentIntent.id,
+            amount: Number(metadata.userAmount) || paymentIntent.amount / 100,
+            localAmount: paymentIntent.amount / 100,
+            localCurrency: paymentIntent.currency?.toUpperCase() || "USD",
+            currency: String(metadata.originalCurrency || "USD").toUpperCase(),
+            plan: String(metadata.plan || ""),
+            billingType: String(metadata.billingType || "monthly") as
+              | "monthly"
+              | "yearly",
+            status: "COMPLETED",
+            gateway: "stripe",
+            paymentIntentId: paymentIntent.id,
+            gatewayResponse: paymentIntent,
+            verifiedAt: new Date(),
+          });
+
+          // Activate subscription immediately (idempotent)
+          await PaymentController.activateSubscription(createdPayment, true, res, () => {});
+          return;
         }
 
-        return res.status(200).json({
-          success: true,
-          message: "✅ Payment verified!",
-          status: "SUCCESS",
-          orderRef: payment.orderRef,
-          amount: payment.amount,
-          currency: payment.currency,
-          plan: payment.plan,
-          gateway: "stripe",
-        });
-      } else if (session.payment_status === "unpaid") {
+        payment.status = "COMPLETED";
+        payment.gatewayResponse = paymentIntent;
+        payment.verifiedAt = new Date();
+        await payment.save();
+
+        // Activate subscription immediately (idempotent)
+        await PaymentController.activateSubscription(payment, true, res, () => {});
+        return;
+      } else if (
+        paymentIntent.status === "requires_payment_method" ||
+        paymentIntent.status === "requires_action"
+      ) {
+        const lastError = (paymentIntent as any).last_payment_error;
         return res.status(200).json({
           success: false,
-          message: "Payment is still processing",
+          message: lastError?.message ||
+            "Payment is still processing or requires additional authentication",
           status: "PENDING",
           gateway: "stripe",
+          details: lastError
+            ? {
+                code: lastError?.code,
+                type: lastError?.type,
+                decline_code: lastError?.decline_code,
+                message: lastError?.message,
+              }
+            : undefined,
         });
       } else {
+        const lastError = (paymentIntent as any).last_payment_error;
         return res.status(200).json({
           success: false,
-          message: "Payment was not completed",
+          message: lastError?.message || "Payment was not completed",
           status: "FAILED",
           gateway: "stripe",
+          details: lastError
+            ? {
+                code: lastError?.code,
+                type: lastError?.type,
+                decline_code: lastError?.decline_code,
+                message: lastError?.message,
+              }
+            : undefined,
         });
       }
     } catch (error: any) {
@@ -659,7 +965,7 @@ export default class PaymentController {
       return res.status(500).json({
         success: false,
         error: "Failed to verify Stripe payment",
-        details: error.message,
+        details: error?.message || "Unknown Stripe verification error",
       });
     }
   }
@@ -827,6 +1133,68 @@ export default class PaymentController {
     }
   }
 
+  static async confirmCardSetupIntent(req: Request, res: Response) {
+    try {
+      const setupIntentId = String(req.body?.setupIntentId || "").trim();
+      if (!setupIntentId) {
+        return res.status(400).json({
+          success: false,
+          message: "setupIntentId is required",
+        });
+      }
+
+      const userId =
+        (req as any)?.user?.id || (req as any)?.user?._id?.toString?.();
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "User not authenticated",
+        });
+      }
+
+      const user = await User.findById(userId);
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found",
+        });
+      }
+
+      const setupIntent = await StripeService.getSetupIntent(setupIntentId);
+      if (setupIntent.status !== "succeeded") {
+        return res.status(400).json({
+          success: false,
+          message: "Card setup is not complete",
+        });
+      }
+
+      const paymentMethodId =
+        typeof setupIntent.payment_method === "string"
+          ? setupIntent.payment_method
+          : setupIntent.payment_method?.id;
+
+      if (!paymentMethodId) {
+        return res.status(400).json({
+          success: false,
+          message: "No payment method attached to setup intent",
+        });
+      }
+
+      await StripeService.setDefaultPaymentMethodForUser(user, paymentMethodId);
+
+      return res.status(200).json({
+        success: true,
+        message: "Card update completed successfully",
+      });
+    } catch (error: any) {
+      console.error("❌ [confirmCardSetupIntent] Error:", error);
+      return res.status(500).json({
+        success: false,
+        message: error?.message || "Failed to confirm setup intent",
+      });
+    }
+  }
+
   static async updateCardDetails(req: Request, res: Response) {
     try {
       const userId =
@@ -967,7 +1335,7 @@ export default class PaymentController {
     const billingPortalHost = String(
       process.env.APP_BILLING_PORTAL_HOST || "billing-portal",
     ).trim();
-    const androidPackage = String(process.env.APP_ANDROID_PACKAGE || "com.skyborne").trim();
+    const androidPackage = String(process.env.APP_ANDROID_PACKAGE || "com.skyborne.drop").trim();
 
     const deepLink = `${appScheme}://${billingPortalHost}?status=complete`;
     const fallbackUrl = fallbackWebUrl;
@@ -1051,7 +1419,7 @@ export default class PaymentController {
     }
 
     const appScheme = String(process.env.APP_DEEP_LINK_SCHEME || "skybornedrop").trim();
-    const androidPackage = String(process.env.APP_ANDROID_PACKAGE || "com.skyborne").trim();
+    const androidPackage = String(process.env.APP_ANDROID_PACKAGE || "com.skyborne.drop").trim();
 
     const appSuccessTemplate =
       String(process.env.APP_PAYMENT_SUCCESS_URL || "").trim() ||
@@ -1262,17 +1630,18 @@ export default class PaymentController {
     next: any,
   ) {
     try {
-      const { paymentIntentId } = req.body;
+      const { sessionId, paymentIntentId } = req.body;
+      const paymentReferenceId = sessionId || paymentIntentId;
 
-      if (!paymentIntentId) {
+      if (!paymentReferenceId) {
         return res.status(400).json({
           success: false,
-          error: "Payment intent ID (sessionId) is required",
+          error: "Payment reference ID is required",
         });
       }
 
       let payment = await Payment.findOne({
-        reference: paymentIntentId, // session ID is stored in reference
+        reference: paymentReferenceId,
       });
 
       if (!payment) {
@@ -1302,36 +1671,62 @@ export default class PaymentController {
         });
       }
 
-      // Retrieve the session from Stripe
-      const session = await StripeService.getCheckoutSession(paymentIntentId);
-
-      const deferUntilRaw = (session.metadata as any)?.deferUntil;
-      const deferUntilMs = deferUntilRaw
-        ? Date.parse(String(deferUntilRaw))
-        : NaN;
-      const isDeferredUpgrade =
-        Number.isFinite(deferUntilMs) && deferUntilMs > Date.now() + 60 * 1000;
+      const isCheckoutSession =
+        String(paymentReferenceId).startsWith("cs_") ||
+        String(paymentReferenceId).startsWith("sess_") ||
+        String(paymentReferenceId).startsWith("checkout_");
 
       let paymentStatus = "PENDING";
+      let subscriptionId: string | null = null;
+      let transactionId: string | null = null;
+      let gatewayResponse: any = null;
+      let isDeferredUpgrade = false;
+      let verifiedAt: Date | undefined = undefined;
+      let deferUntilRaw: string | null = null;
 
-      if (!isDeferredUpgrade) {
-        if (
-          session.payment_status === "paid" ||
-          session.payment_status === "no_payment_required"
-        ) {
-          paymentStatus = "COMPLETED";
-        } else if (session.payment_status === "unpaid") {
-          paymentStatus = "FAILED";
+      if (isCheckoutSession) {
+        const session = await StripeService.getCheckoutSession(paymentReferenceId);
+
+        deferUntilRaw = (session.metadata as any)?.deferUntil;
+        const deferUntilMs = deferUntilRaw
+          ? Date.parse(String(deferUntilRaw))
+          : NaN;
+        isDeferredUpgrade =
+          Number.isFinite(deferUntilMs) && deferUntilMs > Date.now() + 60 * 1000;
+
+        if (!isDeferredUpgrade) {
+          if (
+            session.payment_status === "paid" ||
+            session.payment_status === "no_payment_required"
+          ) {
+            paymentStatus = "COMPLETED";
+          } else if (session.payment_status === "unpaid") {
+            paymentStatus = "FAILED";
+          }
         }
+
+        subscriptionId = session.subscription as string | null;
+        transactionId =
+          typeof session.payment_intent === "string"
+            ? session.payment_intent
+            : session.payment_intent?.id || null;
+        gatewayResponse = session;
+      } else {
+        const paymentIntent = await StripeService.getPaymentIntent(paymentReferenceId);
+
+        if (paymentIntent.status === "succeeded") {
+          paymentStatus = "COMPLETED";
+          verifiedAt = new Date();
+        } else if (paymentIntent.status === "requires_payment_method") {
+          paymentStatus = "FAILED";
+        } else {
+          paymentStatus = "PENDING";
+        }
+
+        transactionId = paymentIntent.id;
+        gatewayResponse = paymentIntent;
       }
 
-      const subscriptionId = session.subscription as string | null;
-      const transactionId =
-        typeof session.payment_intent === "string"
-          ? session.payment_intent
-          : session.payment_intent?.id || null;
-
-      // Update payment state first; subscriptionActivated is marked only after successful activation
       payment = await Payment.findOneAndUpdate(
         { _id: payment._id },
         {
@@ -1339,8 +1734,8 @@ export default class PaymentController {
           transactionId: transactionId || payment.transactionId,
           paymentIntentId: transactionId || payment.paymentIntentId,
           status: paymentStatus,
-          gatewayResponse: session,
-          ...(isDeferredUpgrade ? {} : { verifiedAt: new Date() }),
+          gatewayResponse,
+          ...(verifiedAt ? { verifiedAt } : {}),
         },
         { new: true },
       );
@@ -1399,6 +1794,32 @@ export default class PaymentController {
     next: any,
   ) {
     try {
+      // Idempotency guard: re-load payment from DB and skip if already activated
+      try {
+        if (payment && payment._id) {
+          const fresh = await Payment.findById(payment._id);
+          if (fresh && fresh.subscriptionActivated) {
+            const subscriptionDuration = fresh?.billingType === 'yearly'
+              ? 365 * 24 * 60 * 60 * 1000
+              : 30 * 24 * 60 * 60 * 1000;
+
+            const payload = {
+              success: true,
+              message: 'Subscription already activated',
+              orderRef: fresh.orderRef,
+              plan: fresh.plan,
+              subscriptionEndDate: new Date(Date.now() + subscriptionDuration),
+              user: fresh.userId ? { onboardingCompleted: true } : undefined,
+            };
+
+            if (!res) return payload;
+            return res.status(200).json(payload);
+          }
+        }
+      } catch (idempotencyErr) {
+        // ignore idempotency check failures and continue activation
+        console.warn('⚠️ Idempotency check failed:', (idempotencyErr as any)?.message || idempotencyErr);
+      }
       let user: any = null;
       if (isSuccessful) {
         user = await User.findById(payment?.userId);
@@ -1593,7 +2014,7 @@ export default class PaymentController {
         transactionId: payment?.transactionId,
         amount: payment?.amount,
         currency: payment?.currency,
-        status: payment?.status,
+        status: isSuccessful ? 'SUCCESS' : payment?.status,
         plan: payment?.plan,
         billingType: payment?.billingType,
         user: user
@@ -2839,25 +3260,27 @@ export default class PaymentController {
    */
   static async verifyMobilePayment(req: Request, res: Response) {
     try {
-      const { sessionId, orderRef, reference } = req.body;
+      const { sessionId, orderRef, reference, paymentIntentId } = req.body;
 
-      // console.log("📱 Mobile payment verification:", {
-      //   sessionId,
-      //   orderRef,
-      //   reference,
-      // });
+      console.log("📱 Mobile payment verification request:", {
+        sessionId,
+        orderRef,
+        reference,
+        paymentIntentId,
+      });
 
       // Determine which gateway and call appropriate verification
-      if (sessionId) {
+      if (sessionId || paymentIntentId) {
         // ✅ Stripe verification
-        return this.verifyStripeCheckout(req, res);
+        return PaymentController.verifyStripeCheckout(req, res);
       } else if (orderRef || reference) {
         // ✅ nGenius verification
-        return this.verifyNgeniusPayment(req, res, (err: any) => {
+        return PaymentController.verifyNgeniusPayment(req, res, (err: any) => {
           console.error("nGenius verification error:", err);
           return res.status(500).json({
             success: false,
             error: "nGenius verification failed",
+            details: err?.message || err,
           });
         });
       }
@@ -2866,11 +3289,12 @@ export default class PaymentController {
         success: false,
         error: "sessionId, orderRef, or reference is required",
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("❌ Mobile verification error:", error);
       return res.status(500).json({
         success: false,
         error: "Payment verification failed",
+        details: error?.message || "Unknown error",
       });
     }
   }
@@ -2918,11 +3342,18 @@ async function getUsdToAedRate() {
 const LEGACY_PLAN_CONFIG: Record<PlanType, { yoga: number; zumba: number; specialty: number }> =
   PLAN_CONFIG;
 
+const PLAN_KEY_ALIASES: Record<string, string> = {
+  gold: 'gold-mixed',
+  'gold package': 'gold-mixed',
+  'gold-package': 'gold-mixed',
+};
+
 type Credits = { yoga: number; zumba: number; specialty: number };
 
 async function resolvePlanCredits(planKey: string): Promise<Credits | null> {
   const normalizedPlanKey = planKey.trim().toLowerCase();
-  const legacyCredits = LEGACY_PLAN_CONFIG[normalizedPlanKey as PlanType];
+  const resolvedPlanKey = PLAN_KEY_ALIASES[normalizedPlanKey] || normalizedPlanKey;
+  const legacyCredits = LEGACY_PLAN_CONFIG[resolvedPlanKey as PlanType];
   if (legacyCredits) {
     return { ...legacyCredits };
   }

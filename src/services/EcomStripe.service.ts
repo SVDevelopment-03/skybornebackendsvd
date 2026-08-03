@@ -204,6 +204,52 @@ export class EcomStripeService {
 
     return charge.receipt_url || null;
   }
+  static async createEcomPaymentIntent(
+    userId: string,
+    cartItems: Array<{
+      productId: string;
+      name: string;
+      price: number;
+      quantity: number;
+      image?: string;
+    }>,
+    shippingAddress: Record<string, any>,
+    userEmail: string,
+    source: "app" | "web" = "web"
+  ): Promise<{
+    paymentIntentId: string;
+    clientSecret: string;
+    orderRef: string;
+    amount: number;
+  }> {
+    const orderRef = `ECOM-PI-${Date.now()}`;
+    const amountCents = Math.round(
+      cartItems.reduce((sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 1), 0) * 100
+    );
+
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: Math.max(50, amountCents),
+      currency: "usd",
+      payment_method_types: ["card"],
+      confirmation_method: "automatic",
+      receipt_email: userEmail,
+      metadata: {
+        userId,
+        orderRef,
+        shippingAddress: JSON.stringify(shippingAddress),
+        type: "ecom",
+        source,
+      },
+    });
+
+    return {
+      paymentIntentId: paymentIntent.id,
+      clientSecret: paymentIntent.client_secret!,
+      orderRef,
+      amount: amountCents,
+    };
+  }
+
   /**
    * Create a Stripe Checkout Session for ecom product purchase.
    * Completely separate from subscription checkout sessions.
