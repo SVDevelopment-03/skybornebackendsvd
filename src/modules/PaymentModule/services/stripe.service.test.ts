@@ -35,3 +35,38 @@ test("syncs the active subscription to the customer's default payment method", a
     },
   ]);
 });
+
+test("recovers a missing subscription id from the Stripe customer and syncs the default payment method", async () => {
+  const calls: Array<{ id: string; data: Record<string, string> }> = [];
+
+  (StripeService as any).stripe = {
+    customers: {
+      retrieve: async () => ({
+        invoice_settings: {
+          default_payment_method: "pm_123",
+        },
+      }),
+    },
+    subscriptions: {
+      list: async () => ({ data: [{ id: "sub_2" }] }),
+      retrieve: async () => ({
+        default_payment_method: "pm_old",
+      }),
+      update: async (id: string, data: Record<string, string>) => {
+        calls.push({ id, data });
+        return {};
+      },
+    },
+  };
+
+  const user = { _id: "user_1" };
+
+  await (StripeService as any).syncSubscriptionDefaultPaymentMethod(user, "cus_1");
+
+  assert.deepStrictEqual(calls, [
+    {
+      id: "sub_2",
+      data: { default_payment_method: "pm_123" },
+    },
+  ]);
+});

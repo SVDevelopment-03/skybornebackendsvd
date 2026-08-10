@@ -616,6 +616,26 @@ export class StripeService {
     return null;
   }
 
+  private static async getSubscriptionIdForCustomer(
+    customerId: string,
+  ): Promise<string | null> {
+    const stripe = this.getStripeClient();
+    try {
+      const subscriptions = await stripe.subscriptions.list({
+        customer: customerId,
+        status: "all",
+        limit: 1,
+      });
+      return subscriptions.data?.[0]?.id || null;
+    } catch (error: any) {
+      console.warn(
+        `⚠️ Unable to recover Stripe subscription for customer ${customerId}:`,
+        error?.message || error,
+      );
+      return null;
+    }
+  }
+
   /**
    * Resolve an existing Stripe customer id for a user without creating a new customer.
    */
@@ -870,7 +890,13 @@ export class StripeService {
   ) {
     const stripe = this.getStripeClient();
     const resolvedCustomerId = customerId || (await this.getExistingCustomer(user));
-    const resolvedSubscriptionId = subscriptionId || user?.stripeSubscriptionId;
+    let resolvedSubscriptionId = subscriptionId || user?.stripeSubscriptionId;
+
+    if (!resolvedSubscriptionId && resolvedCustomerId) {
+      resolvedSubscriptionId = await this.getSubscriptionIdForCustomer(
+        resolvedCustomerId,
+      );
+    }
 
     if (!resolvedCustomerId || !resolvedSubscriptionId) {
       return null;
@@ -960,12 +986,14 @@ export class StripeService {
       address: billingDetails?.address || undefined,
     });
 
-    if (user.stripeSubscriptionId) {
-      try {
-        await this.syncSubscriptionDefaultPaymentMethod(user, customerId, user.stripeSubscriptionId);
-      } catch (error) {
-        console.warn("⚠️ Failed to update Stripe subscription default payment method:", error);
-      }
+    try {
+      await this.syncSubscriptionDefaultPaymentMethod(
+        user,
+        customerId,
+        user.stripeSubscriptionId,
+      );
+    } catch (error) {
+      console.warn("⚠️ Failed to update Stripe subscription default payment method:", error);
     }
 
     return this.getDefaultCardDetails(user);
