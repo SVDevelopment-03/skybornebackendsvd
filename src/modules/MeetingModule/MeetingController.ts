@@ -5,6 +5,7 @@ import Meeting, { IMeeting, IService } from "./MeetingModels/Meeting";
 import MeetingAttendance from "./MeetingModels/MeetingAttendance";
 import { clearZoomTokenCache, getZoomAccessToken } from "../../utils/zoomAuth";
 import { applySubscriptionCreditPolicy, getEffectiveClassCredits, hasActiveSubscription } from "../../utils/creditUtils";
+import { getServiceTitlesForDisabledZumbaPlan, migrateLegacyZumbaUser } from "../../utils/zumbaMigration";
 import mongoose, { Types } from "mongoose";
 import MeetingParticipant from "./MeetingModels/MeetingParticipant";
 import User from "../UserModule/models/User";
@@ -80,6 +81,35 @@ const extractZoomPassword = (url?: string | null): string => {
   } catch (error) {
     return "";
   }
+};
+
+const normalizeLegacyMeetingServiceType = (serviceTitle?: string | null): ServiceType => {
+  const normalized = String(serviceTitle || "").trim().toLowerCase();
+  if (normalized === "zumba dance") return "yoga";
+  if (normalized === "diet & nutrition") return "specialty";
+  if (normalized === "yoga") return "yoga";
+  if (normalized === "zumba") return "zumba";
+  return "yoga";
+};
+
+const getMeetingServiceTitlesForPlan = (plan?: string): string[] => {
+  return getServiceTitlesForDisabledZumbaPlan(plan);
+};
+
+const migrateLegacyMeetingUserIfNeeded = async (user: any) => {
+  if (!user) return user;
+
+  const shouldMigrateLegacyZumba =
+    Number(user?.classCredits?.zumba || 0) > 0 ||
+    Number(user?.overAllclassCredits?.zumba || 0) > 0 ||
+    ["gold-zumba", "gold-mixed"].includes(String(user?.plan || ""));
+
+  if (shouldMigrateLegacyZumba) {
+    migrateLegacyZumbaUser(user);
+    await user.save();
+  }
+
+  return user;
 };
 
 const buildZoomAppJoinUrl = (
@@ -894,6 +924,8 @@ static async GetUpcomingMeetings(req: Request, res: Response) {
       });
     }
 
+    await migrateLegacyMeetingUserIfNeeded(user);
+
     // ✅ Check if user is admin or trainer
     const effectiveRole = user.role || userRole;
     const isAdminOrTrainer =
@@ -915,20 +947,7 @@ static async GetUpcomingMeetings(req: Request, res: Response) {
       }
     }
 
-    let serviceTitles: string[] = [];
-
-    // ✅ Service filtering - only for regular users
-    if (!isAdminOrTrainer) {
-      if (user.plan === "gold-yoga") {
-        serviceTitles = ["Yoga"];
-      } else if (user.plan === "gold-zumba") {
-        serviceTitles = ["Zumba Dance"];
-      } else if (user.plan === "gold-mixed") {
-        serviceTitles = ["Yoga", "Zumba Dance"];
-      } else if (user.plan === "diamond" || user.plan === "platinum") {
-        serviceTitles = ["Yoga", "Zumba Dance", "Diet & Nutrition"];
-      }
-    }
+    const serviceTitles = getMeetingServiceTitlesForPlan(user.plan);
 
     // Build filter
     const filter: any = {
@@ -1098,6 +1117,8 @@ static async GetAllMeetings(req: Request, res: Response) {
       });
     }
 
+    await migrateLegacyMeetingUserIfNeeded(user);
+
     // ✅ Check if user is admin or trainer
     const effectiveRole = user.role || userRole;
     const isAdminOrTrainer =
@@ -1120,20 +1141,7 @@ static async GetAllMeetings(req: Request, res: Response) {
       }
     }
 
-    let serviceTitles: string[] = [];
-
-    // ✅ Service filtering - only for regular users
-    if (!isAdminOrTrainer) {
-      if (user.plan === "gold-yoga") {
-        serviceTitles = ["Yoga"];
-      } else if (user.plan === "gold-zumba") {
-        serviceTitles = ["Zumba Dance"];
-      } else if (user.plan === "gold-mixed") {
-        serviceTitles = ["Yoga", "Zumba Dance"];
-      } else if (user.plan === "diamond" || user.plan === "platinum") {
-        serviceTitles = ["Yoga", "Zumba Dance", "Diet & Nutrition"];
-      }
-    }
+    const serviceTitles = getMeetingServiceTitlesForPlan(user.plan);
 
     // Build filter
     const filter: any = {
@@ -1253,6 +1261,7 @@ static async GetMeetingRecording(req: Request, res: Response) {
       return res.status(404).json({ error: "User not found" });
     }
 
+    await migrateLegacyMeetingUserIfNeeded(user);
     applySubscriptionCreditPolicy(user);
 
     // Step 1: Find meeting
@@ -1263,10 +1272,9 @@ static async GetMeetingRecording(req: Request, res: Response) {
       return res.status(404).json({ error: "Meeting not found" });
     }
 
-    const serviceType =
-      (meeting?.service as IService)?.title?.toLowerCase() === "zumba dance"
-        ? "zumba"
-        : (meeting?.service as IService)?.title?.toLowerCase();
+    const serviceType = normalizeLegacyMeetingServiceType(
+      (meeting?.service as IService)?.title,
+    );
 
     if (!user?.role || (user.role !== "trainer" && user.role !== "admin")) {
       const effectiveCredits = getEffectiveClassCredits(user);
@@ -1596,6 +1604,8 @@ static async GetMeetingRecording(req: Request, res: Response) {
         });
       }
 
+      await migrateLegacyMeetingUserIfNeeded(user);
+
       // Get today's date range (start of day to end of day)
       const now = new Date();
       const startOfDay = new Date(
@@ -1610,18 +1620,7 @@ static async GetMeetingRecording(req: Request, res: Response) {
       );
 
       // Determine which service titles to filter based on plan
-      let serviceTitles: string[] = [];
-
-      if (user.plan === "gold-yoga") {
-        serviceTitles = ["Yoga"];
-      } else if (user.plan === "gold-zumba") {
-        serviceTitles = ["Zumba Dance"];
-      } else if (user.plan === "gold-mixed") {
-        serviceTitles = ["Yoga", "Zumba Dance"];
-      } else if (user.plan === "diamond" || user.plan === "platinum") {
-        // Diamond and Platinum can see all classes
-        serviceTitles = ["Yoga", "Zumba Dance", "Diet & Nutrition"];
-      }
+      const serviceTitles = getMeetingServiceTitlesForPlan(user.plan);
 
       // Fetch service IDs based on titles
       const services = await Service.find({
@@ -1708,20 +1707,7 @@ static async GetMeetingRecording(req: Request, res: Response) {
       const now = new Date();
       const sixtyMinutesAgo = new Date(now.getTime() - 60 * 60 * 1000);
 
-      let serviceTitles: string[] = [];
-
-      // ✅ Service filtering - only for regular users
-      if (!isAdminOrTrainer) {
-        if (user.plan === "gold-yoga") {
-          serviceTitles = ["Yoga"];
-        } else if (user.plan === "gold-zumba") {
-          serviceTitles = ["Zumba Dance"];
-        } else if (user.plan === "gold-mixed") {
-          serviceTitles = ["Yoga", "Zumba Dance"];
-        } else if (user.plan === "diamond" || user.plan === "platinum") {
-          serviceTitles = ["Yoga", "Zumba Dance", "Diet & Nutrition"];
-        }
-      }
+      const serviceTitles = getMeetingServiceTitlesForPlan(user.plan);
 
       const filter: any = {
         localTime: { $lt: sixtyMinutesAgo },
@@ -2252,6 +2238,8 @@ static async GetMeetingRecording(req: Request, res: Response) {
         });
       }
 
+      await migrateLegacyMeetingUserIfNeeded(userData);
+
       // Find the meeting
       const meeting = await Meeting.findById(meetingId).populate(
         "createdBy",
@@ -2283,10 +2271,9 @@ static async GetMeetingRecording(req: Request, res: Response) {
       }
 
       // Determine service type
-      const serviceType =
-        (meeting?.service as IService)?.title?.toLowerCase() == "zumba dance"
-          ? "zumba"
-          : (meeting?.service as IService)?.title?.toLowerCase();
+const serviceType = normalizeLegacyMeetingServiceType(
+      (meeting?.service as IService)?.title,
+    );
 
       // Check class credits only for regular participants (not trainers or admins)
       if (!isTrainerOrAdmin) {
@@ -4539,17 +4526,7 @@ static async GetAllTrainerMeetings(req: Request, res: Response) {
       }
 
       // Determine service titles based on plan
-      let serviceTitles: string[] = [];
-
-      if (user.plan === "gold-yoga") {
-        serviceTitles = ["Yoga"];
-      } else if (user.plan === "gold-zumba") {
-        serviceTitles = ["Zumba Dance"];
-      } else if (user.plan === "gold-mixed") {
-        serviceTitles = ["Yoga", "Zumba Dance"];
-      } else if (user.plan === "diamond" || user.plan === "platinum") {
-        serviceTitles = ["Yoga", "Zumba Dance", "Diet & Nutrition"];
-      }
+      const serviceTitles = getMeetingServiceTitlesForPlan(user.plan);
 
       // Fetch service IDs based on titles
       const services = await Service.find({
@@ -4655,18 +4632,17 @@ static async GetAllTrainerMeetings(req: Request, res: Response) {
         });
       }
 
-      // Determine service titles based on plan
-      let serviceTitles: string[] = [];
+      await migrateLegacyMeetingUserIfNeeded(user);
 
-      if (user.plan === "gold-yoga") {
-        serviceTitles = ["Yoga"];
-      } else if (user.plan === "gold-zumba") {
-        serviceTitles = ["Zumba Dance"];
-      } else if (user.plan === "gold-mixed") {
-        serviceTitles = ["Yoga", "Zumba Dance"];
-      } else if (user.plan === "diamond" || user.plan === "platinum") {
-        serviceTitles = ["Yoga", "Zumba Dance", "Diet & Nutrition"];
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found",
+        });
       }
+
+      // Determine service titles based on plan
+      const serviceTitles = getMeetingServiceTitlesForPlan(user.plan);
 
       const services = await Service.find({
         title: { $in: serviceTitles },

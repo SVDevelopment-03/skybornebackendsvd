@@ -5,23 +5,23 @@ export const PLAN_CONFIG = {
     specialty: 0,
   },
   "gold-zumba": {
-    yoga: 0,
-    zumba: 2,
+    yoga: 2,
+    zumba: 0,
     specialty: 0,
   },
   "gold-mixed": {
-    yoga: 1,
-    zumba: 1,
+    yoga: 2,
+    zumba: 0,
     specialty: 0,
   },
   "diamond": {
     yoga: 2,
-    zumba: 2,
+    zumba: 0,
     specialty: 0,
   },
   "platinum": {
     yoga: 2,
-    zumba: 2,
+    zumba: 0,
     specialty: 1,
   },
 };

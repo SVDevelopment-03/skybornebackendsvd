@@ -15,6 +15,7 @@ import UserSubscription from "../../PaymentModule/models/Subscription";
 import { StripeService } from "../../PaymentModule/services/stripe.service";
 import { NgeniusService } from "../../../services/ngenius.service";
 import { getEffectiveClassCredits } from "../../../utils/creditUtils";
+import { migrateLegacyZumbaUser } from "../../../utils/zumbaMigration";
 import {
   notifyAccountDeletionDecision,
   notifyAccountDeletionRejection,
@@ -316,6 +317,16 @@ export class UserController {
         });
       }
 
+      const shouldMigrateLegacyZumba =
+        Number(user?.classCredits?.zumba || 0) > 0 ||
+        Number(user?.overAllclassCredits?.zumba || 0) > 0 ||
+        ["gold-zumba", "gold-mixed"].includes(String(user?.plan || ""));
+
+      if (shouldMigrateLegacyZumba) {
+        migrateLegacyZumbaUser(user);
+        await user.save();
+      }
+
       const now = new Date();
       const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
 
@@ -403,6 +414,16 @@ export class UserController {
           success: false,
           message: "User not found",
         });
+      }
+
+      const shouldMigrateLegacyZumba =
+        Number(user?.classCredits?.zumba || 0) > 0 ||
+        Number(user?.overAllclassCredits?.zumba || 0) > 0 ||
+        ["gold-zumba", "gold-mixed"].includes(String(user?.plan || ""));
+
+      if (shouldMigrateLegacyZumba) {
+        migrateLegacyZumbaUser(user);
+        await user.save();
       }
 
       res.json({
@@ -858,8 +879,8 @@ export class UserController {
 function getPlanDisplayName(plan: string | undefined): string {
   const planMap: { [key: string]: string } = {
     "gold-yoga": "Gold Yoga",
-    "gold-zumba": "Gold Zumba",
-    "gold-mixed": "Gold Mixed",
+    "gold-zumba": "Gold Yoga",
+    "gold-mixed": "Gold Yoga",
     diamond: "Diamond",
     platinum: "Platinum",
   };

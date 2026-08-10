@@ -22,6 +22,10 @@ import { getIO } from "../../../config/socket";
 import CancelSubscriptionModel from "../../CancelSubscriptionModule/CancelSubscriptionModel";
 import RecurringPaymentFailure from "../models/RecurringPaymentFailure";
 import { PushNotificationService } from "../../../services/pushNotification.service";
+import {
+  migrateLegacyZumbaCredits,
+  normalizePlanKeyForDisabledZumba,
+} from "../../../utils/zumbaMigration";
 
 type PreferedType = "stripe" | "ngenius";
 
@@ -1835,18 +1839,19 @@ export default class PaymentController {
             throw new Error("Plan is missing in payment record");
           }
 
-          const baseCredits = await resolvePlanCredits(plan);
+          const normalizedPlan = normalizePlanKeyForDisabledZumba(plan);
+          const baseCredits = await resolvePlanCredits(normalizedPlan);
           if (!baseCredits) {
             throw new Error(`Unable to resolve credits for plan: ${plan}`);
           }
 
-          let newCredits = { ...baseCredits };
+          let newCredits = migrateLegacyZumbaCredits(baseCredits);
 
           // ✅ If yearly billing, multiply credits by 12
           if (billingType === "yearly") {
             newCredits = {
               yoga: (newCredits?.yoga || 0) * 12,
-              zumba: (newCredits?.zumba || 0) * 12,
+              zumba: 0,
               specialty: (newCredits?.specialty || 0) * 12,
             };
           }
@@ -1861,7 +1866,7 @@ export default class PaymentController {
           // by the new subscription credit allocation.
           user.classCredits = {
             yoga: newCredits.yoga || 0,
-            zumba: newCredits.zumba || 0,
+            zumba: 0,
             specialty: newCredits.specialty || 0,
           };
 
@@ -1869,7 +1874,7 @@ export default class PaymentController {
           // new plan's credit allocation.
           user.overAllclassCredits = {
             yoga: newCredits.yoga || 0,
-            zumba: newCredits.zumba || 0,
+            zumba: 0,
             specialty: newCredits.specialty || 0,
           };
 
@@ -1899,7 +1904,7 @@ export default class PaymentController {
           }
 
           // Update plan
-          user.plan = plan;
+          user.plan = normalizedPlan;
           user.pendingPlan = null;
           user.pendingBillingType = null;
           user.pendingEffectiveDate = null;
@@ -3343,15 +3348,15 @@ const LEGACY_PLAN_CONFIG: Record<PlanType, { yoga: number; zumba: number; specia
   PLAN_CONFIG;
 
 const PLAN_KEY_ALIASES: Record<string, string> = {
-  gold: 'gold-mixed',
-  'gold package': 'gold-mixed',
-  'gold-package': 'gold-mixed',
+  gold: 'gold-yoga',
+  'gold package': 'gold-yoga',
+  'gold-package': 'gold-yoga',
 };
 
 type Credits = { yoga: number; zumba: number; specialty: number };
 
 async function resolvePlanCredits(planKey: string): Promise<Credits | null> {
-  const normalizedPlanKey = planKey.trim().toLowerCase();
+  const normalizedPlanKey = normalizePlanKeyForDisabledZumba(planKey).trim().toLowerCase();
   const resolvedPlanKey = PLAN_KEY_ALIASES[normalizedPlanKey] || normalizedPlanKey;
   const legacyCredits = LEGACY_PLAN_CONFIG[resolvedPlanKey as PlanType];
   if (legacyCredits) {
