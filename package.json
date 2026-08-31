@@ -57,6 +57,7 @@
     "mongoose-autopopulate": "^1.2.1",
     "morgan": "^1.10.1",
     "multer": "^2.0.2",
+    "node-apple-receipt-verify": "^1.15.0",
     "node-cache": "^5.1.2",
     "node-cron": "^4.2.1",
     "nodemailer": "^7.0.10",

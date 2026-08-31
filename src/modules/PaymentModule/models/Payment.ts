@@ -15,12 +15,11 @@ subscriptionActivated?: true;
 plan: string;
 currency: string;
 status: 'PENDING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
-gateway: 'ngenius' | 'stripe';
+gateway: 'ngenius' | 'stripe' | 'apple-iap';
 
 // nGenius specific
 ngeniusStatus?: string;
 paymentLink?: string;
-
 
 // Stripe specific
 paymentIntentId?: string;
@@ -28,6 +27,13 @@ subscriptionId?: string;
 transactionId?: string;
 previousSubscriptionId?: string;
 previousSubscriptionCancelledAt?: Date;
+
+// Apple IAP specific
+appleTransactionId?: string;
+appleProductId?: string;
+appleOriginalTransactionId?: string;
+appleReceiptData?: string;
+appleEnvironment?: 'production' | 'sandbox';
 
 // Common fields
 invoiceId?: string;
@@ -95,7 +101,7 @@ const PaymentSchema = new Schema<IPayment>(
     },
     gateway: {
       type: String,
-      enum: ['ngenius', 'stripe'],
+      enum: ['ngenius', 'stripe', 'apple-iap'],
       required: false,
       index: true,
     },
@@ -136,6 +142,34 @@ const PaymentSchema = new Schema<IPayment>(
   },
   previousSubscriptionCancelledAt: {
     type: Date,
+    sparse: true,
+  },
+
+  // Apple IAP specific
+  appleTransactionId: {
+    type: String,
+    unique: false,
+    sparse: true,
+    index: true,
+  },
+  appleProductId: {
+    type: String,
+    sparse: true,
+  },
+  appleOriginalTransactionId: {
+    type: String,
+    unique: false,
+    sparse: true,
+    index: true,
+  },
+  appleReceiptData: {
+    type: String,
+    sparse: true,
+  },
+  appleEnvironment: {
+    type: String,
+    enum: ['production', 'sandbox'],
+    default: 'production',
     sparse: true,
   },
 

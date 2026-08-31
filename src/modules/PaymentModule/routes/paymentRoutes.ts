@@ -1,6 +1,7 @@
 import validateData from "../../../utils/validation.utils";
 import PaymentController from "../controllers/paymentController";
 import { paymentWebhookController } from "../controllers/paymentWebhookController";
+import { AppleIAPController } from "../controllers/appleIAPController";
 import { CreatePaymentOrderSchema } from "../requests/createPayment";
 import {
   GetPaymentStatusSchema,
@@ -142,6 +143,25 @@ export const PaymentApiRoutes = [
   {
     path: "/payment/stripe-checkout-return",
     action: PaymentController.stripeCheckoutReturn,
+    request: null,
+    method: "get",
+  },
+  // ✅ APPLE IN-APP PURCHASE ROUTES
+  {
+    path: "/payment/apple-iap/validate-receipt",
+    action: AppleIAPController.validateAppleReceipt,
+    request: null,
+    method: "post",
+  },
+  {
+    path: "/payment/apple-iap/restore-purchases",
+    action: AppleIAPController.restoreApplePurchases,
+    request: null,
+    method: "post",
+  },
+  {
+    path: "/payment/apple-iap/products",
+    action: AppleIAPController.getAppleProducts,
     request: null,
     method: "get",
   },
