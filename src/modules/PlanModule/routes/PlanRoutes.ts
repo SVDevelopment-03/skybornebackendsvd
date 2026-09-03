@@ -42,4 +42,11 @@ export const PlanRoute = [
     method: "patch",
     roles: ["admin"],
   },
+  {
+    path: "/admin/migrate-plans",
+    request: null,
+    action: require("../../PaymentModule/controllers/planMigration.controller").PlanMigrationController.migrateLegacyPlans,
+    method: "post",
+    roles: ["admin"],
+  },
 ];
