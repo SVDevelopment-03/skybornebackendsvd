@@ -28,7 +28,9 @@ export class PlanMigrationController {
           { upsert: true },
         );
 
-        if (result.upserted) created += 1;
+        // Mongoose update result shapes vary by driver version; check common upsert indicators
+        const upsertedAny = (result as any).upsertedId || (result as any).upsertedCount || (result as any).upserted;
+        if (upsertedAny) created += 1;
         else updated += 1;
       }
 
