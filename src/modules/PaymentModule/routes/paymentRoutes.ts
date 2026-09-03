@@ -2,6 +2,7 @@ import validateData from "../../../utils/validation.utils";
 import PaymentController from "../controllers/paymentController";
 import { paymentWebhookController } from "../controllers/paymentWebhookController";
 import { AppleIAPController } from "../controllers/appleIAPController";
+import PlanProductController from '../controllers/planProduct.controller';
 import { CreatePaymentOrderSchema } from "../requests/createPayment";
 import {
   GetPaymentStatusSchema,
@@ -164,5 +165,18 @@ export const PaymentApiRoutes = [
     action: AppleIAPController.getAppleProducts,
     request: null,
     method: "get",
+  },
+  // Plan product management (dynamic product mapping)
+  {
+    path: '/plans',
+    action: PlanProductController.getPlans,
+    request: null,
+    method: 'get',
+  },
+  {
+    path: '/plans',
+    action: PlanProductController.upsertPlan,
+    request: null,
+    method: 'post',
   },
 ];

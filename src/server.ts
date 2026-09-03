@@ -14,6 +14,7 @@ import { startCurrencyCron } from "./modules/CurrencyModule/CurrencyCron";
 import { startUserPurgeCron } from "./services/userPurgeService";
 import { initializeEmailServices } from "./services/initializeEmailService";
 import "./workers/classReminderEmailWorker";
+import { seedPlanProducts } from './seeders/plan.seeder';
 
 const PORT = process.env.PORT || 8000;
 
@@ -23,6 +24,16 @@ const startServer = async () => {
 
     /** 1. Connect MongoDB */
     await connectDB();
+
+    // Optionally seed plan products on startup when AUTO_SEED_PLANS=true
+    if (process.env.AUTO_SEED_PLANS === 'true') {
+      try {
+        console.log('🔁 AUTO_SEED_PLANS enabled — seeding plan products');
+        await seedPlanProducts();
+      } catch (err) {
+        console.warn('⚠️ AUTO seeding plans failed:', err);
+      }
+    }
 
     /** 2. Connect Redis */
     await connectRedis();

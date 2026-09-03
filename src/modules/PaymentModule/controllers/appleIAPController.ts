@@ -6,6 +6,7 @@
 import { Request, Response } from 'express';
 import { AppleIAPService } from '../services/appleIAP.service';
 import Payment from '../models/Payment';
+import PlanProduct from '../models/PlanProduct';
 import User from '../../UserModule/models/User';
 import { PLAN_CONFIG } from '../../../config/planConfig';
 import { hasActiveSubscription } from '../../../utils/creditUtils';
@@ -321,6 +322,30 @@ export class AppleIAPController {
    */
   static async getAppleProducts(req: Request, res: Response) {
     try {
+      // Prefer dynamic PlanProduct entries if available
+      const planProducts = await PlanProduct.find({}).lean();
+
+      if (Array.isArray(planProducts) && planProducts.length > 0) {
+        const grouped = planProducts.map((p) => ({
+          plan: p.planKey,
+          name: p.displayName || p.planKey,
+          description: p.description || '',
+          price: p.price?.toString?.() || '0',
+          currency: p.currency || 'USD',
+          billingType: p.billingType || 'monthly',
+          appleProductIds: p.appleProductIds || [],
+          googleProductIds: p.googleProductIds || [],
+          stripePriceIds: p.stripePriceIds || [],
+        }));
+
+        return res.status(200).json({
+          success: true,
+          message: 'Apple IAP products retrieved successfully',
+          data: grouped,
+        });
+      }
+
+      // Fallback static list (kept for backward compatibility)
       const products = [
         {
           productId: 'com.skyborne.gold.monthly',
