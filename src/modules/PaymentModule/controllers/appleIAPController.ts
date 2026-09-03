@@ -126,16 +126,19 @@ export class AppleIAPController {
 
       // Create payment record
       const orderRef = AppleIAPService.generateAppleOrderRef();
-      const planConfig = PLAN_CONFIG[normalizedPlan as keyof typeof PLAN_CONFIG];
+
+      // Prefer price from PlanProduct if populated; otherwise fallback to 0
+      const planProduct = await PlanProduct.findOne({ planKey: normalizedPlan }).lean();
+      const amount = planProduct?.price ?? 0;
 
       const paymentData = new Payment({
         userId,
         orderRef,
         plan: normalizedPlan,
-        amount: planConfig?.price || 0,
-        currency: 'USD', // Apple charges in USD by default
-        localAmount: planConfig?.price || 0,
-        localCurrency: 'USD',
+        amount,
+        currency: planProduct?.currency || 'USD',
+        localAmount: amount,
+        localCurrency: planProduct?.currency || 'USD',
         status: 'COMPLETED',
         gateway: 'apple-iap',
         billingType,
@@ -162,9 +165,15 @@ export class AppleIAPController {
           billingType,
         );
 
+        // Compute credit counts from PLAN_CONFIG (yoga/zumba/specialty). If missing, default to totals.
+        const planCreditConfig = PLAN_CONFIG[normalizedPlan as keyof typeof PLAN_CONFIG] || null;
+        const totalCredits = planCreditConfig
+          ? Object.values(planCreditConfig).reduce((a: number, b: number) => a + b, 0)
+          : 10;
+
         const updateData: any = {
           plan: normalizedPlan,
-          totalClassCredits: planConfig?.credits || 10,
+          totalClassCredits: totalCredits,
           subscription: {
             status: 'active',
             startDate: new Date(),
@@ -179,9 +188,9 @@ export class AppleIAPController {
         // Initialize credits if new subscription
         if (!hasActive) {
           updateData.classCredits = {
-            yoga: planConfig?.credits || 10,
-            zumba: 0,
-            specialty: 0,
+            yoga: planCreditConfig?.yoga || totalCredits,
+            zumba: planCreditConfig?.zumba || 0,
+            specialty: planCreditConfig?.specialty || 0,
           };
         }
 
