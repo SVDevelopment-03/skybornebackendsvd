@@ -43,6 +43,13 @@ export const PlanRoute = [
     roles: ["admin"],
   },
   {
+    path: "/admin/plans/:planId",
+    request: null,
+    action: PlanController.deletePlan,
+    method: "delete",
+    roles: ["admin"],
+  },
+  {
     path: "/admin/migrate-plans",
     request: null,
     action: require("../../PaymentModule/controllers/planMigration.controller").PlanMigrationController.migrateLegacyPlans,

@@ -413,4 +413,30 @@ export default class PlanController {
       data: plan,
     });
   }
+
+  static async deletePlan(req: Request, res: Response) {
+    const { planId } = req.params;
+
+    const plan = await planService.getPlanById(planId);
+    if (!plan) {
+      return res.status(404).json({
+        success: false,
+        message: "Plan not found",
+      });
+    }
+
+    try {
+      await planService.deletePlan(planId);
+
+      return res.status(200).json({
+        success: true,
+        message: "Plan deleted successfully",
+      });
+    } catch (error: any) {
+      return res.status(500).json({
+        success: false,
+        message: error.message || "Failed to delete plan",
+      });
+    }
+  }
 }

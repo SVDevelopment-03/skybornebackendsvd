@@ -27,4 +27,8 @@ export default class PlanServices {
   async findByName(name: string, excludePlanId?: string) {
     return _planRepo.findByName(name, excludePlanId);
   }
+
+  async deletePlan(planId: string) {
+    return _planRepo.deleteModel(planId);
+  }
 }
