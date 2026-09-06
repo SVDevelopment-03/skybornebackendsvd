@@ -10,6 +10,7 @@ export interface IPlanProduct extends Document {
   appleProductIds?: string[];
   googleProductIds?: string[];
   stripePriceIds?: string[];
+  isActive?: boolean;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -25,6 +26,7 @@ const PlanProductSchema = new Schema<IPlanProduct>(
     appleProductIds: { type: [String], default: [] },
     googleProductIds: { type: [String], default: [] },
     stripePriceIds: { type: [String], default: [] },
+    isActive: { type: Boolean, default: true, index: true },
   },
   { timestamps: true },
 );

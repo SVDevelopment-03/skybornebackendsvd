@@ -179,4 +179,16 @@ export const PaymentApiRoutes = [
     request: null,
     method: 'post',
   },
+  {
+    path: '/plans/:id/status',
+    action: PlanProductController.updatePlanStatus,
+    request: null,
+    method: 'patch',
+  },
+  {
+    path: '/plans/:id',
+    action: PlanProductController.deletePlan,
+    request: null,
+    method: 'delete',
+  },
 ];
