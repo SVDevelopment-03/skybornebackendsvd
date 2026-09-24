@@ -31,6 +31,7 @@ const publicApi = [
   "/mail-management/error-log",
   "/open/class/:meetingId",
   "/payment/stripe-portal-return"
+  ,"/payment/apple-iap/products"
 ];
 
 appApiRoutes?.map(({ path, request, method, action,roles }: any) => {
