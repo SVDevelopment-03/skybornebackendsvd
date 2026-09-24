@@ -20,7 +20,8 @@ export class AppleIAPController {
    */
   static async validateAppleReceipt(req: Request, res: Response) {
     try {
-      const { receipt, userId } = req.body;
+      const { receipt } = req.body;
+      const userId = String((req as any).user?.id || '');
 
       // Validation
       if (!receipt) {
@@ -33,7 +34,7 @@ export class AppleIAPController {
       if (!userId) {
         return res.status(400).json({
           success: false,
-          message: 'userId is required',
+          message: 'Authenticated user is required',
         });
       }
 
@@ -62,12 +63,31 @@ export class AppleIAPController {
         });
       }
 
+      const configuredBundleId = process.env.APPLE_BUNDLE_ID;
+      if (
+        configuredBundleId &&
+        validationResult.receipt.bundleId &&
+        validationResult.receipt.bundleId !== configuredBundleId
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: 'Apple receipt belongs to a different application',
+        });
+      }
+
       // Extract subscription info
       const subscriptionInfo = AppleIAPService.extractSubscriptionInfo(validationResult.receipt);
       if (!subscriptionInfo) {
         return res.status(400).json({
           success: false,
           message: 'No active subscription found in receipt',
+        });
+      }
+
+      if (!AppleIAPService.isSubscriptionActive(subscriptionInfo.expiryDate)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Apple subscription has expired',
         });
       }
 
@@ -78,7 +98,12 @@ export class AppleIAPController {
       });
 
       // Get plan from product ID
-      const plan = AppleIAPService.getPlanFromAppleProductId(subscriptionInfo.productId);
+      const configuredProduct = await PlanProduct.findOne({
+        appleProductIds: subscriptionInfo.productId,
+        isActive: { $ne: false },
+      }).lean();
+      const plan = configuredProduct?.planKey ||
+        AppleIAPService.getPlanFromAppleProductId(subscriptionInfo.productId);
       if (!plan) {
         return res.status(400).json({
           success: false,
@@ -96,14 +121,27 @@ export class AppleIAPController {
 
       // Check if this is a duplicate transaction
       const existingPayment = await Payment.findOne({
-        userId,
         appleTransactionId: subscriptionInfo.transactionId,
         status: 'COMPLETED',
       });
 
       if (existingPayment) {
         console.log(`⚠️  Duplicate Apple transaction detected: ${subscriptionInfo.transactionId}`);
-        return res.status(400).json({
+        if (existingPayment.userId.toString() === userId) {
+          return res.status(200).json({
+            success: true,
+            message: 'Apple IAP transaction already processed',
+            data: {
+              paymentId: existingPayment._id,
+              orderRef: existingPayment.orderRef,
+              plan: existingPayment.plan,
+              subscriptionEndDate: subscriptionInfo.expiryDate,
+              isRenewal: true,
+              environment: validationResult.environment,
+            },
+          });
+        }
+        return res.status(409).json({
           success: false,
           message: 'This transaction has already been processed',
         });
@@ -160,10 +198,7 @@ export class AppleIAPController {
 
       if (!hasActive || isRenewal) {
         // Calculate subscription end date
-        const subscriptionEndDate = AppleIAPService.calculateNextRenewalDate(
-          subscriptionInfo.purchaseDate,
-          billingType,
-        );
+        const subscriptionEndDate = subscriptionInfo.expiryDate;
 
         // Compute credit counts from PLAN_CONFIG (yoga/zumba/specialty). If missing, default to totals.
         const planCreditConfig = PLAN_CONFIG[normalizedPlan as keyof typeof PLAN_CONFIG] || null;
@@ -230,7 +265,8 @@ export class AppleIAPController {
    */
   static async restoreApplePurchases(req: Request, res: Response) {
     try {
-      const { receipt, userId } = req.body;
+      const { receipt } = req.body;
+      const userId = String((req as any).user?.id || '');
 
       if (!receipt) {
         return res.status(400).json({
@@ -242,7 +278,7 @@ export class AppleIAPController {
       if (!userId) {
         return res.status(400).json({
           success: false,
-          message: 'userId is required',
+          message: 'Authenticated user is required',
         });
       }
 
@@ -332,20 +368,22 @@ export class AppleIAPController {
   static async getAppleProducts(req: Request, res: Response) {
     try {
       // Prefer dynamic PlanProduct entries if available
-      const planProducts = await PlanProduct.find({}).lean();
+      const planProducts = await PlanProduct.find({ isActive: { $ne: false } }).lean();
 
       if (Array.isArray(planProducts) && planProducts.length > 0) {
-        const grouped = planProducts.map((p) => ({
-          plan: p.planKey,
-          name: p.displayName || p.planKey,
-          description: p.description || '',
-          price: p.price?.toString?.() || '0',
-          currency: p.currency || 'USD',
-          billingType: p.billingType || 'monthly',
-          appleProductIds: p.appleProductIds || [],
-          googleProductIds: p.googleProductIds || [],
-          stripePriceIds: p.stripePriceIds || [],
-        }));
+        const grouped = planProducts.flatMap((p) =>
+          (p.appleProductIds || []).map((productId) => ({
+            productId,
+            plan: p.planKey,
+            name: p.displayName || p.planKey,
+            description: p.description || '',
+            price: p.price?.toString?.() || '0',
+            currency: p.currency || 'USD',
+            billingType: productId.toLowerCase().includes('year')
+              ? 'yearly'
+              : p.billingType || 'monthly',
+          })),
+        );
 
         return res.status(200).json({
           success: true,
