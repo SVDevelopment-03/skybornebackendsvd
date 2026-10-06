@@ -2762,7 +2762,8 @@ export default class PaymentController {
           formatDate(payment.createdAt),
           formatPlanName(payment.plan),
           payment.amount?.toString() || "0",
-          payment.currency || "USD",
+          // amount is always stored in USD; payment.currency may hold the customer's local currency
+          "USD",
           formatStatusLabel(payment.status),
           user?.country || "N/A",
         ];
