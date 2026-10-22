@@ -19,6 +19,11 @@ import TrainerModel from "../TrainerModule/TrainerModel";
 import { channel } from "diagnostics_channel";
 import { PushNotificationService } from "../../services/pushNotification.service";
 import { ClassReminderService } from "../../services/classReminderService";
+import {
+  getZoomInstanceRecordings,
+  openArchivedRecording,
+  recordingArchiveConfig,
+} from "../../services/recordingArchive.service";
 
 const _countryRepository = new CountryRepository();
 
@@ -110,6 +115,132 @@ const migrateLegacyMeetingUserIfNeeded = async (user: any) => {
   }
 
   return user;
+};
+
+// Who may watch a class recording: trainers and admins always; members need
+// an active subscription and a credit for the class type. The first replay of
+// a class uses one credit; later replays of the same class are free.
+const checkRecordingAccess = async (
+  userId: string | undefined,
+  meetingId: string,
+): Promise<{ user: any; meeting: any } | { status: number; error: string }> => {
+  if (!userId) {
+    return { status: 401, error: "Authentication required" };
+  }
+
+  const user = await User.findById(userId);
+  if (!user) {
+    return { status: 404, error: "User not found" };
+  }
+
+  await migrateLegacyMeetingUserIfNeeded(user);
+  applySubscriptionCreditPolicy(user);
+
+  const meeting = await Meeting.findById(meetingId).populate("service", "title");
+  if (!meeting) {
+    return { status: 404, error: "Meeting not found" };
+  }
+
+  const serviceType = normalizeLegacyMeetingServiceType(
+    (meeting?.service as IService)?.title,
+  );
+
+  if (!user?.role || (user.role !== "trainer" && user.role !== "admin")) {
+    const effectiveCredits = getEffectiveClassCredits(user);
+    const creditCount = Number(effectiveCredits?.[serviceType as ServiceType] || 0);
+
+    if (creditCount <= 0) {
+      return {
+        status: 403,
+        error: `You do not have enough ${serviceType} credits to watch this recording`,
+      };
+    }
+
+    let attendance = await MeetingAttendance.findOne({
+      meeting: meeting._id,
+      user: user._id,
+    });
+
+    let shouldDeductReplayCredit = false;
+
+    if (!attendance) {
+      attendance = await MeetingAttendance.create({
+        meeting: meeting._id,
+        user: user._id,
+        status: "completed",
+        joinedAt: new Date(),
+        completedAt: new Date(),
+        totalSessions: 1,
+        sessions: [
+          {
+            joinTime: new Date(),
+            leaveTime: new Date(),
+            duration: 0,
+            mode: "replay",
+          },
+        ],
+        creditDeducted: true,
+      });
+      shouldDeductReplayCredit = true;
+    } else if (!attendance.creditDeducted) {
+      attendance.creditDeducted = true;
+      attendance.status = "completed";
+      attendance.completedAt = attendance.completedAt || new Date();
+      await attendance.save();
+      shouldDeductReplayCredit = true;
+    }
+
+    if (shouldDeductReplayCredit) {
+      user.classCredits = user.classCredits || {};
+      const currentCredits = Number(user.classCredits?.[serviceType as ServiceType] || 0);
+      const creditKey = serviceType as keyof typeof user.classCredits;
+      if (currentCredits > 0) {
+        user.classCredits[creditKey] = currentCredits - 1;
+      }
+      if (!user.overAllclassCredits) {
+        user.overAllclassCredits = { yoga: 0, zumba: 0, specialty: 0 };
+      }
+      const currentOverallCredits = Number(user.overAllclassCredits?.[serviceType as ServiceType] || 0);
+      const overallCreditKey = serviceType as keyof typeof user.overAllclassCredits;
+      if (currentOverallCredits > 0) {
+        user.overAllclassCredits[overallCreditKey] = currentOverallCredits - 1;
+      }
+      await user.save();
+    }
+  }
+
+  return { user, meeting };
+};
+
+// Signed links for the website's <video> tag (see GetMeetingRecordingLink).
+// Long enough to watch a class with pauses and seeking; a shared link stops
+// working after this.
+const RECORDING_PLAYBACK_TOKEN_TTL_SECONDS = 4 * 60 * 60;
+const RECORDING_PLAYBACK_PURPOSE = "recording-playback";
+
+const recordingPlaybackSecret = () =>
+  `${process.env.JWT_ACCESS_SECRET || "access-secret"}:${RECORDING_PLAYBACK_PURPOSE}`;
+
+const signRecordingPlaybackToken = (meetingId: string, userId: string): string =>
+  jwt.sign(
+    { purpose: RECORDING_PLAYBACK_PURPOSE, mid: meetingId, uid: userId },
+    recordingPlaybackSecret(),
+    { expiresIn: RECORDING_PLAYBACK_TOKEN_TTL_SECONDS },
+  );
+
+const verifyRecordingPlaybackToken = (
+  token: string,
+): { mid: string; uid: string } | null => {
+  if (!token) return null;
+  try {
+    const payload = jwt.verify(token, recordingPlaybackSecret()) as any;
+    if (payload?.purpose !== RECORDING_PLAYBACK_PURPOSE || !payload.mid || !payload.uid) {
+      return null;
+    }
+    return { mid: String(payload.mid), uid: String(payload.uid) };
+  } catch {
+    return null;
+  }
 };
 
 const buildZoomAppJoinUrl = (
@@ -1246,96 +1377,125 @@ static async GetAllMeetings(req: Request, res: Response) {
 }
 
 static async GetMeetingRecording(req: Request, res: Response) {
-  let videoStream: any = null;
   const requestId = Math.random().toString(36).substring(7);
   const startTime = Date.now();
 
   try {
-    const userId = req.user?.id;
-    if (!userId) {
-      return res.status(401).json({ error: "Authentication required" });
-    }
-
-    const user = await User.findById(userId);
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
-    }
-
-    await migrateLegacyMeetingUserIfNeeded(user);
-    applySubscriptionCreditPolicy(user);
-
-    // Step 1: Find meeting
     console.log(`[${requestId}] 📋 Step 1: Finding meeting ${req.params.id}...`);
-    const meeting = await Meeting.findById(req.params.id).populate("service", "title");
-    if (!meeting) {
-      console.log(`[${requestId}] ❌ Meeting not found`);
-      return res.status(404).json({ error: "Meeting not found" });
+    const access = await checkRecordingAccess(req.user?.id, req.params.id);
+    if ("error" in access) {
+      console.log(`[${requestId}] ❌ ${access.error}`);
+      return res.status(access.status).json({ error: access.error });
     }
 
-    const serviceType = normalizeLegacyMeetingServiceType(
-      (meeting?.service as IService)?.title,
-    );
+    return MeetingController.streamMeetingRecording(req, res, access.meeting, requestId, startTime);
+  } catch (error: any) {
+    console.error(`[${requestId}] ❌ Recording access check failed: ${error.message}`);
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Error streaming recording", details: error.message, requestId });
+    }
+  }
+}
 
-    if (!user?.role || (user.role !== "trainer" && user.role !== "admin")) {
-      const effectiveCredits = getEffectiveClassCredits(user);
-      const creditCount = Number(effectiveCredits?.[serviceType as ServiceType] || 0);
+// The website's <video> tag can't send the Bearer token, so it asks for a
+// short-lived playback link first (logged in, same credit check as above)
+// and plays that link instead.
+static async GetMeetingRecordingLink(req: Request, res: Response) {
+  const access = await checkRecordingAccess(req.user?.id, req.params.id);
+  if ("error" in access) {
+    return res.status(access.status).json({ success: false, message: access.error });
+  }
 
-      if (creditCount <= 0) {
-        return res.status(403).json({
-          error: `You do not have enough ${serviceType} credits to watch this recording`,
-        });
-      }
+  const playbackToken = signRecordingPlaybackToken(String(access.meeting._id), String(access.user._id));
+  const baseUrl = String(process.env.API_BASE_URL || "").replace(/\/+$/, "");
+  return res.json({
+    success: true,
+    data: {
+      url: `${baseUrl}/meetings/${access.meeting._id}/recording/play?pt=${encodeURIComponent(playbackToken)}`,
+      expiresInSeconds: RECORDING_PLAYBACK_TOKEN_TTL_SECONDS,
+    },
+  });
+}
 
-      let attendance = await MeetingAttendance.findOne({
-        meeting: meeting._id,
-        user: user._id,
-      });
+// Public route: the playback token in ?pt= is the only access check, and it
+// was issued by GetMeetingRecordingLink after the credit check passed.
+static async PlayMeetingRecording(req: Request, res: Response) {
+  const requestId = Math.random().toString(36).substring(7);
+  const startTime = Date.now();
 
-      let shouldDeductReplayCredit = false;
+  const payload = verifyRecordingPlaybackToken(String(req.query.pt || ""));
+  if (!payload || payload.mid !== String(req.params.id)) {
+    return res.status(401).json({ error: "Playback link is invalid or has expired" });
+  }
 
-      if (!attendance) {
-        attendance = await MeetingAttendance.create({
-          meeting: meeting._id,
-          user: user._id,
-          status: "completed",
-          joinedAt: new Date(),
-          completedAt: new Date(),
-          totalSessions: 1,
-          sessions: [
-            {
-              joinTime: new Date(),
-              leaveTime: new Date(),
-              duration: 0,
-              mode: "replay",
-            },
-          ],
-          creditDeducted: true,
-        });
-        shouldDeductReplayCredit = true;
-      } else if (!attendance.creditDeducted) {
-        attendance.creditDeducted = true;
-        attendance.status = "completed";
-        attendance.completedAt = attendance.completedAt || new Date();
-        await attendance.save();
-        shouldDeductReplayCredit = true;
-      }
+  const user = await User.findById(payload.uid).select("_id isActive");
+  if (!user || !user.isActive) {
+    return res.status(401).json({ error: "Account is no longer active" });
+  }
 
-      if (shouldDeductReplayCredit) {
-        user.classCredits = user.classCredits || {};
-        const currentCredits = Number(user.classCredits?.[serviceType as ServiceType] || 0);
-        const creditKey = serviceType as keyof typeof user.classCredits;
-        if (currentCredits > 0) {
-          user.classCredits[creditKey] = currentCredits - 1;
+  const meeting = await Meeting.findById(req.params.id);
+  if (!meeting) {
+    return res.status(404).json({ error: "Meeting not found" });
+  }
+
+  return MeetingController.streamMeetingRecording(req, res, meeting, requestId, startTime);
+}
+
+static async streamMeetingRecording(
+  req: Request,
+  res: Response,
+  meeting: any,
+  requestId: string,
+  startTime: number,
+) {
+  let videoStream: any = null;
+
+  try {
+    // Play from the Amazon S3 copy when there is a verified one. If anything
+    // goes wrong before the video starts, fall through to Zoom as before.
+    if (recordingArchiveConfig().playbackFromS3) {
+      try {
+        const archived = await openArchivedRecording(
+          meeting,
+          req.headers.range as string | undefined,
+        );
+        if (archived) {
+          console.log(`[${requestId}] 📦 Serving recording from S3 (${meeting.recordingArchive?.s3Key})`);
+          res.setHeader("Access-Control-Allow-Origin", "*");
+          res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+          res.setHeader("Access-Control-Allow-Headers", "Content-Type, Range");
+          res.setHeader("Content-Type", "video/mp4");
+          res.setHeader("Accept-Ranges", "bytes");
+          res.setHeader("Content-Disposition", 'inline; filename="recording.mp4"');
+          res.setHeader("Cache-Control", "public, max-age=604800");
+          res.setHeader("X-Content-Type-Options", "nosniff");
+          res.setHeader("X-Recording-Source", "s3");
+          res.setHeader("Access-Control-Expose-Headers", "X-Recording-Source, Content-Range");
+          res.statusCode = archived.partial ? 206 : 200;
+          if (archived.partial && archived.contentRange) {
+            res.setHeader("Content-Range", archived.contentRange);
+          }
+          if (archived.contentLength) {
+            res.setHeader("Content-Length", archived.contentLength);
+          }
+
+          videoStream = { data: archived.body };
+          archived.body.on("error", (error: Error) => {
+            console.error(`[${requestId}] ❌ S3 STREAM ERROR:`, error.message);
+            if (!res.headersSent) {
+              res.status(500).json({ error: "Stream error", details: error.message });
+            } else {
+              res.destroy();
+            }
+          });
+          req.on("close", () => archived.body.destroy());
+          archived.body.pipe(res);
+          return;
         }
-        if (!user.overAllclassCredits) {
-          user.overAllclassCredits = { yoga: 0, zumba: 0, specialty: 0 };
-        }
-        const currentOverallCredits = Number(user.overAllclassCredits?.[serviceType as ServiceType] || 0);
-        const overallCreditKey = serviceType as keyof typeof user.overAllclassCredits;
-        if (currentOverallCredits > 0) {
-          user.overAllclassCredits[overallCreditKey] = currentOverallCredits - 1;
-        }
-        await user.save();
+      } catch (s3Error: any) {
+        console.warn(
+          `[${requestId}] ⚠️ S3 playback failed, falling back to Zoom: ${s3Error?.name || ""} ${s3Error?.message || s3Error}`,
+        );
       }
     }
 
@@ -1344,14 +1504,30 @@ static async GetMeetingRecording(req: Request, res: Response) {
     const token = await getZoomAccessToken();
     console.log(`[${requestId}] ✅ Token obtained (length: ${token.length})`);
 
-    // Step 3: Get recordings list
+    // Step 3: Get recordings list. Prefer this class's own Zoom recording
+    // (recurring classes share a meeting number, and the meeting-number lookup
+    // only returns the newest class's recording).
     console.log(`[${requestId}] 📹 Step 3: Fetching recordings from Zoom API...`);
-    const { data: recordingsData } = await axios.get(
-      `https://api.zoom.us/v2/meetings/${meeting.zoomMeetingId}/recordings`,
-      {
-        headers: { Authorization: `Bearer ${token}` },
-      },
-    );
+    let recordingsData: any = null;
+    const ownZoomUuid = meeting.recordingArchive?.zoomMeetingUuid;
+    if (ownZoomUuid) {
+      try {
+        recordingsData = await getZoomInstanceRecordings(ownZoomUuid);
+      } catch (instanceError: any) {
+        console.warn(
+          `[${requestId}] ⚠️ Could not fetch recording by class UUID, using meeting number: ${instanceError?.message}`,
+        );
+      }
+    }
+    if (!recordingsData) {
+      const { data } = await axios.get(
+        `https://api.zoom.us/v2/meetings/${meeting.zoomMeetingId}/recordings`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      recordingsData = data;
+    }
     console.log(`[${requestId}] ✅ Recordings API response received`);
     console.log(`[${requestId}] Total recording files: ${recordingsData.recording_files?.length || 0}`);
     const getFileDurationSeconds = (file: any): number => {
@@ -1448,6 +1624,8 @@ static async GetMeetingRecording(req: Request, res: Response) {
     res.setHeader("Content-Disposition", 'inline; filename="recording.mp4"');
     res.setHeader("Cache-Control", "public, max-age=604800");
     res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("X-Recording-Source", "zoom");
+    res.setHeader("Access-Control-Expose-Headers", "X-Recording-Source, Content-Range");
     
 
     // Step 8: Handle Range requests

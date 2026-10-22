@@ -1,14 +1,39 @@
+import dns from 'dns';
 import mongoose from 'mongoose';
+
+const PUBLIC_DNS_SERVERS = ['8.8.8.8', '1.1.1.1'];
+
+const connectOptions = {
+  serverSelectionTimeoutMS: 10000,
+  connectTimeoutMS: 10000,
+};
+
+// On some Windows setups the DNS server Node picks up (often 127.0.0.1) refuses the
+// SRV lookup that mongodb+srv:// URIs need. Retry once through public resolvers.
+const connectWithDnsRetry = async (mongoURI: string): Promise<void> => {
+  try {
+    await mongoose.connect(mongoURI, connectOptions);
+  } catch (error: any) {
+    const srvLookupRefused = error?.syscall === 'querySrv' && error?.code === 'ECONNREFUSED';
+
+    if (!srvLookupRefused) {
+      throw error;
+    }
+
+    console.warn(
+      `⚠️ DNS servers [${dns.getServers().join(', ')}] refused the MongoDB SRV lookup, retrying with [${PUBLIC_DNS_SERVERS.join(', ')}]`
+    );
+    dns.setServers(PUBLIC_DNS_SERVERS);
+    await mongoose.connect(mongoURI, connectOptions);
+  }
+};
 
 const connectDB = async (): Promise<void> => {
   try {
     const mongoURI = process.env.MONGO_URI || 'mongodb://localhost:27017/skyborne';
 
     try {
-      await mongoose.connect(mongoURI, {
-        serverSelectionTimeoutMS: 10000,
-        connectTimeoutMS: 10000,
-      });
+      await connectWithDnsRetry(mongoURI);
     } catch (primaryError: any) {
       const shouldTryLocalFallback =
         mongoURI.includes('mongodb+srv://') &&
@@ -21,10 +46,7 @@ const connectDB = async (): Promise<void> => {
 
       const localMongoURI = process.env.MONGO_LOCAL_URI || 'mongodb://localhost:27017/skyborne';
       console.warn('⚠️ Atlas MongoDB timed out, falling back to local MongoDB:', localMongoURI);
-      await mongoose.connect(localMongoURI, {
-        serverSelectionTimeoutMS: 10000,
-        connectTimeoutMS: 10000,
-      });
+      await mongoose.connect(localMongoURI, connectOptions);
     }
     
     console.log('✅ MongoDB Connected');

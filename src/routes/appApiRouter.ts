@@ -30,6 +30,8 @@ const publicApi = [
   "/products/:productId",
   "/mail-management/error-log",
   "/open/class/:meetingId",
+  // Website video player; checks its own signed ?pt= playback link.
+  "/meetings/:id/recording/play",
   "/payment/stripe-portal-return"
   ,"/payment/apple-iap/products"
 ];

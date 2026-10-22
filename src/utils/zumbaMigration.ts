@@ -33,11 +33,13 @@ export function normalizePlanKeyForDisabledZumba(planKey?: string | null): strin
 export function getServiceTitlesForDisabledZumbaPlan(planKey?: string | null): string[] {
   const normalized = String(planKey || "").trim().toLowerCase();
 
+  // Classes filed under "Zumba Dance" are run as Yoga classes and use a Yoga credit,
+  // so members must still see them.
   if (normalized === "diamond" || normalized === "platinum") {
-    return ["Yoga", "Diet & Nutrition"];
+    return ["Yoga", "Zumba Dance", "Diet & Nutrition"];
   }
 
-  return ["Yoga"];
+  return ["Yoga", "Zumba Dance"];
 }
 
 export function migrateLegacyZumbaUser(user: any) {

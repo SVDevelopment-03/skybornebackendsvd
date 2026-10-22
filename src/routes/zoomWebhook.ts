@@ -8,6 +8,13 @@ import MeetingParticipant from "../modules/MeetingModule/MeetingModels/MeetingPa
 import Service from "../modules/ServiceModule/models/Service";
 import { applySubscriptionCreditPolicy } from "../utils/creditUtils";
 import { PushNotificationService } from "../services/pushNotification.service";
+import {
+  copyMeetingRecordingToS3,
+  findMeetingForRecording,
+  queueRecordingForArchive,
+  recordingArchiveConfig,
+} from "../services/recordingArchive.service";
+import { pickBestMp4 } from "../utils/zoomRecordings";
 
 type TitleType = "yoga" | "zumba" | "specialty";
 const router = express.Router();
@@ -88,11 +95,16 @@ router.post("/zoom-webhook", async (req, res) => {
     try {
       const files = payload?.object?.recording_files || [];
 
-      const mp4File = files.find((f: any) => f.file_type === "MP4");
+      const mp4File = pickBestMp4(files);
       if (!mp4File?.download_url) return res.status(200).send("OK");
 
+      // Recurring classes share one Zoom meeting number, so match the
+      // recording to its own class by start time.
+      const recordingStart = payload?.object?.start_time || mp4File.recording_start;
+      const ownMeeting = await findMeetingForRecording(meetingIdForQuery, recordingStart);
+
       const updatedMeeting = await Meeting.findByIdAndUpdate(
-        meetingDoc._id,
+        ownMeeting?._id || meetingDoc._id,
         {
           recordingUrl: mp4File.download_url,
           status: "completed",
@@ -100,6 +112,22 @@ router.post("/zoom-webhook", async (req, res) => {
         },
         { new: true }
       );
+
+      const zoomMeetingUuid = String(payload?.object?.uuid || "");
+      const archiveConfig = recordingArchiveConfig();
+      if (updatedMeeting && zoomMeetingUuid) {
+        try {
+          await queueRecordingForArchive(updatedMeeting._id, zoomMeetingUuid, mp4File);
+          if (archiveConfig.bucket && archiveConfig.archiveEnabled) {
+            // Copy in the background; the scheduled job retries anything that fails.
+            copyMeetingRecordingToS3(updatedMeeting._id).catch((error: any) =>
+              console.error(" Recording archive copy failed:", error?.message || error),
+            );
+          }
+        } catch (error: any) {
+          console.error(" Failed to queue recording for archive:", error?.message || error);
+        }
+      }
 
       // Send push notification that recording is available to participants
       if (updatedMeeting) {

@@ -71,6 +71,19 @@ export const MeetingRoute = [
     method: "get",
   },
   {
+    path: "/meetings/:id/recording-link",
+    request: null,
+    action: MeetingController.GetMeetingRecordingLink,
+    method: "get",
+  },
+  {
+    // Public in appApiRouter; access is the signed ?pt= link.
+    path: "/meetings/:id/recording/play",
+    request: null,
+    action: MeetingController.PlayMeetingRecording,
+    method: "get",
+  },
+  {
     path: "/meetings/weekly",
     request: null,
     action: MeetingController.GetWeeklyMeetings,

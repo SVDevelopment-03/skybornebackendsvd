@@ -34,3 +34,6 @@ Thumbs.db
 uploads/
 temp/
 firebase-service-account.json
+
+# Backups written by src/scripts/grantRecordingReviewAccess.ts (contain member data)
+review-access-backup-*.json

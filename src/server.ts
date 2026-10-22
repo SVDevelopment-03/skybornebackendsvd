@@ -12,6 +12,7 @@ import app from "./app"; // Imported Express app
 import { initializeSocket, setIOInstance } from "./config/socket";
 import { startCurrencyCron } from "./modules/CurrencyModule/CurrencyCron";
 import { startUserPurgeCron } from "./services/userPurgeService";
+import { startRecordingArchiveCron } from "./cron/RecordingArchiveCron";
 import { initializeEmailServices } from "./services/initializeEmailService";
 import "./workers/classReminderEmailWorker";
 import { seedPlanProducts } from './seeders/plan.seeder';
@@ -55,6 +56,7 @@ const startServer = async () => {
         startCurrencyCron();
         // Start user purge cron (default retention: 30 days)
         startUserPurgeCron(Number(process.env.USER_PURGE_DAYS) || 30);
+        startRecordingArchiveCron();
 
         console.log("📌 Email services startup triggered from server process");
         initializeEmailServices();

@@ -13,6 +13,27 @@ export interface IRegionEntry {
   date?: string; // date for this region
 }
 
+export type RecordingArchiveStatus = "pending" | "copying" | "copied" | "failed";
+
+// Copy of the class's Zoom cloud recording in Amazon S3.
+export interface IRecordingArchive {
+  status?: RecordingArchiveStatus;
+  zoomMeetingUuid?: string; // identifies this class's own Zoom recording
+  zoomFileId?: string;
+  zoomFileSize?: number;
+  zoomDownloadUrl?: string;
+  recordingStart?: Date;
+  s3Bucket?: string;
+  s3Key?: string;
+  s3Size?: number;
+  copiedAt?: Date; // set only after the S3 copy is verified
+  attempts?: number;
+  lockedUntil?: Date | null;
+  lastError?: string;
+  zoomTrashedAt?: Date; // moved to Zoom's trash (restorable for 30 days)
+  zoomTrashError?: string;
+}
+
 export interface IService {
   _id: Types.ObjectId;
   title: string;
@@ -59,6 +80,7 @@ export interface IMeeting extends Document {
 
   // Recording cloud URL from Zoom
   recordingUrl: string;
+  recordingArchive?: IRecordingArchive;
 
   status: "pending" | "completed" | "failed";
 
@@ -241,6 +263,33 @@ const MeetingSchema = new Schema<IPopulatedMeeting>(
       default: "",
     },
 
+    recordingArchive: {
+      type: new Schema(
+        {
+          status: {
+            type: String,
+            enum: ["pending", "copying", "copied", "failed"],
+          },
+          zoomMeetingUuid: { type: String },
+          zoomFileId: { type: String },
+          zoomFileSize: { type: Number },
+          zoomDownloadUrl: { type: String },
+          recordingStart: { type: Date },
+          s3Bucket: { type: String },
+          s3Key: { type: String },
+          s3Size: { type: Number },
+          copiedAt: { type: Date },
+          attempts: { type: Number, default: 0 },
+          lockedUntil: { type: Date, default: null },
+          lastError: { type: String },
+          zoomTrashedAt: { type: Date },
+          zoomTrashError: { type: String },
+        },
+        { _id: false },
+      ),
+      required: false,
+    },
+
     createdBy: {
       type: Schema.Types.ObjectId,
       ref: "User",
@@ -261,6 +310,7 @@ const MeetingSchema = new Schema<IPopulatedMeeting>(
 // Add index for efficient queries
 MeetingSchema.index({ recurringClass: 1, recurrenceType: 1 });
 MeetingSchema.index({ parentMeetingId: 1 });
+MeetingSchema.index({ "recordingArchive.status": 1 }, { sparse: true });
 
 // Plugin
 MeetingSchema.plugin(autopopulate);
