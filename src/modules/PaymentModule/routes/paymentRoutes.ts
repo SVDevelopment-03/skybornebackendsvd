@@ -166,29 +166,34 @@ export const PaymentApiRoutes = [
     request: null,
     method: "get",
   },
-  // Plan product management (dynamic product mapping)
+  // Plan product management (dynamic product mapping). Admin only; kept off
+  // "/plans", which serves the website and app plan list (PlanModule).
   {
-    path: '/plans',
+    path: '/admin/plan-products',
     action: PlanProductController.getPlans,
     request: null,
     method: 'get',
+    roles: ['admin'],
   },
   {
-    path: '/plans',
+    path: '/admin/plan-products',
     action: PlanProductController.upsertPlan,
     request: null,
     method: 'post',
+    roles: ['admin'],
   },
   {
-    path: '/plans/:id/status',
+    path: '/admin/plan-products/:id/status',
     action: PlanProductController.updatePlanStatus,
     request: null,
     method: 'patch',
+    roles: ['admin'],
   },
   {
-    path: '/plans/:id',
+    path: '/admin/plan-products/:id',
     action: PlanProductController.deletePlan,
     request: null,
     method: 'delete',
+    roles: ['admin'],
   },
 ];
