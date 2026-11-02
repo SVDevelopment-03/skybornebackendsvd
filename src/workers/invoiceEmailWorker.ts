@@ -6,7 +6,7 @@ dotenv.config();
 
 import { invoiceEmailQueue } from "../services/queues/invoiceEmailQueue"; 
 import sgMail from "@sendgrid/mail";
-import { calculateVatFromTotal } from "../utils/vat";
+import { calculateVatFromTotal, getAedTotals } from "../utils/vat";
 import { initConsoleErrorLogger } from "../utils/consoleLogger";
 
 initConsoleErrorLogger();
@@ -26,6 +26,11 @@ invoiceEmailQueue.process(async (job:any) => {;
     const totals = calculateVatFromTotal(amount, normalizedTaxRate);
     const taxLabel = normalizedTaxRate > 0 ? `VAT (${Math.round(normalizedTaxRate * 100)}%)` : "Tax (0%)";
     const displayCurrency = "USD";
+    const aedTotals = getAedTotals(totals, invoiceDate);
+    const formatAmount = (usdAmount: number, aedAmount?: number) =>
+      aedAmount === undefined
+        ? `${displayCurrency} ${usdAmount.toFixed(2)}`
+        : `${displayCurrency} ${usdAmount.toFixed(2)} | AED ${aedAmount.toFixed(2)}`;
 
     const msg = {
       to: email,
@@ -58,7 +63,7 @@ invoiceEmailQueue.process(async (job:any) => {;
             </tr>
             <tr style="background-color: #f5f5f5;">
               <td style="padding: 10px; font-weight: bold; border: 1px solid #ddd;">Amount</td>
-              <td style="padding: 10px; border: 1px solid #ddd;">${displayCurrency} ${amount.toFixed(2)}</td>
+              <td style="padding: 10px; border: 1px solid #ddd;">${formatAmount(amount, aedTotals?.total)}</td>
             </tr>
             <tr>
               <td style="padding: 10px; font-weight: bold; border: 1px solid #ddd;">Subscription Ends</td>
@@ -69,15 +74,15 @@ invoiceEmailQueue.process(async (job:any) => {;
           <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
             <tr style="background-color: #f5f5f5;">
               <td style="padding: 10px; font-weight: bold; border: 1px solid #ddd;">Subtotal</td>
-              <td style="padding: 10px; border: 1px solid #ddd;">${displayCurrency} ${totals.subtotal.toFixed(2)}</td>
+              <td style="padding: 10px; border: 1px solid #ddd;">${formatAmount(totals.subtotal, aedTotals?.subtotal)}</td>
             </tr>
             <tr>
               <td style="padding: 10px; font-weight: bold; border: 1px solid #ddd;">${taxLabel}</td>
-              <td style="padding: 10px; border: 1px solid #ddd;">${displayCurrency} ${totals.vatAmount.toFixed(2)}</td>
+              <td style="padding: 10px; border: 1px solid #ddd;">${formatAmount(totals.vatAmount, aedTotals?.vatAmount)}</td>
             </tr>
             <tr style="background-color: #f5f5f5;">
               <td style="padding: 10px; font-weight: bold; border: 1px solid #ddd;">Total</td>
-              <td style="padding: 10px; border: 1px solid #ddd;">${displayCurrency} ${totals.total.toFixed(2)}</td>
+              <td style="padding: 10px; border: 1px solid #ddd;">${formatAmount(totals.total, aedTotals?.total)}</td>
             </tr>
           </table>
           

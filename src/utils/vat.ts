@@ -1,3 +1,8 @@
+// Invoices dated from 1 April 2026 (Dubai time) use the tax invoice format.
+export const TAX_INVOICE_EFFECTIVE_DATE = new Date("2026-04-01T00:00:00+04:00");
+export const SKYBORNE_TRN = "104022515100003";
+export const USD_TO_AED_RATE = 3.6725;
+
 const normalizeCountryValue = (value?: string | null): string =>
   String(value ?? "").trim().toLowerCase();
 
@@ -64,5 +69,26 @@ export const calculateVatFromTotal = (totalAmount: number, vatRate: number) => {
     vatAmount,
     total,
     vatRate: safeRate,
+  };
+};
+
+export const isTaxInvoiceDate = (invoiceDate: Date | string): boolean =>
+  new Date(invoiceDate).getTime() >= TAX_INVOICE_EFFECTIVE_DATE.getTime();
+
+// AED equivalents for UAE invoices (the only invoices with VAT). The subtotal is derived
+// from the converted total and VAT so the AED figures always add up.
+export const getAedTotals = (
+  totals: ReturnType<typeof calculateVatFromTotal>,
+  invoiceDate: Date | string,
+) => {
+  if (!totals.vatRate || !isTaxInvoiceDate(invoiceDate)) return null;
+
+  const total = roundCurrency(totals.total * USD_TO_AED_RATE);
+  const vatAmount = roundCurrency(totals.vatAmount * USD_TO_AED_RATE);
+
+  return {
+    subtotal: roundCurrency(total - vatAmount),
+    vatAmount,
+    total,
   };
 };

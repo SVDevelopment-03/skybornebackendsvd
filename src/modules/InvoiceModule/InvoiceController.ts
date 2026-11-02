@@ -3,7 +3,13 @@ import { Request, Response } from "express";
 import { generateInvoicePDF } from "../../services/invoiceService";
 import Payment from "../PaymentModule/models/Payment";
 import User from "../UserModule/models/User";
-import { calculateVatFromTotal, getVatRateForCountry } from "../../utils/vat";
+import {
+  SKYBORNE_TRN,
+  calculateVatFromTotal,
+  getAedTotals,
+  getVatRateForCountry,
+  isTaxInvoiceDate,
+} from "../../utils/vat";
 
 export default class InvoiceController {
   /**
@@ -142,6 +148,8 @@ export default class InvoiceController {
           vatAmount: totals.vatAmount,
           total: totals.total,
           taxLabel,
+          aedTotals: getAedTotals(totals, payment.createdAt),
+          trn: isTaxInvoiceDate(payment.createdAt) ? SKYBORNE_TRN : null,
         },
       });
     } catch (error) {

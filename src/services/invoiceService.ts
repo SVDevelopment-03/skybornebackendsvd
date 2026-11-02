@@ -2,7 +2,12 @@
 import PDFDocument from "pdfkit";
 import { Readable } from "stream";
 import sgMail from "@sendgrid/mail";
-import { calculateVatFromTotal } from "../utils/vat";
+import {
+  SKYBORNE_TRN,
+  calculateVatFromTotal,
+  getAedTotals,
+  isTaxInvoiceDate,
+} from "../utils/vat";
 
 export interface InvoiceData {
   invoiceId: string;
@@ -18,6 +23,7 @@ export interface InvoiceData {
   subscriptionEndDate: Date;
   paymentMethod: string;
   taxRate?: number;
+  isReceipt?: boolean; // Ecom receipts keep the plain invoice format
 }
 
 export const generateInvoicePDF = (invoiceData: InvoiceData): Promise<Buffer> => {
@@ -34,8 +40,14 @@ export const generateInvoicePDF = (invoiceData: InvoiceData): Promise<Buffer> =>
     const taxRate = Number.isFinite(invoiceData.taxRate) ? invoiceData.taxRate! : 0;
     const totals = calculateVatFromTotal(invoiceData.amount, taxRate);
     const taxLabel = taxRate > 0 ? `VAT (${Math.round(taxRate * 100)}%)` : "Tax (0%)";
+    const isTaxInvoice = !invoiceData.isReceipt && isTaxInvoiceDate(invoiceData.date);
+    const aedTotals = getAedTotals(totals, invoiceData.date);
+    const formatAmount = (usdAmount: number, aedAmount?: number) =>
+      aedAmount === undefined
+        ? `${displayCurrency} ${usdAmount.toFixed(2)}`
+        : `${displayCurrency} ${usdAmount.toFixed(2)}  |  AED ${aedAmount.toFixed(2)}`;
 
-    doc.font("Helvetica-Bold").fontSize(24).text("INVOICE");
+    doc.font("Helvetica-Bold").fontSize(24).text(isTaxInvoice ? "TAX INVOICE" : "INVOICE");
     doc.moveDown(0.8);
 
     doc.font("Helvetica").fontSize(10)
@@ -57,6 +69,10 @@ export const generateInvoicePDF = (invoiceData: InvoiceData): Promise<Buffer> =>
       .text("Skyborne Drop and Tech Investments LLC", leftX)
       .text("Meydan Freezone, Dubai, UAE", leftX)
       .text("info@skybornedrop.com", leftX);
+
+    if (isTaxInvoice) {
+      doc.text(`TRN: ${SKYBORNE_TRN}`, leftX);
+    }
 
     doc.font("Helvetica-Bold").fontSize(11).text("Bill To:", rightX, startY);
     doc.font("Helvetica").fontSize(10)
@@ -95,20 +111,27 @@ export const generateInvoicePDF = (invoiceData: InvoiceData): Promise<Buffer> =>
       .text(`${displayCurrency} ${totals.subtotal.toFixed(2)}`, col.amt, rowY)
       .text(`${displayCurrency} ${totals.subtotal.toFixed(2)}`, col.total, rowY);
 
+    if (aedTotals) {
+      const aedRowY = doc.y;
+      doc
+        .text(`AED ${aedTotals.subtotal.toFixed(2)}`, col.amt, aedRowY)
+        .text(`AED ${aedTotals.subtotal.toFixed(2)}`, col.total, aedRowY);
+    }
+
     doc.moveDown(2);
 
     const sumX = 350;
 
     doc.font("Helvetica-Bold").fontSize(11).text("Subtotal:", sumX);
-    doc.font("Helvetica").fontSize(10).text(`${displayCurrency} ${totals.subtotal.toFixed(2)}`, sumX);
+    doc.font("Helvetica").fontSize(10).text(formatAmount(totals.subtotal, aedTotals?.subtotal), sumX);
 
     doc.moveDown(0.3);
     doc.font("Helvetica-Bold").fontSize(11).text(`${taxLabel}:`, sumX);
-    doc.font("Helvetica").fontSize(10).text(`${displayCurrency} ${totals.vatAmount.toFixed(2)}`, sumX);
+    doc.font("Helvetica").fontSize(10).text(formatAmount(totals.vatAmount, aedTotals?.vatAmount), sumX);
 
     doc.moveDown(0.3);
     doc.font("Helvetica-Bold").fontSize(12).text("Total:", sumX);
-    doc.font("Helvetica-Bold").fontSize(12).text(`${displayCurrency} ${totals.total.toFixed(2)}`, sumX);
+    doc.font("Helvetica-Bold").fontSize(12).text(formatAmount(totals.total, aedTotals?.total), sumX);
 
     doc.moveDown(2);
 

@@ -626,6 +626,7 @@ export class EcomPaymentController {
         date: payment.createdAt,
         subscriptionEndDate: payment.createdAt,
         paymentMethod: "Stripe",
+        isReceipt: true,
       });
 
       const safeRef = orderRef.replace(/[^a-zA-Z0-9_-]/g, "_");
