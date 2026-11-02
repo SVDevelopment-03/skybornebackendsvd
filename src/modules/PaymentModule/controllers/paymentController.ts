@@ -10,7 +10,7 @@ import { PLAN_CONFIG } from "../../../config/planConfig";
 import { PlanType } from "../../UserModule/interface/userInterface";
 import PlanModel from "../../PlanModule/models/Plan";
 import { generateInvoicePDF } from "../../../services/invoiceService";
-import { getVatRateForCountry } from "../../../utils/vat";
+import { getCountryDisplayName, getVatRateForCountry } from "../../../utils/vat";
 import { applySubscriptionCreditPolicy, hasActiveSubscription } from "../../../utils/creditUtils";
 import { v4 as uuidv4 } from "uuid";
 import {
@@ -1954,6 +1954,7 @@ export default class PaymentController {
               userId: user._id.toString(),
               userEmail: user.email,
               userName: user.firstName + " " + user.lastName,
+              userCountry: getCountryDisplayName(user.country, user.countryCode),
               plan: toDisplayPlanName(plan),
               amount: payment!.amount,
               currency: "USD",

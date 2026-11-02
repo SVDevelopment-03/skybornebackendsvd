@@ -1,3 +1,5 @@
+import { getName } from "country-list";
+
 // Invoices dated from 1 April 2026 (Dubai time) use the tax invoice format.
 export const TAX_INVOICE_EFFECTIVE_DATE = new Date("2026-04-01T00:00:00+04:00");
 export const SKYBORNE_TRN = "104022515100003";
@@ -22,6 +24,21 @@ export const isUnitedArabEmirates = (
 
   const name = normalizeCountryValue(country);
   return UAE_NAME_VARIANTS.has(name);
+};
+
+// Users may hold a full name or an ISO code in `country`; invoices show the full name.
+export const getCountryDisplayName = (
+  country?: string | null,
+  countryCode?: string | null,
+): string => {
+  const stored = String(country ?? "").trim();
+  const name =
+    stored.length > 3
+      ? stored
+      : getName(stored) || getName(String(countryCode ?? "").trim()) || stored;
+
+  // country-list names carry a suffix, e.g. "United Arab Emirates (the)".
+  return name.replace(/\s*\(the\)$/i, "");
 };
 
 export const getVatRateForCountry = (

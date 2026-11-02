@@ -15,6 +15,7 @@ export interface InvoiceData {
   userId: string;
   userEmail: string;
   userName: string;
+  userCountry?: string;
   plan: string;
   amount: number;
   currency: string;
@@ -78,6 +79,10 @@ export const generateInvoicePDF = (invoiceData: InvoiceData): Promise<Buffer> =>
     doc.font("Helvetica").fontSize(10)
       .text(invoiceData.userName, rightX)
       .text(invoiceData.userEmail, rightX);
+
+    if (isTaxInvoice && invoiceData.userCountry) {
+      doc.text(invoiceData.userCountry, rightX);
+    }
 
     doc.moveDown(4);
 

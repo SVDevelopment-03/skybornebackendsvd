@@ -7,6 +7,7 @@ import {
   SKYBORNE_TRN,
   calculateVatFromTotal,
   getAedTotals,
+  getCountryDisplayName,
   getVatRateForCountry,
   isTaxInvoiceDate,
 } from "../../utils/vat";
@@ -60,6 +61,7 @@ export default class InvoiceController {
         userId: user._id.toString(),
         userEmail: user.email,
         userName: `${user.firstName} ${user.lastName}`,
+        userCountry: getCountryDisplayName(user.country, user.countryCode),
         plan: payment.plan.charAt(0).toUpperCase() + payment.plan.slice(1),
         amount: payment.amount,
         currency: "USD",
@@ -150,6 +152,9 @@ export default class InvoiceController {
           taxLabel,
           aedTotals: getAedTotals(totals, payment.createdAt),
           trn: isTaxInvoiceDate(payment.createdAt) ? SKYBORNE_TRN : null,
+          userCountry: isTaxInvoiceDate(payment.createdAt)
+            ? getCountryDisplayName(user.country, user.countryCode)
+            : null,
         },
       });
     } catch (error) {
