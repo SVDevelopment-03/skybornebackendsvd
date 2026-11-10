@@ -4713,23 +4713,47 @@ static async GetAllTrainerMeetings(req: Request, res: Response) {
 
       const serviceIds = services.map((service) => service._id);
 
-      // Calculate current week (Sunday to Saturday)
-      const now = new Date();
-      const dayOfWeek = now.getDay();
-      const diff = now.getDate() - dayOfWeek;
-      const weekStart = new Date(now.setDate(diff));
-      weekStart.setHours(0, 0, 0, 0);
+      // Optional rolling window: ?pastDays=30&futureDays=30 returns meetings
+      // from now - pastDays to now + futureDays. "all" removes the limit on
+      // that side. Without them, the current week (Sunday to Saturday) is
+      // returned as before, so older app builds keep working.
+      const parseDays = (value: unknown): number | null => {
+        if (value === undefined || value === null || value === "") return null;
+        if (String(value).toLowerCase() === "all") return Infinity;
+        const n = Math.floor(Number(value));
+        if (!Number.isFinite(n) || n < 0) return null;
+        return n;
+      };
+      const pastDays = parseDays(req.query.pastDays);
+      const futureDays = parseDays(req.query.futureDays);
 
-      const weekEnd = new Date(weekStart);
-      weekEnd.setDate(weekEnd.getDate() + 7);
-      weekEnd.setHours(23, 59, 59, 999);
+      let weekStart: Date | null;
+      let weekEnd: Date | null;
+      if (pastDays !== null || futureDays !== null) {
+        const nowMs = Date.now();
+        const dayMs = 24 * 60 * 60 * 1000;
+        const past = pastDays ?? 0;
+        const future = futureDays ?? 0;
+        weekStart = past === Infinity ? null : new Date(nowMs - past * dayMs);
+        weekEnd = future === Infinity ? null : new Date(nowMs + future * dayMs);
+      } else {
+        const now = new Date();
+        const dayOfWeek = now.getDay();
+        const diff = now.getDate() - dayOfWeek;
+        weekStart = new Date(now.setDate(diff));
+        weekStart.setHours(0, 0, 0, 0);
+
+        weekEnd = new Date(weekStart);
+        weekEnd.setDate(weekEnd.getDate() + 6);
+        weekEnd.setHours(23, 59, 59, 999);
+      }
 
       // Fetch all meetings for the week
+      const localTimeRange: { $gte?: Date; $lte?: Date } = {};
+      if (weekStart) localTimeRange.$gte = weekStart;
+      if (weekEnd) localTimeRange.$lte = weekEnd;
       const meetings = await Meeting.find({
-        localTime: {
-          $gte: weekStart,
-          $lte: weekEnd,
-        },
+        ...(weekStart || weekEnd ? { localTime: localTimeRange } : {}),
         service: { $in: serviceIds },
       })
         .sort({ localTime: 1 })
@@ -4761,8 +4785,8 @@ static async GetAllTrainerMeetings(req: Request, res: Response) {
         count: allMeetings.length,
         meetings: allMeetings,
         userPlan: user.plan,
-        weekStart: weekStart.toISOString(),
-        weekEnd: weekEnd.toISOString(),
+        weekStart: weekStart ? weekStart.toISOString() : null,
+        weekEnd: weekEnd ? weekEnd.toISOString() : null,
       });
     } catch (error: any) {
       console.error("Error fetching weekly meetings:", error.message);
