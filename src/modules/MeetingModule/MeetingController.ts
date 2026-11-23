@@ -2453,8 +2453,20 @@ const serviceType = normalizeLegacyMeetingServiceType(
       (meeting?.service as IService)?.title,
     );
 
+      // A member who already paid a credit for this meeting may rejoin
+      // (e.g. after leaving accidentally) without needing another credit.
+      const existingAttendance = isTrainerOrAdmin
+        ? null
+        : await MeetingAttendance.findOne({
+            meeting: meetingId,
+            user: userId,
+          })
+            .select("creditDeducted")
+            .lean();
+      const alreadyPaidForMeeting = Boolean(existingAttendance?.creditDeducted);
+
       // Check class credits only for regular participants (not trainers or admins)
-      if (!isTrainerOrAdmin) {
+      if (!isTrainerOrAdmin && !alreadyPaidForMeeting) {
         applySubscriptionCreditPolicy(userData);
         const effectiveCredits = getEffectiveClassCredits(userData);
         const credits: any = effectiveCredits?.[serviceType as ServiceType] || 0;
