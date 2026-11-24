@@ -47,6 +47,10 @@ interface IOverviewStats {
     value: number;
     change: number;
   };
+  activeSubscriptions: {
+    value: number;
+    change: number;
+  };
 }
 
 // Helper function to calculate time difference
@@ -197,6 +201,20 @@ getOverviewStats = async (req: Request, res: Response): Promise<void> => {
       // ===== ACTIVE TRAINERS =====
       const activeTrainers = await TrainerModel.countDocuments();
 
+      // ===== ACTIVE SUBSCRIPTIONS =====
+      // Members whose subscription is active and has not passed its end date.
+      // (Some records keep status "active" after the end date; those are not counted.)
+      const now = new Date();
+      const activeSubscriptions = await User.countDocuments({
+        role: "user",
+        onboardingCompleted: true,
+        "subscription.status": "active",
+        $or: [
+          { "subscription.endDate": { $gt: now } },
+          { "subscription.endDate": null },
+        ],
+      });
+
       // ===== PENDING APPROVALS =====
       const pendingApprovals = await Payment.countDocuments({
         status: "PENDING",
@@ -253,6 +271,10 @@ getOverviewStats = async (req: Request, res: Response): Promise<void> => {
         sessionsThisMonth: {
           value: sessionsThisMonth,
           change: sessionsGrowthPercent,
+        },
+        activeSubscriptions: {
+          value: activeSubscriptions,
+          change: 0,
         },
       };
 

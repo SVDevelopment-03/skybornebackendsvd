@@ -57,6 +57,48 @@ export async function anonymizeUserAccount(user: any) {
   await user.save();
 }
 
+
+/**
+ * Admin user-list filters for account status (isActive) and subscription status.
+ * "active" subscription = status active and end date not passed;
+ * "expired" = status still active but the end date has passed.
+ */
+export const applyUserStatusFilters = (
+  query: any,
+  accountStatus?: string,
+  subscriptionStatus?: string,
+) => {
+  const account = String(accountStatus || "").toLowerCase();
+  if (account === "active") query.isActive = true;
+  if (account === "inactive") query.isActive = false;
+
+  const sub = String(subscriptionStatus || "").toLowerCase();
+  const now = new Date();
+  const and: any[] = [];
+  if (sub === "active") {
+    and.push(
+      { "subscription.status": "active" },
+      { $or: [{ "subscription.endDate": { $gt: now } }, { "subscription.endDate": null }] },
+    );
+  } else if (sub === "expired") {
+    and.push({ "subscription.status": "active" }, { "subscription.endDate": { $lte: now } });
+  } else if (sub === "cancelled") {
+    and.push({ "subscription.status": { $in: ["cancelled", "canceled"] } });
+  } else if (sub === "inactive") {
+    and.push({
+      $or: [
+        { "subscription.status": "inactive" },
+        { "subscription.status": { $exists: false } },
+        { "subscription.status": null },
+      ],
+    });
+  } else if (sub === "suspended") {
+    and.push({ "subscription.status": "suspended" });
+  }
+  if (and.length) query.$and = [...(query.$and || []), ...and];
+  return query;
+};
+
 export class UserController {
   // Original pagination endpoint
   static async getAll(req: Request, res: Response) {
@@ -89,6 +131,12 @@ export class UserController {
       if (state && state !== "all") {
         query.state = state;
       }
+
+      applyUserStatusFilters(
+        query,
+        req.query.status as string,
+        req.query.subscriptionStatus as string,
+      );
 
       // Build search query
       let finalQuery = query;
@@ -174,6 +222,12 @@ export class UserController {
         query.state = state;
       }
 
+      applyUserStatusFilters(
+        query,
+        req.query.status as string,
+        req.query.subscriptionStatus as string,
+      );
+
       // Build search query
       let finalQuery = query;
 
@@ -222,8 +276,14 @@ export class UserController {
         const state = user?.state || "N/A";
         const city = user?.city || "N/A";
         const plan = user.plan || "N/A";
+        const rawSubStatus = user?.subscription?.status || "N/A";
+        const subEnd = user?.subscription?.endDate
+          ? new Date(user.subscription.endDate)
+          : null;
         const subscriptionStatus =
-          user?.subscription?.status || "N/A";
+          rawSubStatus === "active" && subEnd && subEnd.getTime() <= Date.now()
+            ? "expired"
+            : rawSubStatus;
         const cancelledAt = user?.subscription?.cancelledAt
           ? new Date(user.subscription.cancelledAt).toLocaleDateString(
               "en-US",

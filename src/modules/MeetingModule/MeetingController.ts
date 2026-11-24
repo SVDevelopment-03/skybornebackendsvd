@@ -2063,6 +2063,28 @@ static async streamMeetingRecording(
         { $limit: limitNum },
       ]);
 
+      // Mark which of these classes the member actually attended (live or replay),
+      // so the app can list missed classes too and show their recordings.
+      const pageMeetingIds = enrichedMeetings.map((m: any) => m._id);
+      const attendedIds = pageMeetingIds.length
+        ? await MeetingAttendance.distinct("meeting", {
+            user: new mongoose.Types.ObjectId(userId),
+            meeting: { $in: pageMeetingIds },
+            $or: [
+              { totalDuration: { $gt: 0 } },
+              { status: { $in: ["joined", "completed"] } },
+              { "sessions.0": { $exists: true } },
+            ],
+          })
+        : [];
+      const attendedSet = new Set(attendedIds.map((id: any) => String(id)));
+      for (const m of enrichedMeetings as any[]) {
+        m.attended = attendedSet.has(String(m._id));
+        m.hasRecording = Boolean(
+          m.recordingUrl || m.recordingArchive?.status === "copied",
+        );
+      }
+
       res.setHeader("Cache-Control", "no-store");
 
       return res.json({
